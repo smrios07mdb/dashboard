@@ -1,0 +1,8 @@
+.DS_Store
+**/.DS_Store
+.env.local
+.env.test
+node_modules/
+dist/
+vapid.json
+caldav-key.txt
