@@ -1,8 +1,14 @@
 .DS_Store
 **/.DS_Store
 .env.local
+**/.env.local
 .env.test
+**/.env.test
 node_modules/
 dist/
+.playwright-mcp/
+.supabase/
+supabase/.temp/
+supabase/.branches/
 vapid.json
 caldav-key.txt

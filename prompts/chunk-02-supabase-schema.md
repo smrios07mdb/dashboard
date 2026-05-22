@@ -49,7 +49,7 @@ Create migration files under `supabase/migrations/`. Each should be timestamped 
     - **Project URL** → `VITE_SUPABASE_URL` in both places
   - Required Supabase Auth → URL Configuration → Redirect URLs:
     - `http://localhost:5173/dashboard/`
-    - `https://<your-github-username>.github.io/dashboard/` (or custom domain if used)
+    - `https://smrios07mdb.github.io/dashboard/` (or custom domain if used)
   - Both must be present or magic links break in one environment.
 
 ### Tests

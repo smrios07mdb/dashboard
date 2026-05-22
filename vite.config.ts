@@ -17,5 +17,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/setupTests.ts',
     css: true,
+    // Supabase tests run separately via `npm run test:supabase` against a
+    // hosted project — they need node env + real network and shouldn't
+    // get pulled into the default `npm test` discovery.
+    exclude: ['**/node_modules/**', '**/dist/**', 'supabase/**'],
   },
 })
