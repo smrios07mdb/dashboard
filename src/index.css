@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Brand palette — see ARCHITECTURE §13 */
+    --background: 43 33% 97%;        /* #faf8f3 warm off-white */
+    --foreground: 30 8% 11%;         /* #1f1d1a charcoal */
+
+    --primary: 132 22% 29%;          /* #3a5a40 deep green */
+    --primary-foreground: 43 33% 97%;
+
+    --destructive: 18 48% 45%;       /* #a85a3c muted red */
+    --destructive-foreground: 43 33% 97%;
+
+    /* Derived neutrals — warm cream family */
+    --card: 43 33% 97%;
+    --card-foreground: 30 8% 11%;
+    --popover: 43 33% 97%;
+    --popover-foreground: 30 8% 11%;
+
+    --secondary: 40 20% 92%;
+    --secondary-foreground: 30 8% 11%;
+    --muted: 40 20% 92%;
+    --muted-foreground: 30 6% 36%;
+    --accent: 40 20% 92%;
+    --accent-foreground: 30 8% 11%;
+
+    --border: 36 15% 86%;
+    --input: 36 15% 86%;
+    --ring: 132 22% 29%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 30 8% 11%;
+    --foreground: 43 33% 97%;
+
+    --primary: 132 22% 50%;
+    --primary-foreground: 30 8% 11%;
+
+    --destructive: 18 48% 55%;
+    --destructive-foreground: 30 8% 11%;
+
+    --card: 30 8% 14%;
+    --card-foreground: 43 33% 97%;
+    --popover: 30 8% 14%;
+    --popover-foreground: 43 33% 97%;
+
+    --secondary: 30 6% 20%;
+    --secondary-foreground: 43 33% 97%;
+    --muted: 30 6% 20%;
+    --muted-foreground: 36 15% 70%;
+    --accent: 30 6% 20%;
+    --accent-foreground: 43 33% 97%;
+
+    --border: 30 6% 22%;
+    --input: 30 6% 22%;
+    --ring: 132 22% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: 'cv11', 'ss01';
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
