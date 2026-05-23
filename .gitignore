@@ -13,3 +13,4 @@ supabase/.branches/
 vapid.json
 caldav-key.txt
 .mcp.json
+.claude/
