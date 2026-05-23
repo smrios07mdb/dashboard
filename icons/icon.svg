@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    Dashboard PWA icon.
+    Design — three horizontal bars (task list mark) in Obsidian palette.
+    Background: #0a0b0e (--background)
+    Foreground: #c8d2e2 (--accent ice)
+    Geometry matches scripts/gen-icons.mjs (bar = 8% size, gap = 8% size, bar width = 50% size).
+  -->
+  <rect width="512" height="512" fill="#0a0b0e"/>
+  <rect x="128" y="156" width="256" height="40" fill="#c8d2e2"/>
+  <rect x="128" y="236" width="256" height="40" fill="#c8d2e2"/>
+  <rect x="128" y="316" width="256" height="40" fill="#c8d2e2"/>
+</svg>
