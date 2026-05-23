@@ -53,12 +53,13 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 2026-05-23 | Routing uses BrowserRouter with basename={import.meta.env.BASE_URL}. createBrowserRouter is also v7-idiomatic but adds loader/action infra not needed for two routes. Documented in docs/auth.md, reversible later. |
 | 2026-05-23 | Fonts bundled via @fontsource (Inter 400/500/600/700, IBM Plex Mono 500) instead of Google Fonts <link>. No render-blocking external request; will survive offline once chunk 4's service worker caches the assets. |
 | 2026-05-23 | AppShell exposes a headerEnd prop (right of wordmark, left of AccountMenu) as the slot for SyncBadge in chunk 5+. AccountMenu always lives top-right. Max-width 1280, px-7. |
+| 2026-05-23 | SMTP via Resend (free tier) configured in Supabase Auth → SMTP Settings using sandbox sender onboarding@resend.dev. Removes the 2/hr default-sender rate limit and unblocks chunk 14 (due-reminder edge function). Sandbox sender only delivers to the Resend account's verified email — fine for this single-user app; if the user count ever expands, swap to a verified-domain sender. Rate limit in Authentication → Rate Limits set to 30 emails/hr. |
 
 ## Open questions for Cowork review
 
 | Date | Question |
 |---|---|
-| 2026-05-23 | Supabase default-sender email rate limit (2/hr project-wide) blocked prod magic-link verification at chunk 3 close. Need a real SMTP provider (Resend free tier is the obvious pick) configured in Supabase Auth → SMTP before chunk 14 (due-reminder edge function). Setting up earlier is fine — would also unblock retroactive prod magic-link verification. |
+| 2026-05-23 | ~~Supabase default-sender rate limit blocking prod magic-link verification.~~ Resolved same day — Resend SMTP configured (see Decisions log). |
 
 ## Revisions
 
