@@ -19,3 +19,7 @@ A chunk is done when:
 - `npm run build` and `npm test` are both green.
 - The deploy workflow runs green on the push.
 - `PROGRESS.md` reflects completion per the rules above.
+
+## Routine doc edits
+`PROGRESS.md` updates, decision log entries, and README additions are handled by Cowork — not Claude Code, not by hand. After a chunk's code work lands, hand Cowork a task spec covering the doc changes; it applies the edits and prepares the commit.
+Claude Code's responsibility ends at the code changes (and any tests / migrations that ship with them). If a chunk asks Claude Code to write or modify `PROGRESS.md`, treat that as a Cowork task instead.

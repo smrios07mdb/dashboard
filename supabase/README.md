@@ -75,3 +75,12 @@ tests/
 2. `npx supabase db push` — applies the new files.
 3. `npm run test:supabase` — verifies nothing regressed.
 4. Commit the new migration file. Migrations are append-only — never edit an applied migration; write a new one that alters it.
+
+## Migration naming
+This project uses numeric prefixes (`00_extensions.sql`, `01_tables.sql`, …) rather than the Supabase CLI's default timestamp format (`20260521210000_…`). Both sort lexicographically, so `supabase db push` handles either.
+
+**Do not run `supabase migration new <name>`** — it injects a timestamp prefix and breaks the convention. Create new migration files by hand:
+
+    supabase/migrations/05_<descriptive_name>.sql
+
+Increment the numeric prefix from the highest existing one. Chunk 14 already calls for an `05_claim_due_reminders.sql`; chunk 14's own prompt should be followed verbatim.

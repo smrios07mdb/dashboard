@@ -1,6 +1,6 @@
 # Build Progress
 
-Last updated: _(update on every change)_
+Last updated: 2026-05-23
 
 This file is the canonical tracker. A GitHub Project board mirrors it for visual review in Cowork.
 
@@ -16,7 +16,7 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | # | Chunk | Repo | Status | Owner | PR / Commit | Blockers | Review notes |
 |---|---|---|---|---|---|---|---|
 | 1 | Scaffold + GH Pages | dashboard | ☐ | Claude Code | — | — | — |
-| 2 | Supabase schema + RLS + signup trigger | dashboard | ☐ | Claude Code | — | — | — |
+| 2 | Supabase schema + RLS + signup trigger | dashboard | ☑ | Claude Code | 50296c0 | — | Added SUPABASE_ANON_KEY to .env.test for RLS tests (service-role bypasses RLS). Separate supabase/tests/vitest.config.ts to isolate from app's jsdom config. Fixed bad redirect URL example in chunk-02 prompt during commit. |
 | 3 | Auth + protected shell | dashboard | ☐ | Claude Code | — | — | — |
 | 4 | PWA shell | dashboard | ☐ | Claude Code | — | — | — |
 | 5 | Data repo (Supabase + Dexie cache) | dashboard | ☐ | Claude Code | — | — | — |
@@ -46,6 +46,8 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | YYYY-MM-DD | Outbox replay is its own chunk (15) for testability. |
 | YYYY-MM-DD | Drill-down primary affordance: visible chevron; double-click on desktop only; no long-press. |
 | YYYY-MM-DD | Cross-subcategory drag on Dashboard + Category view (desktop only); menu picker on mobile. |
+| 2026-05-23 | Migration files use numeric prefixes (00_, 01_, …) not Supabase CLI's default timestamps. Future migrations hand-named to match — documented in supabase/README.md. |
+| 2026-05-23 | RLS schema tests run against an anon-key Supabase client (not service-role) because service-role bypasses RLS. Anon key lives in supabase/.env.test alongside URL + service-role; safe because the anon key is already public. |
 
 ## Open questions for Cowork review
 
