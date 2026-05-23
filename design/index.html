@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Hupomnemata — Personal Productivity Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    /* OBSIDIAN — cool near-black with steel & ice */
+    --bg:           #0a0b0e;
+    --bg-alt:       #11131a;
+    --surface:      #14171f;
+    --surface-2:    #1a1e28;
+    --line:         rgba(255,255,255,.055);
+    --line-strong:  rgba(255,255,255,.10);
+    --ink:          #ecedf2;
+    --ink-2:        #a8abb4;
+    --ink-3:        #7a7d87;
+    --ink-4:        #36383f;
+    --accent:       #c8d2e2;       /* ice — used sparingly */
+    --accent-soft:  rgba(200,210,226,.10);
+    --accent-ink:   #e8edf5;
+    --destructive:  #ff6f6f;
+    --destructive-soft: rgba(255,111,111,.14);
+
+    /* Jewel-tone pop palette — for chart bars, category accents, focal moments. */
+    --jewel-sapphire: #5b8bff;
+    --jewel-amethyst: #a78bfa;
+    --jewel-coral:    #ff7d6b;
+    --jewel-citron:   #d4d168;
+    --jewel-jade:     #4cc8a3;
+    --jewel-rose:     #ef5da8;
+    --jewel-teal:     #5ec5d6;
+    --jewel-gold:     #e5b86a;
+
+    --work:         #4cc8a3;       /* jade pop */
+    --work-soft:    rgba(76,200,163,.13);
+    --personal:     #ff7d6b;       /* coral pop */
+    --personal-soft:rgba(255,125,107,.13);
+    --warn:         #e5b86a;
+    --good:         #4cc8a3;
+    --offline:      #5e616b;
+
+    --radius-sm: 3px;
+    --radius:    5px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    --font-ui:      'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-serif:   'Instrument Serif', 'Times New Roman', Georgia, serif;
+    --font-mono:    'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+    /* density */
+    --row-h:   36px;
+    --row-pad: 9px 12px;
+    --sec-gap: 18px;
+  }
+
+  /* CARBON — pure neutral grayscale, no chromatic tint */
+  [data-aesthetic="carbon"]{
+    --bg:           #0b0b0c;
+    --bg-alt:       #131314;
+    --surface:      #161618;
+    --surface-2:    #1c1c1f;
+    --ink:          #f0f0f1;
+    --ink-2:        #a8a8aa;
+    --ink-3:        #5e5e62;
+    --work:         #b6b6ba;
+    --work-soft:    rgba(255,255,255,.08);
+    --personal:     #8a8a8e;
+    --personal-soft:rgba(255,255,255,.05);
+    --accent:       #ffffff;
+    --accent-soft:  rgba(255,255,255,.08);
+  }
+  /* SLATE — slightly warmer dark with bronze touches */
+  [data-aesthetic="slate"]{
+    --bg:           #0d0c0a;
+    --bg-alt:       #14130f;
+    --surface:      #181712;
+    --surface-2:    #1f1d17;
+    --ink:          #ece8de;
+    --ink-2:        #a8a59c;
+    --line:         rgba(255,247,220,.055);
+    --line-strong:  rgba(255,247,220,.10);
+    --accent:       #c9a86a;       /* aged brass — restrained */
+    --accent-soft:  rgba(201,168,106,.12);
+    --work:         #d3c08c;
+    --work-soft:    rgba(211,192,140,.12);
+    --personal:     #a2a092;
+    --personal-soft:rgba(162,160,146,.10);
+  }
+
+  /* density = compact */
+  [data-density="compact"]{
+    --row-h:   30px;
+    --row-pad: 5px 10px;
+    --sec-gap: 12px;
+  }
+
+  /* type-pairing controls whether the display class uses serif or stays Inter */
+  [data-pairing="serif"]{
+    --font-display: 'Instrument Serif', Georgia, serif;
+  }
+  [data-pairing="mono"]{
+    /* numbers/labels use --font-mono in components */
+  }
+
+  /* light mode (rarely used; for users who want it) */
+  [data-mode="light"]{
+    --bg:           #f4f3ef;
+    --bg-alt:       #ebe9e2;
+    --surface:      #ffffff;
+    --surface-2:    #f6f5f0;
+    --line:         rgba(20,20,30,.08);
+    --line-strong:  rgba(20,20,30,.14);
+    --ink:          #0e0f12;
+    --ink-2:        #4a4c54;
+    --ink-3:        #80828a;
+    --ink-4:        #b4b6be;
+    --accent:       #1a1d24;
+    --accent-soft:  rgba(26,29,36,.06);
+    --accent-ink:   #0a0c10;
+    --work:         #3a5078;
+    --work-soft:    rgba(58,80,120,.10);
+    --personal:     #6b5e3e;
+    --personal-soft:rgba(107,94,62,.10);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{font-family:var(--font-ui);font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    font-feature-settings:"ss01","cv11";
+    text-rendering:optimizeLegibility;}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  input,textarea,select{font:inherit;color:inherit}
+  ::selection{background:var(--accent-soft);color:var(--ink)}
+
+  /* tiny utility tokens */
+  .mono{font-family:var(--font-mono);font-feature-settings:"tnum","zero";letter-spacing:-.02em;font-weight:500}
+  .num{font-variant-numeric:tabular-nums}
+  .display{font-family:var(--font-display);letter-spacing:-.02em}
+  .serif{font-family:var(--font-serif);letter-spacing:-.005em}
+  .label{font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-family:var(--font-mono);white-space:nowrap}
+  .hairline{border:0;border-top:1px solid var(--line);margin:0}
+
+  /* focus ring */
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+
+  /* page container */
+  .page{min-height:100vh;background:var(--bg);}
+  .shell{max-width:1280px;margin:0 auto;padding:0 28px;}
+  @media (max-width: 900px){ .shell{padding:0 20px;} }
+  @media (max-width: 640px){ .shell{padding:0 16px;} }
+
+  /* fade-in for screen transitions */
+  @keyframes fadein{from{opacity:.001}to{opacity:1}}
+  .screen{opacity:1}
+
+  /* scrollbar tidy */
+  .lst{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+  .lst::-webkit-scrollbar{width:8px;height:8px}
+  .lst::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}
+
+  /* sheets */
+  .sheet-veil{position:fixed;inset:0;background:rgba(31,29,26,.32);z-index:60;
+    animation:fadein .15s ease-out forwards;backdrop-filter:blur(2px);}
+  .sheet{position:fixed;right:0;top:0;bottom:0;width:min(440px, 92vw);
+    background:var(--surface);border-left:1px solid var(--line);z-index:61;
+    display:flex;flex-direction:column;
+    box-shadow:-1px 0 0 var(--line), -24px 0 60px rgba(31,29,26,.10);
+    animation:slidein .22s cubic-bezier(.2,.7,.2,1) forwards;}
+  @keyframes slidein{from{transform:translateX(20px);opacity:.001}to{transform:none;opacity:1}}
+  @media (max-width: 640px){
+    .sheet{left:0;right:0;width:100%;top:auto;height:88vh;border-left:0;border-top:1px solid var(--line);
+      border-top-left-radius:18px;border-top-right-radius:18px;animation:slideup .22s cubic-bezier(.2,.7,.2,1) forwards;}
+    @keyframes slideup{from{transform:translateY(40px);opacity:.001}to{transform:none;opacity:1}}
+  }
+
+  /* dialog */
+  .dlg-veil{position:fixed;inset:0;background:rgba(31,29,26,.40);z-index:70;
+    display:flex;align-items:center;justify-content:center;padding:24px;animation:fadein .14s ease-out forwards}
+  .dlg{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);
+    max-width:440px;width:100%;padding:22px;box-shadow:0 24px 60px rgba(31,29,26,.18);}
+
+  /* toast */
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;
+    background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;
+    font-size:13px;box-shadow:0 12px 32px rgba(0,0,0,.25);animation:fadein .18s ease-out forwards}
+
+  /* prevent overscroll bounce when sheet open */
+  body.no-scroll{overflow:hidden}
+</style>
+
+<!-- Speaker notes not used here -->
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="src/icons.jsx"></script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="src/data.jsx"></script>
+<script type="text/babel" src="src/screens/login.jsx"></script>
+<script type="text/babel" src="src/sheets/sheets.jsx"></script>
+<script type="text/babel" src="src/screens/dashboard.jsx"></script>
+<script type="text/babel" src="src/screens/category.jsx"></script>
+<script type="text/babel" src="src/screens/subcategory.jsx"></script>
+<script type="text/babel" src="src/screens/routines.jsx"></script>
+<script type="text/babel" src="src/screens/insights.jsx"></script>
+<script type="text/babel" src="src/screens/settings.jsx"></script>
+<script type="text/babel" src="src/app.jsx"></script>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "aesthetic": "obsidian",
+  "accent": "ice",
+  "density": "comfortable",
+  "pairing": "sans",
+  "mockData": "light",
+  "device": "desktop",
+  "mode": "light"
+}/*EDITMODE-END*/;
+
+window.__TWEAK_DEFAULTS = TWEAK_DEFAULTS;
+ReactDOM.createRoot(document.getElementById('root')).render(<window.App />);
+</script>
+</body>
+</html>
