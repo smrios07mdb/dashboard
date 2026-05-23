@@ -15,6 +15,7 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       colors: {
         border: 'hsl(var(--border))',
@@ -57,7 +58,7 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       letterSpacing: {
-        label: '0.18em',
+        label: '0.16em',
       },
       keyframes: {
         'accordion-down': {

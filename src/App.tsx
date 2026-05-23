@@ -1,14 +1,42 @@
-function App() {
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Toaster } from 'sonner'
+
+import AppShell from '@/components/AppShell'
+import Protected from '@/components/Protected'
+import AuthCallback from '@/screens/AuthCallback'
+
+function Dashboard() {
   return (
-    <main className="grid min-h-svh place-items-center bg-background text-foreground">
-      <div className="flex flex-col items-center gap-3 px-6 text-center">
-        <span className="text-[10px] uppercase tracking-label text-muted-foreground">
-          Personal productivity
-        </span>
-        <h1 className="text-5xl font-medium tracking-tight">Dashboard</h1>
-      </div>
-    </main>
+    <div>
+      <div className="label mb-2">Today</div>
+      <h1
+        className="text-[28px] font-semibold"
+        style={{ letterSpacing: '-0.02em' }}
+      >
+        Dashboard (signed in)
+      </h1>
+    </div>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
+      <Routes>
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route
+          path="/"
+          element={
+            <Protected>
+              <AppShell>
+                <Dashboard />
+              </AppShell>
+            </Protected>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      <Toaster theme="dark" position="top-center" richColors closeButton />
+    </BrowserRouter>
+  )
+}
