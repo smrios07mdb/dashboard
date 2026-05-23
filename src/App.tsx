@@ -2,7 +2,9 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'sonner'
 
 import AppShell from '@/components/AppShell'
+import InstallHint from '@/components/InstallHint'
 import Protected from '@/components/Protected'
+import UpdatePrompt from '@/components/UpdatePrompt'
 import AuthCallback from '@/screens/AuthCallback'
 
 function Dashboard() {
@@ -28,7 +30,7 @@ export default function App() {
           path="/"
           element={
             <Protected>
-              <AppShell>
+              <AppShell topBanner={<InstallHint />}>
                 <Dashboard />
               </AppShell>
             </Protected>
@@ -37,6 +39,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster theme="dark" position="top-center" richColors closeButton />
+      <UpdatePrompt />
     </BrowserRouter>
   )
 }

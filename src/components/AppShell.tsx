@@ -8,12 +8,22 @@ type AppShellProps = {
    * top-right (e.g. SyncBadge, landing in chunk 5+).
    */
   headerEnd?: ReactNode
+  /**
+   * Slot for full-width banners that sit above the header — currently the
+   * PWA install hint. Renders nothing when null/undefined.
+   */
+  topBanner?: ReactNode
   children: ReactNode
 }
 
-export default function AppShell({ headerEnd, children }: AppShellProps) {
+export default function AppShell({
+  headerEnd,
+  topBanner,
+  children,
+}: AppShellProps) {
   return (
     <div className="min-h-svh bg-background text-foreground">
+      {topBanner}
       <header className="border-b border-border">
         <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-3 sm:px-7">
           <div
