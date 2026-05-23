@@ -17,7 +17,7 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 |---|---|---|---|---|---|---|---|
 | 1 | Scaffold + GH Pages | dashboard | ☐ | Claude Code | — | — | — |
 | 2 | Supabase schema + RLS + signup trigger | dashboard | ☑ | Claude Code | 50296c0 | — | Added SUPABASE_ANON_KEY to .env.test for RLS tests (service-role bypasses RLS). Separate supabase/tests/vitest.config.ts to isolate from app's jsdom config. Fixed bad redirect URL example in chunk-02 prompt during commit. |
-| 3 | Auth + protected shell | dashboard | ☐ | Claude Code | — | — | — |
+| 3 | Auth + protected shell | dashboard | ☑ | Claude Code | fd6c419 | — | Scope expanded to include design-system port (CSS tokens, fonts, .label utility, AppShell) — Login requires it. Localhost magic-link roundtrip verified end-to-end. Prod URL renders correctly; prod magic-link redirect URL verified statically via email content (window.location.origin used correctly). Prod click-through not tested live due to Supabase default-sender email rate limit. |
 | 4 | PWA shell | dashboard | ☐ | Claude Code | — | — | — |
 | 5 | Data repo (Supabase + Dexie cache) | dashboard | ☐ | Claude Code | — | — | — |
 | 6 | Dashboard read-only + dev sample data | dashboard | ☐ | Claude Code | — | — | — |
@@ -48,10 +48,17 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | YYYY-MM-DD | Cross-subcategory drag on Dashboard + Category view (desktop only); menu picker on mobile. |
 | 2026-05-23 | Migration files use numeric prefixes (00_, 01_, …) not Supabase CLI's default timestamps. Future migrations hand-named to match — documented in supabase/README.md. |
 | 2026-05-23 | RLS schema tests run against an anon-key Supabase client (not service-role) because service-role bypasses RLS. Anon key lives in supabase/.env.test alongside URL + service-role; safe because the anon key is already public. |
+| 2026-05-23 | Design tokens map to shadcn's HSL slots where concepts overlap (--bg→--background, --ink→--foreground, --ink-3→--muted-foreground, --line→--border) with Obsidian palette values. Design-only tokens (--work, --personal, --accent, --jewel-*, --surface-2, --ink-4, --accent-soft) added as net-new variables. --accent defaults to "ice". |
+| 2026-05-23 | --border uses solid HSL approximation (225 8% 10%) of design's rgba(255,255,255,.055) because shadcn's HSL slot can't carry alpha cleanly for Tailwind opacity variants. Visually indistinguishable on Obsidian background; differs only if borders ever stack on non-bg surfaces. |
+| 2026-05-23 | Routing uses BrowserRouter with basename={import.meta.env.BASE_URL}. createBrowserRouter is also v7-idiomatic but adds loader/action infra not needed for two routes. Documented in docs/auth.md, reversible later. |
+| 2026-05-23 | Fonts bundled via @fontsource (Inter 400/500/600/700, IBM Plex Mono 500) instead of Google Fonts <link>. No render-blocking external request; will survive offline once chunk 4's service worker caches the assets. |
+| 2026-05-23 | AppShell exposes a headerEnd prop (right of wordmark, left of AccountMenu) as the slot for SyncBadge in chunk 5+. AccountMenu always lives top-right. Max-width 1280, px-7. |
 
 ## Open questions for Cowork review
 
-_(none yet — add as they come up)_
+| Date | Question |
+|---|---|
+| 2026-05-23 | Supabase default-sender email rate limit (2/hr project-wide) blocked prod magic-link verification at chunk 3 close. Need a real SMTP provider (Resend free tier is the obvious pick) configured in Supabase Auth → SMTP before chunk 14 (due-reminder edge function). Setting up earlier is fine — would also unblock retroactive prod magic-link verification. |
 
 ## Revisions
 
