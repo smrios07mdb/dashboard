@@ -455,6 +455,50 @@ describe('repo (offline)', () => {
     expect(outboxRows[0]).toMatchObject({ op: 'delete', table: 'tasks' })
   })
 
+  it('offline write + offline read returns the row from the cache (Bug B regression)', async () => {
+    // End-to-end offline contract per ARCHITECTURE §6: an offline
+    // create lands in Dexie + outbox, and the next offline read
+    // returns it from Dexie. This test guards the repo's half of
+    // Bug B — the production defect itself lived at the Workbox SW
+    // layer (`NetworkFirst` for Supabase was serving stale 200 GET
+    // responses during reload-while-offline, so the repo's online
+    // arm "succeeded" and clear-then-bulkPut the cache, evicting
+    // the offline-written row). Fix is in `vite.config.ts`
+    // (handler: 'NetworkOnly'); see docs/sync.md "The SW must be
+    // transparent for Supabase". This test would have caught the
+    // bug if the SW had been part of the test surface — keep it
+    // here as a contract assertion so any future regression at the
+    // repo layer surfaces in the unit run.
+    const created = await repo.tasks.create({
+      id: 't-bug-b',
+      userId: 'u-1',
+      subcategoryId: 'sub-1',
+      title: 'Offline-written',
+      notes: null,
+      estimateMinutes: 15,
+      dueAt: null,
+      remindAt: null,
+      priority: null,
+      completedAt: null,
+    })
+    expect(created.id).toBe('t-bug-b')
+
+    // Reload-while-offline simulation: another `list` call still
+    // offline. Must return the offline-written row from Dexie.
+    const list = await repo.tasks.list()
+    const found = list.find((t) => t.id === 't-bug-b')
+    expect(found).toBeDefined()
+    expect(found?.title).toBe('Offline-written')
+
+    // Outbox preserves the mutation for chunk 15's replay.
+    const outboxRows = await db.outbox.toArray()
+    expect(outboxRows).toHaveLength(1)
+    expect(outboxRows[0]).toMatchObject({
+      op: 'insert',
+      table: 'tasks',
+    })
+  })
+
   it('falls through to the offline path when online Supabase call rejects with a network error', async () => {
     isOnlineMock.mockReturnValue(true)
     // Supabase returns a 0/undefined-status error → treated as network failure

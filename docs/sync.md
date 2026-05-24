@@ -112,6 +112,27 @@ device is on a captive portal, or `false` while still functional. The
 fetch-level failure check catches the real-world failure modes that
 `navigator.onLine` misses.
 
+## The SW must be transparent for Supabase
+
+Dexie is the **only** offline cache for Supabase data. The Workbox
+runtime handler for `*.supabase.co/rest/v1/*` and `/graphql/v1/*` is
+`NetworkOnly` (see `docs/pwa.md` + `vite.config.ts`) — it does not
+cache responses and does not serve stale data when the network is
+unreachable.
+
+Why this matters: a NetworkFirst-style SW cache for Supabase will
+serve a stale 200 GET response during reload-while-offline. The repo's
+read path can't tell that response is stale, so its `online` arm runs
+to completion: it clears the relevant Dexie rows and bulkPuts the
+stale list. Any task written via the offline path (which lives only
+in Dexie + the outbox until chunk 15's replay ships) gets evicted
+from the cache mirror. The chunk-7 smoke run that surfaced this is
+documented as Bug B in the PROGRESS.md Revisions log.
+
+If a future change adds a runtime caching rule for Supabase, it must
+not let the SW return a cached response during a network failure —
+otherwise this bug returns.
+
 ## Dexie schema versioning
 
 Current version is **1** (baseline). Future cache-shape changes follow

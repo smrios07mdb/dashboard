@@ -57,21 +57,23 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
-            // Supabase REST + GraphQL: NetworkFirst with 30s timeout, 5min freshness.
+            // Supabase REST + GraphQL: NetworkOnly. Dexie is the
+            // canonical offline cache for these endpoints (chunk 5),
+            // and the chunk-4 NetworkFirst handler caused a chunk-5
+            // contract violation: when offline, the SW would return
+            // a previously-cached 200 GET response for a list query;
+            // the repo's read path saw a non-error response, wiped
+            // the Dexie cache, and bulkPut the stale list — evicting
+            // any task written via the offline path. Fix is to make
+            // the SW transparent for Supabase: when the network is
+            // unreachable, Supabase JS returns a real network error,
+            // the repo's catch falls back to Dexie, and the offline
+            // write survives. Bug B revision, 2026-05-24.
             urlPattern: ({ url }) =>
               url.hostname.endsWith('.supabase.co') &&
               (url.pathname.startsWith('/rest/v1') ||
                 url.pathname.startsWith('/graphql/v1')),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-api',
-              networkTimeoutSeconds: 30,
-              expiration: {
-                maxEntries: 200,
-                maxAgeSeconds: 60 * 5,
-              },
-              cacheableResponse: { statuses: [0, 200] },
-            },
+            handler: 'NetworkOnly',
           },
         ],
       },
