@@ -15,7 +15,7 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 
 | # | Chunk | Repo | Status | Owner | PR / Commit | Blockers | Review notes |
 |---|---|---|---|---|---|---|---|
-| 1 | Scaffold + GH Pages | dashboard | ☐ | Claude Code | — | — | — |
+| 1 | Scaffold + GH Pages | dashboard | ☑ | Claude Code | 1bd1b68 | — | Retroactive bookkeeping: scaffold + GH Pages deploy shipped before the formal PROGRESS.md workflow was in place, so the row was never flipped at the time. State reconstructed from the chunks that subsequently built on it. |
 | 2 | Supabase schema + RLS + signup trigger | dashboard | ☑ | Claude Code | 50296c0 | — | Added SUPABASE_ANON_KEY to .env.test for RLS tests (service-role bypasses RLS). Separate supabase/tests/vitest.config.ts to isolate from app's jsdom config. Fixed bad redirect URL example in chunk-02 prompt during commit. |
 | 3 | Auth + protected shell | dashboard | ☑ | Claude Code | fd6c419 | — | Scope expanded to include design-system port (CSS tokens, fonts, .label utility, AppShell) — Login requires it. Localhost magic-link roundtrip verified end-to-end. Prod URL renders correctly; prod magic-link redirect URL verified statically via email content (window.location.origin used correctly). Prod click-through not tested live due to Supabase default-sender email rate limit. |
 | 4 | PWA shell | dashboard | ☑ | Claude Code | fb67581 | — | Manifest colors resolved from Obsidian tokens per prompt-time override (background_color #0a0b0e from --background, theme_color #c8d2e2 from --accent ice). Workbox precaches @fontsource woff2 directly — no Google Fonts handler needed. Added iOS PWA meta tags + apple-touch-icon link beyond the prompt (apple-mobile-web-app-capable=yes is required for navigator.standalone to flip reliably, which gates the dismiss flow). AppShell gained a topBanner slot so InstallHint mounts in App.tsx while rendering above the header. jsdom 29 localStorage/sessionStorage polyfill added in setupTests.ts. Lighthouse PWA audit ≥90 on deploy URL and iPhone Safari install flow remain to verify manually out-of-band per user instruction. |
@@ -60,6 +60,9 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 2026-05-23 | iOS PWA `<meta>` tags added beyond the chunk-04 prompt: `apple-mobile-web-app-capable=yes`, `-title`, `-status-bar-style=black-translucent`, `viewport-fit=cover`, plus the `apple-touch-icon` link. Required so `navigator.standalone` flips reliably for the InstallHint dismiss flow on iOS Safari. |
 | 2026-05-23 | `setupTests.ts` now polyfills `localStorage` and `sessionStorage` with an in-memory Storage implementation because jsdom 29 only exposes them behind Node's experimental `--localstorage-file` flag. Affects every future test that exercises storage; tests should rely on this polyfill rather than importing a per-suite mock. |
 | 2026-05-23 | Workbox `globPatterns` includes `woff2` so the bundled `@fontsource` assets are precached as part of the app shell. No runtime-caching rule for fonts is needed — the chunk-3 switch off Google Fonts means there are no third-party font requests to handle. |
+| 2026-05-23 | Supabase Magic Link email template extended to include `{{ .Token }}` alongside `{{ .ConfirmationURL }}`. The default template is link-only; OTP delivery (required for iOS standalone PWA login since iOS doesn't route external URLs back to standalone PWAs) requires the token variable in the template body. Both delivery paths now coexist in one email. |
+| 2026-05-23 | `verifyOtp` failures in Login.tsx surface a fixed user-facing message ("Invalid or expired code. Check your email or request a new one.") rather than passing through Supabase's AuthApiError. Trade-off: loses diagnostic detail (expired vs malformed vs rate-limited), but doesn't leak signal that could help an attacker probe valid email + token combinations. Future auth-error surfaces should follow the same pattern. |
+| 2026-05-23 | Supabase project's Email OTP Length was 8 (the project default) and reset to 6 to match the universal OTP standard, the Login.tsx implementation, the email template wording, and iOS one-time-code autofill expectations. Range is 6–10 per Supabase config; 6 chosen for UX consistency since Supabase rate-limiting handles brute-force resistance regardless of length. |
 
 ## Open questions for Cowork review
 
@@ -71,7 +74,22 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 
 After-the-fact changes to shipped chunks go here, with the change written as its own mini-prompt that was actually run.
 
-_(none yet)_
+### 2026-05-23 · iOS PWA OTP login path (commit 0e39d85)
+
+**Context:** Chunk-4 manual verification revealed that on iOS, magic links sent from a standalone (home-screen-installed) PWA open in Safari rather than the PWA, leaving the PWA unauthenticated. iOS doesn't route external URLs back into standalone PWAs the way Android does, and the standalone PWA has its own session storage separate from Safari. Standard fix is OTP codes alongside magic links so verification stays inside the PWA's own context.
+
+**Mini-prompt that was run:**
+
+Add a 6-digit OTP code login path to `src/screens/Login.tsx` alongside the existing magic-link flow.
+
+- Keep email input + "Send magic link" button as-is.
+- After successful sign-in request, transition the same screen to a code-entry view: submitted email, 6-digit code input, "Verify code" button, "Use a different email" reset link.
+- Code input: digit-only, `maxLength={6}`, `inputMode="numeric"`, `autoComplete="one-time-code"`, auto-submit when 6 digits entered (guarded against double-submit with a `useRef`).
+- On submit: `supabase.auth.verifyOtp({ email, token: code, type: 'email' })`. Success routes via the existing auth-state listener; failure shows a fixed-string inline error.
+- Email template change: Supabase Magic Link template extended with `{{ .Token }}` so the email carries both link and code.
+- 7 new tests in `Login.test.tsx`: default render, send + transition, auto-submit, digit stripping, sub-6-no-submit, error display, reset.
+
+**Shipped:** commit 0e39d85. `npm test` 14/14 green, build green, deploy green. iPhone Safari standalone-PWA verification completed out-of-band on 2026-05-23 after resetting Supabase's Email OTP Length from 8 to 6 (project default was 8; see Decisions log).
 
 ## How to update this file
 
