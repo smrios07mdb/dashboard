@@ -9,7 +9,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useSyncStore } from '@/db/syncStore'
 import type { SyncState } from '@/db/types'
-import { repo } from '@/db/repo'
+import { useUIStore } from '@/state/uiStore'
 
 /**
  * Color + label map for every SyncState (per chunk-06 prompt).
@@ -64,15 +64,13 @@ export default function SyncIndicator() {
   async function forceResync() {
     setResyncing(true)
     try {
-      // Re-reading via the repo's online-first read pattern refreshes
-      // the Dexie cache as a side-effect; the repo also stamps
-      // `lastSyncAt` so any subscriber re-renders.
-      await Promise.all([
-        repo.categories.list(),
-        repo.subcategories.list(),
-        repo.tasks.list(),
-        repo.routineItems.list(),
-      ])
+      // Bump the dashboard refresh counter; the Dashboard's effect
+      // subscribes to this and re-runs the repo reads, which
+      // re-hydrate Dexie via the online-first read pattern. Keeping
+      // the trigger in one place avoids the lastSyncAt feedback loop
+      // and any drift between what Force-resync fetches and what the
+      // screen actually consumes.
+      useUIStore.getState().forceDashboardRefresh()
     } finally {
       setResyncing(false)
     }

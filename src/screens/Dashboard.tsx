@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bell, ChevronRight, MoreHorizontal, Sparkles } from 'lucide-react'
+import { Bell, MoreHorizontal, Sparkles } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { repo } from '@/db/repo'
-import { useSyncStore } from '@/db/syncStore'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/state/uiStore'
@@ -11,10 +10,12 @@ import { useUIStore } from '@/state/uiStore'
 /*
  * Unified dashboard — read-only for chunk 6.
  *
- * Reads via repo on mount, then re-reads whenever syncStore.lastSyncAt
- * changes. The realtime layer keeps Dexie warm in the background; the
- * lastSyncAt trigger covers the "Force resync" path from
- * <SyncIndicator />.
+ * Reads via repo on mount, then re-reads whenever
+ * `uiStore.dashboardRefreshKey` is bumped — today that's only the
+ * Force-resync button in <SyncIndicator />. The realtime layer keeps
+ * Dexie warm in the background; we deliberately don't subscribe to
+ * `syncStore.lastSyncAt` here, because the repo stamps that on every
+ * successful read and we'd spin into an infinite refetch loop.
  *
  * Chevrons-as-primary-affordance per ARCHITECTURE §13: visible `›` on
  * every category and subcategory header, plus double-click handler on
@@ -57,7 +58,7 @@ function useDashboardData() {
     tasks: [],
   })
   const [loading, setLoading] = useState(true)
-  const lastSyncAt = useSyncStore((s) => s.lastSyncAt)
+  const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
 
   useEffect(() => {
     let cancelled = false
@@ -78,10 +79,11 @@ function useDashboardData() {
     return () => {
       cancelled = true
     }
-    // Re-read when a force-resync stamps a new lastSyncAt. The realtime
-    // layer keeps Dexie warm, but this screen's in-memory state needs
-    // the explicit cue.
-  }, [lastSyncAt])
+    // Re-read when something explicitly bumps dashboardRefreshKey
+    // (today: <SyncIndicator />'s Force-resync). The realtime layer
+    // keeps Dexie warm in the background; this screen's in-memory
+    // snapshot only needs the explicit cue.
+  }, [dashboardRefreshKey])
 
   return { data, loading }
 }
@@ -177,9 +179,9 @@ function SubcategorySection({
             e.stopPropagation()
             onDrillDown(subcategory.id)
           }}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-[16px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <ChevronRight className="size-4" />
+          <span aria-hidden>›</span>
         </button>
       </header>
       <div className="pb-2">
@@ -250,9 +252,9 @@ function CategoryColumn({
             e.stopPropagation()
             onDrillDown(category.id)
           }}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[20px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <ChevronRight className="size-5" />
+          <span aria-hidden>›</span>
         </button>
       </header>
       <div className="overflow-hidden rounded-md border border-border bg-card">

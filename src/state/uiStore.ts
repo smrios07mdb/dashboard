@@ -17,9 +17,23 @@ type UIStoreState = {
   /** Minutes the user has available right now, for the "What's next?" triage. */
   availableMinutes: number
   setAvailableMinutes: (n: number) => void
+  /**
+   * Monotonic counter the Dashboard subscribes to as its effect dep.
+   *
+   * The repo's `markSyncedNow()` ticks `syncStore.lastSyncAt` on every
+   * successful read, so we can't use `lastSyncAt` as a refetch trigger
+   * without spinning into an infinite read loop. Instead, anything that
+   * wants the Dashboard to refetch (today: the Force-resync button)
+   * calls `forceDashboardRefresh()` to bump this counter.
+   */
+  dashboardRefreshKey: number
+  forceDashboardRefresh: () => void
 }
 
 export const useUIStore = create<UIStoreState>((set) => ({
   availableMinutes: 30,
   setAvailableMinutes: (n) => set({ availableMinutes: n }),
+  dashboardRefreshKey: 0,
+  forceDashboardRefresh: () =>
+    set((s) => ({ ...s, dashboardRefreshKey: s.dashboardRefreshKey + 1 })),
 }))
