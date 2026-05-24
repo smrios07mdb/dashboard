@@ -1,44 +1,28 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'sonner'
 
-import AppShell from '@/components/AppShell'
-import InstallHint from '@/components/InstallHint'
-import Protected from '@/components/Protected'
+import ProtectedLayout from '@/components/ProtectedLayout'
 import RealtimeBridge from '@/components/RealtimeBridge'
 import UpdatePrompt from '@/components/UpdatePrompt'
 import AuthCallback from '@/screens/AuthCallback'
+import Dashboard from '@/screens/Dashboard'
+import Insights from '@/screens/Insights'
+import Routines from '@/screens/Routines'
+import Settings from '@/screens/Settings'
 // Side-effect import: registers window online/offline → syncStore.
 import '@/lib/network'
-
-function Dashboard() {
-  return (
-    <div>
-      <div className="label mb-2">Today</div>
-      <h1
-        className="text-[28px] font-semibold"
-        style={{ letterSpacing: '-0.02em' }}
-      >
-        Dashboard (signed in)
-      </h1>
-    </div>
-  )
-}
 
 export default function App() {
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <Routes>
         <Route path="/auth/callback" element={<AuthCallback />} />
-        <Route
-          path="/"
-          element={
-            <Protected>
-              <AppShell topBanner={<InstallHint />}>
-                <Dashboard />
-              </AppShell>
-            </Protected>
-          }
-        />
+        <Route element={<ProtectedLayout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="routines" element={<Routines />} />
+          <Route path="insights" element={<Insights />} />
+          <Route path="settings" element={<Settings />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster theme="dark" position="top-center" richColors closeButton />
