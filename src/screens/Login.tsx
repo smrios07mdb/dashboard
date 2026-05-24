@@ -1,4 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
 import { ArrowRight, Check } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -7,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { supabase } from '@/lib/supabase'
 
 const RESEND_COOLDOWN_SECONDS = 30
+const CODE_LENGTH = 6
 
 function callbackUrl() {
   return window.location.origin + import.meta.env.BASE_URL + 'auth/callback'
@@ -18,11 +25,23 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false)
   const [cooldown, setCooldown] = useState(0)
 
+  const [code, setCode] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [codeError, setCodeError] = useState<string | null>(null)
+  // Guards the auto-submit-on-6-digits path against re-firing if React batches
+  // the state update before the network call resolves.
+  const autoSubmittedFor = useRef<string | null>(null)
+  const codeInputRef = useRef<HTMLInputElement | null>(null)
+
   useEffect(() => {
     if (!cooldown) return
     const t = setTimeout(() => setCooldown((c) => c - 1), 1000)
     return () => clearTimeout(t)
   }, [cooldown])
+
+  useEffect(() => {
+    if (sent) codeInputRef.current?.focus()
+  }, [sent])
 
   async function sendLink(targetEmail: string) {
     setSubmitting(true)
@@ -40,15 +59,65 @@ export default function Login() {
     return true
   }
 
+  async function verify(token: string) {
+    if (verifying) return
+    setVerifying(true)
+    setCodeError(null)
+    const { error } = await supabase.auth.verifyOtp({
+      email,
+      token,
+      type: 'email',
+    })
+    setVerifying(false)
+    if (error) {
+      setCodeError(
+        'Invalid or expired code. Check your email or request a new one.',
+      )
+      autoSubmittedFor.current = null
+      return
+    }
+    // Success: the global auth listener (chunk 3) flips Protected over to
+    // the dashboard. Nothing else to do here.
+  }
+
   function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!email || submitting) return
-    sendLink(email)
+    void sendLink(email)
   }
 
   function onResend() {
     if (cooldown > 0 || submitting) return
-    sendLink(email)
+    void sendLink(email)
+  }
+
+  function onCodeChange(e: ChangeEvent<HTMLInputElement>) {
+    const next = e.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH)
+    setCode(next)
+    if (codeError) setCodeError(null)
+    if (
+      next.length === CODE_LENGTH &&
+      autoSubmittedFor.current !== next &&
+      !verifying
+    ) {
+      autoSubmittedFor.current = next
+      void verify(next)
+    }
+  }
+
+  function onVerifySubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (code.length !== CODE_LENGTH || verifying) return
+    autoSubmittedFor.current = code
+    void verify(code)
+  }
+
+  function resetToEmail() {
+    setSent(false)
+    setCooldown(0)
+    setCode('')
+    setCodeError(null)
+    autoSubmittedFor.current = null
   }
 
   return (
@@ -129,12 +198,55 @@ export default function Login() {
               Check your email
             </h1>
             <p className="mb-6 mt-2 text-[13px] leading-[1.6] text-muted-foreground">
-              We sent a sign-in link to{' '}
-              <strong className="text-foreground">{email}</strong>. It expires
-              in 10 minutes.
+              We sent a sign-in link and a 6-digit code to{' '}
+              <strong className="text-foreground">{email}</strong>. Tap the link
+              or enter the code below. Expires in 10 minutes.
             </p>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <form onSubmit={onVerifySubmit} noValidate>
+              <label htmlFor="login-code" className="label mb-1.5 block">
+                6-digit code
+              </label>
+              <Input
+                ref={codeInputRef}
+                id="login-code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="\d{6}"
+                maxLength={CODE_LENGTH}
+                value={code}
+                onChange={onCodeChange}
+                placeholder="123456"
+                aria-invalid={codeError ? true : undefined}
+                aria-describedby={codeError ? 'login-code-error' : undefined}
+                className="h-[42px] bg-card font-mono tracking-[0.3em] text-[16px]"
+              />
+              {codeError ? (
+                <p
+                  id="login-code-error"
+                  role="alert"
+                  className="mt-2 text-[12px] leading-[1.5]"
+                  style={{ color: 'hsl(var(--destructive))' }}
+                >
+                  {codeError}
+                </p>
+              ) : null}
+
+              <Button
+                type="submit"
+                size="lg"
+                disabled={code.length !== CODE_LENGTH || verifying}
+                className="mt-3.5 h-11 w-full text-[14px]"
+              >
+                {verifying ? 'Verifying…' : 'Verify code'}
+              </Button>
+            </form>
+
+            <div
+              className="mt-5 flex flex-wrap items-center gap-3 border-t pt-5"
+              style={{ borderColor: 'var(--line)' }}
+            >
               <Button
                 variant="outline"
                 onClick={onResend}
@@ -145,14 +257,11 @@ export default function Login() {
                   ? `Resend in ${cooldown}s`
                   : submitting
                     ? 'Sending…'
-                    : 'Resend link'}
+                    : 'Resend email'}
               </Button>
               <button
                 type="button"
-                onClick={() => {
-                  setSent(false)
-                  setCooldown(0)
-                }}
+                onClick={resetToEmail}
                 className="text-[13px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
               >
                 Use a different email
