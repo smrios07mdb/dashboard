@@ -19,6 +19,7 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
 import { supabase } from '@/lib/supabase'
+import { useUIStore } from '@/state/uiStore'
 
 import { db } from './dexie'
 import {
@@ -47,6 +48,28 @@ type PostgresChangePayload<Row> = {
 let channel: RealtimeChannel | null = null
 let activeUserId: string | null = null
 
+/*
+ * Bursts of realtime events (e.g. a sample-data load that inserts a
+ * dozen rows back-to-back, or this device's own writes echoing back)
+ * coalesce into a single Dashboard re-read via a short debounce. The
+ * 200ms window is long enough to merge a chatty batch but short enough
+ * to feel like "live" to a cross-device user.
+ *
+ * The dependency runs one direction only — data → UI store. Don't
+ * import dashboard components from this file; the data layer stays
+ * UI-agnostic apart from this single setter call.
+ */
+const REFRESH_DEBOUNCE_MS = 200
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleDashboardRefresh(): void {
+  if (refreshTimer) clearTimeout(refreshTimer)
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null
+    useUIStore.getState().forceDashboardRefresh()
+  }, REFRESH_DEBOUNCE_MS)
+}
+
 function makeHandler<Row extends { id?: string }>(args: {
   apply: (row: Row) => Promise<void>
   remove: (id: string) => Promise<void>
@@ -56,9 +79,10 @@ function makeHandler<Row extends { id?: string }>(args: {
       if (payload.eventType === 'DELETE') {
         const id = payload.old?.id
         if (id) await args.remove(id)
-        return
+      } else if (payload.new) {
+        await args.apply(payload.new)
       }
-      if (payload.new) await args.apply(payload.new)
+      scheduleDashboardRefresh()
     } catch (e) {
       // Don't let one bad event kill the subscription. Future chunks
       // can wire structured logging.
@@ -126,9 +150,10 @@ async function settingsHandler(
     if (payload.eventType === 'DELETE') {
       const userId = payload.old?.user_id
       if (userId) await db.settings.delete(userId)
-      return
+    } else if (payload.new) {
+      await db.settings.put(settingsFromRow(payload.new))
     }
-    if (payload.new) await db.settings.put(settingsFromRow(payload.new))
+    scheduleDashboardRefresh()
   } catch (e) {
     console.error('Realtime settings handler failed', e)
   }

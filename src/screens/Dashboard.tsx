@@ -1,33 +1,35 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Bell, MoreHorizontal, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 
+import CategoryColumn from '@/components/CategoryColumn'
 import { Button } from '@/components/ui/button'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
-import { cn } from '@/lib/utils'
+import { useSession } from '@/lib/auth'
 import { useUIStore } from '@/state/uiStore'
 
 /*
- * Unified dashboard — read-only for chunk 6.
+ * Unified dashboard.
  *
- * Reads via repo on mount, then re-reads whenever
- * `uiStore.dashboardRefreshKey` is bumped — today that's only the
- * Force-resync button in <SyncIndicator />. The realtime layer keeps
- * Dexie warm in the background; we deliberately don't subscribe to
- * `syncStore.lastSyncAt` here, because the repo stamps that on every
- * successful read and we'd spin into an infinite refetch loop.
+ * Chunks 6 + 7 collaborate here: chunk 6 owns the read/render skeleton
+ * and the design-system surfaces; chunk 7 layers create/edit/complete/
+ * delete on top. Effect dep is still `uiStore.dashboardRefreshKey` —
+ * the load only re-runs on explicit cues (Force-resync button, realtime
+ * apply). Tasks update in-place via the returned row from each repo
+ * mutation, so totals re-derive without a refetch.
  *
- * Chevrons-as-primary-affordance per ARCHITECTURE §13: visible `›` on
- * every category and subcategory header, plus double-click handler on
- * the header. Long-press is deliberately NOT wired.
+ * Chunk 7's render filter: incomplete tasks render by default;
+ * completed tasks are tucked behind the "N completed" expander per
+ * subcategory. The filter lives in SubcategorySection — completed
+ * tasks still load from the repo so the expander has something to show.
  *
- * Task interactions (toggle, edit, delete, three-dot menu actions) and
- * drill-down navigation are NOT implemented here:
- *   - Task CRUD                 → chunk 7
- *   - Subcategory CRUD          → chunk 8
- *   - Drill-down routes         → chunk 9
- *   - "What's next?" wiring     → chunk 11
+ * Drill-down navigation, three-dot menus, AI triage, bell-icon
+ * interaction, and reminders all remain stubs handled by later chunks
+ * (9, 11, 14).
  */
+
+const SAVE_ERROR = 'Could not save — retry'
 
 function formatMinutes(mins: number): string {
   if (!mins) return '0m'
@@ -79,202 +81,9 @@ function useDashboardData() {
     return () => {
       cancelled = true
     }
-    // Re-read when something explicitly bumps dashboardRefreshKey
-    // (today: <SyncIndicator />'s Force-resync). The realtime layer
-    // keeps Dexie warm in the background; this screen's in-memory
-    // snapshot only needs the explicit cue.
   }, [dashboardRefreshKey])
 
-  return { data, loading }
-}
-
-type TaskRowProps = { task: Task }
-
-function TaskRow({ task }: TaskRowProps) {
-  const completed = !!task.completedAt
-  return (
-    <div
-      className={cn(
-        'grid items-center gap-3 border-t border-border px-3 py-2',
-        '[grid-template-columns:1fr_auto_auto_auto]',
-        completed && 'opacity-50',
-      )}
-    >
-      <span
-        className={cn(
-          'truncate text-[13px] text-foreground',
-          completed && 'line-through decoration-muted-foreground',
-        )}
-        title={task.title}
-      >
-        {task.title}
-      </span>
-      <span className="font-mono text-[12px] text-muted-foreground tabular-nums">
-        {formatMinutes(task.estimateMinutes)}
-      </span>
-      {task.remindAt ? (
-        <span
-          aria-label="Reminder set"
-          title="Reminder set"
-          className="inline-flex h-6 w-6 items-center justify-center text-[var(--accent-ink)]"
-        >
-          <Bell className="size-3.5" />
-        </span>
-      ) : (
-        <span aria-hidden className="inline-block h-6 w-6" />
-      )}
-      {/* Placeholder three-dot menu — chunk 9 wires real actions. */}
-      <button
-        type="button"
-        aria-label="Task actions"
-        className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-secondary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        // TODO chunk 9: wire task action menu (toggle, edit, delete, move…)
-      >
-        <MoreHorizontal className="size-3.5" />
-      </button>
-    </div>
-  )
-}
-
-type SubcategorySectionProps = {
-  subcategory: Subcategory
-  tasks: Task[]
-  onDrillDown: (id: string) => void
-}
-
-function SubcategorySection({
-  subcategory,
-  tasks,
-  onDrillDown,
-}: SubcategorySectionProps) {
-  const open = tasks.filter((t) => !t.completedAt)
-  const minutes = open.reduce((sum, t) => sum + t.estimateMinutes, 0)
-  return (
-    <section className="border-t border-border first:border-t-0">
-      <header
-        role="button"
-        tabIndex={0}
-        onDoubleClick={() => onDrillDown(subcategory.id)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onDrillDown(subcategory.id)
-          }
-        }}
-        className="grid cursor-pointer items-center gap-2 px-3 py-3 hover:bg-secondary/40 [grid-template-columns:1fr_auto_auto_auto]"
-      >
-        <span className="text-[14px] font-medium text-foreground">
-          {subcategory.name}
-        </span>
-        <span className="font-mono text-[12px] text-muted-foreground tabular-nums">
-          {open.length}
-        </span>
-        <span className="font-mono text-[12px] text-muted-foreground tabular-nums">
-          {formatMinutes(minutes)}
-        </span>
-        <button
-          type="button"
-          aria-label={`Open ${subcategory.name}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onDrillDown(subcategory.id)
-          }}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-[16px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span aria-hidden>›</span>
-        </button>
-      </header>
-      <div className="pb-2">
-        {tasks.length === 0 ? (
-          <div className="border-t border-border px-4 py-3 text-[12px] italic text-muted-foreground">
-            No tasks here.
-          </div>
-        ) : (
-          tasks.map((t) => <TaskRow key={t.id} task={t} />)
-        )}
-      </div>
-    </section>
-  )
-}
-
-type CategoryColumnProps = {
-  category: Category
-  subcategories: Subcategory[]
-  tasksBySub: Record<string, Task[]>
-  onDrillDown: (id: string) => void
-}
-
-function CategoryColumn({
-  category,
-  subcategories,
-  tasksBySub,
-  onDrillDown,
-}: CategoryColumnProps) {
-  const allTasks = subcategories.flatMap((s) => tasksBySub[s.id] ?? [])
-  const open = allTasks.filter((t) => !t.completedAt)
-  const total = open.reduce((sum, t) => sum + t.estimateMinutes, 0)
-  const accent =
-    category.name === 'Work' ? 'var(--work)' : 'var(--personal)'
-
-  return (
-    <div>
-      <header
-        role="button"
-        tabIndex={0}
-        onDoubleClick={() => onDrillDown(category.id)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onDrillDown(category.id)
-          }
-        }}
-        className="mb-3 grid cursor-pointer items-baseline gap-3 pb-3 [grid-template-columns:4px_1fr_auto_auto_auto]"
-      >
-        <span
-          aria-hidden
-          className="mt-2 h-7 w-[4px] self-stretch rounded-sm"
-          style={{ background: accent }}
-        />
-        <h2
-          className="m-0 text-[24px] font-semibold text-foreground"
-          style={{ letterSpacing: '-0.025em' }}
-        >
-          {category.name}
-        </h2>
-        <span className="label">{open.length} open</span>
-        <span className="font-mono text-[16px] font-medium text-secondary-foreground tabular-nums">
-          {formatMinutes(total)}
-        </span>
-        <button
-          type="button"
-          aria-label={`Open ${category.name}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onDrillDown(category.id)
-          }}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[20px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span aria-hidden>›</span>
-        </button>
-      </header>
-      <div className="overflow-hidden rounded-md border border-border bg-card">
-        {subcategories.length === 0 ? (
-          <div className="px-4 py-6 text-center text-[13px] text-muted-foreground">
-            No subcategories yet.
-          </div>
-        ) : (
-          subcategories.map((sub) => (
-            <SubcategorySection
-              key={sub.id}
-              subcategory={sub}
-              tasks={tasksBySub[sub.id] ?? []}
-              onDrillDown={onDrillDown}
-            />
-          ))
-        )}
-      </div>
-    </div>
-  )
+  return { data, setData, loading }
 }
 
 type TodayStripProps = {
@@ -340,7 +149,9 @@ function TodayStrip({ openCount, openMinutes }: TodayStripProps) {
 }
 
 export default function Dashboard() {
-  const { data, loading } = useDashboardData()
+  const { data, setData, loading } = useDashboardData()
+  const { user } = useSession()
+  const userId = user?.id ?? null
 
   const tasksBySub = useMemo(() => {
     const m: Record<string, Task[]> = {}
@@ -353,7 +164,6 @@ export default function Dashboard() {
   const subsByCat = useMemo(() => {
     const m: Record<string, Subcategory[]> = {}
     const live = data.subcategories.filter((s) => !s.archivedAt)
-    // Stable sort by sortOrder ascending.
     live.sort((a, b) => a.sortOrder - b.sortOrder)
     for (const s of live) {
       ;(m[s.categoryId] ??= []).push(s)
@@ -368,8 +178,108 @@ export default function Dashboard() {
     0,
   )
 
+  // ---------- mutation handlers ----------
+
+  const upsertTask = useCallback((next: Task) => {
+    setData((prev) => {
+      const idx = prev.tasks.findIndex((t) => t.id === next.id)
+      const tasks =
+        idx === -1
+          ? [...prev.tasks, next]
+          : prev.tasks.map((t) => (t.id === next.id ? next : t))
+      return { ...prev, tasks }
+    })
+  }, [setData])
+
+  const onCreateTask = useCallback(
+    async (input: {
+      subcategoryId: string
+      title: string
+      estimateMinutes: number
+    }): Promise<boolean> => {
+      if (!userId) return false
+      try {
+        const created = await repo.tasks.create({
+          userId,
+          subcategoryId: input.subcategoryId,
+          title: input.title,
+          notes: null,
+          estimateMinutes: input.estimateMinutes,
+          dueAt: null,
+          remindAt: null,
+          priority: null,
+          completedAt: null,
+        })
+        upsertTask(created)
+        toast('Task added')
+        return true
+      } catch (e) {
+        console.error('Create task failed', e)
+        toast.error(SAVE_ERROR)
+        return false
+      }
+    },
+    [userId, upsertTask],
+  )
+
+  const onEditTitle = useCallback(
+    async (id: string, title: string) => {
+      try {
+        const updated = await repo.tasks.update(id, { title })
+        upsertTask(updated)
+      } catch (e) {
+        console.error('Edit title failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
+  const onEditMinutes = useCallback(
+    async (id: string, estimateMinutes: number) => {
+      try {
+        const updated = await repo.tasks.update(id, { estimateMinutes })
+        upsertTask(updated)
+      } catch (e) {
+        console.error('Edit minutes failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
+  const onCompleteTask = useCallback(
+    async (id: string, completed: boolean) => {
+      try {
+        const updated = await repo.tasks.markComplete(id, completed)
+        upsertTask(updated)
+      } catch (e) {
+        console.error('Complete task failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
+  const onDeleteTask = useCallback(
+    async (id: string) => {
+      try {
+        await repo.tasks.delete(id)
+        setData((prev) => ({
+          ...prev,
+          tasks: prev.tasks.filter((t) => t.id !== id),
+        }))
+        toast('Task deleted')
+      } catch (e) {
+        console.error('Delete task failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [setData],
+  )
+
   // TODO chunk 9: navigate to drill-down route.
-  const onDrillDown = () => {}
+  const onDrillDown = useCallback(() => {}, [])
 
   if (loading) {
     return (
@@ -388,6 +298,11 @@ export default function Dashboard() {
             subcategories={subsByCat[cat.id] ?? []}
             tasksBySub={tasksBySub}
             onDrillDown={onDrillDown}
+            onCreateTask={onCreateTask}
+            onCompleteTask={onCompleteTask}
+            onEditTitle={onEditTitle}
+            onEditMinutes={onEditMinutes}
+            onDeleteTask={onDeleteTask}
           />
         ))}
       </div>
