@@ -1,4 +1,6 @@
 import '@testing-library/jest-dom/vitest'
+// jsdom doesn't ship IndexedDB; this polyfill lets Dexie tests run.
+import 'fake-indexeddb/auto'
 
 // jsdom 29's localStorage relies on Node's experimental --localstorage-file
 // flag, which isn't wired up here. Swap in a simple in-memory Storage that

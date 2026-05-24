@@ -4,8 +4,11 @@ import { Toaster } from 'sonner'
 import AppShell from '@/components/AppShell'
 import InstallHint from '@/components/InstallHint'
 import Protected from '@/components/Protected'
+import RealtimeBridge from '@/components/RealtimeBridge'
 import UpdatePrompt from '@/components/UpdatePrompt'
 import AuthCallback from '@/screens/AuthCallback'
+// Side-effect import: registers window online/offline → syncStore.
+import '@/lib/network'
 
 function Dashboard() {
   return (
@@ -40,6 +43,7 @@ export default function App() {
       </Routes>
       <Toaster theme="dark" position="top-center" richColors closeButton />
       <UpdatePrompt />
+      <RealtimeBridge />
     </BrowserRouter>
   )
 }
