@@ -1,6 +1,6 @@
 # Build Progress
 
-Last updated: 2026-05-24
+Last updated: 2026-05-26
 
 This file is the canonical tracker. A GitHub Project board mirrors it for visual review in Cowork.
 
@@ -20,8 +20,8 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 3 | Auth + protected shell | dashboard | ☑ | Claude Code | fd6c419 | — | Scope expanded to include design-system port (CSS tokens, fonts, .label utility, AppShell) — Login requires it. Localhost magic-link roundtrip verified end-to-end. Prod URL renders correctly; prod magic-link redirect URL verified statically via email content (window.location.origin used correctly). Prod click-through not tested live due to Supabase default-sender email rate limit. |
 | 4 | PWA shell | dashboard | ☑ | Claude Code | fb67581 | — | Manifest colors resolved from Obsidian tokens per prompt-time override (background_color #0a0b0e from --background, theme_color #c8d2e2 from --accent ice). Workbox precaches @fontsource woff2 directly — no Google Fonts handler needed. Added iOS PWA meta tags + apple-touch-icon link beyond the prompt (apple-mobile-web-app-capable=yes is required for navigator.standalone to flip reliably, which gates the dismiss flow). AppShell gained a topBanner slot so InstallHint mounts in App.tsx while rendering above the header. jsdom 29 localStorage/sessionStorage polyfill added in setupTests.ts. Lighthouse PWA audit ≥90 on deploy URL and iPhone Safari install flow remain to verify manually out-of-band per user instruction. |
 | 5 | Data repo (Supabase + Dexie cache) | dashboard | ☑ | Claude Code | d263885 | — | Manual smoke tests passed: online write echoes to a second tab's IndexedDB via the realtime channel; offline write lands in Dexie + outbox with the expected shape and syncStore flips to 'offline'. Three useSession subscriptions to onAuthStateChange now exist (Protected, AccountMenu, RealtimeBridge) — Supabase multiplexes independent subscribers fine, so not a regression; a future useSession refactor to a single module-level subscriber is a low-priority cleanup. Repo layer throws on 4xx; sonner is used only in UI components, with consumer chunks (6+) responsible for catching and toasting. |
-| 6 | Dashboard read-only + dev sample data | dashboard | ☑ | Claude Code | bafffa2 + 92934c8 (fix) | — | Initial commit bafffa2 shipped a render loop: `useDashboardData` subscribed to `syncStore.lastSyncAt`, but the repo's `markSyncedNow()` stamps `lastSyncAt` on every successful read — so the effect cancel/re-run pattern fired forever and `setLoading(false)` never reached commit (220+ Supabase reads in 30s, dashboard frozen on "Loading…"). Fix in 92934c8: added `uiStore.dashboardRefreshKey` + `forceDashboardRefresh()` and swapped the effect dep; SyncIndicator's Force-resync now bumps the counter instead of calling the repo lists directly. Chunk-06 prompt's "Visible `›` on every header" was implemented with lucide `<ChevronRight />` SVG, which has no `›` text in the DOM — swapped to `<span aria-hidden>›</span>` so the smoke test (and ARCHITECTURE §13) hold by text query. Two regression tests in `Dashboard.test.tsx` cover both (lastSyncAt ticks don't refetch; ≥8 `›` chevrons render). 33 vitest tests green; smoke tests 1, 2, 4 PASS via the Cowork extension. Test 3 verified manually with caveats: with DevTools → Network → Offline + Force resync, the dashboard re-renders the same 6 subcategories + 12 tasks (repo's `isOnline()` returns false → Dexie fallback) and the SyncIndicator pill flips to `● Offline` — chunk-06's data-layer offline path PASSES. The SW-served page-reload variant could not be exercised here because `vite.config.ts` sets `devOptions.enabled: false` (SW is intentionally off in dev for HMR sanity); that part is a chunk-04 concern and is deferred to a prod-URL spot check against the deployed Pages site. Minor follow-up surfaced during the manual run: SyncIndicator's "Resyncing…" button label never appears now because `forceDashboardRefresh()` is a synchronous setState bump, so `setResyncing(true/false)` batch into one React update — pre-fix it stayed visible while awaiting real network calls. Cosmetic only; worth fixing in chunk 7 or whenever next touched. |
-| 7 | Task CRUD | dashboard | ☐ | Claude Code | — | — | — |
+| 6 | Dashboard read-only + dev sample data | dashboard | ☑ | Claude Code | bafffa2 + 92934c8 (fix) | — | Initial commit bafffa2 shipped a render loop: `useDashboardData` subscribed to `syncStore.lastSyncAt`, but the repo's `markSyncedNow()` stamps `lastSyncAt` on every successful read — so the effect cancel/re-run pattern fired forever and `setLoading(false)` never reached commit (220+ Supabase reads in 30s, dashboard frozen on "Loading…"). Fix in 92934c8: added `uiStore.dashboardRefreshKey` + `forceDashboardRefresh()` and swapped the effect dep; SyncIndicator's Force-resync now bumps the counter instead of calling the repo lists directly. Chunk-06 prompt's "Visible `›` on every header" was implemented with lucide `<ChevronRight />` SVG, which has no `›` text in the DOM — swapped to `<span aria-hidden>›</span>` so the smoke test (and ARCHITECTURE §13) hold by text query. Two regression tests in `Dashboard.test.tsx` cover both (lastSyncAt ticks don't refetch; ≥8 `›` chevrons render). 33 vitest tests green; smoke tests 1, 2, 4 PASS via the Cowork extension. Test 3 verified manually with caveats: with DevTools → Network → Offline + Force resync, the dashboard re-renders the same 6 subcategories + 12 tasks (repo's `isOnline()` returns false → Dexie fallback) and the SyncIndicator pill flips to `● Offline` — chunk-06's data-layer offline path PASSES. The SW-served page-reload variant could not be exercised here because `vite.config.ts` sets `devOptions.enabled: false` (SW is intentionally off in dev for HMR sanity); that part is a chunk-04 concern and is deferred to a prod-URL spot check against the deployed Pages site. Minor follow-up surfaced during the manual run: SyncIndicator's "Resyncing…" button label never appears now because `forceDashboardRefresh()` is a synchronous setState bump, so `setResyncing(true/false)` batch into one React update — pre-fix it stayed visible while awaiting real network calls. Cosmetic; no scope assigned. If addressed later, file as a revisions entry against chunk 6 rather than folding into an unrelated chunk. |
+| 7 | Task CRUD | dashboard | ☑ | Claude Code | 9f315f9 | — | Chunk-7 implementation. Required two follow-up Revisions to land cleanly end-to-end — see Revisions section for chunk 5 (Bug B, c26bc23, offline contract via SW cache strategy in chunk-4 file) and chunk 2 (Bug A, b0085a1 + 05_realtime.sql, Supabase realtime publication setup). Cross-device realtime, debounce coalescing, and reload-while-offline all verified green via Cowork smoke pass 2026-05-26. First chunk in the project whose end-to-end behavior is actually verified rather than inferred from unit tests passing — that smoke pass also surfaced two pre-existing chunk-15 open questions (SyncIndicator pill recovery; outbox accumulation across sessions), logged below. |
 | 8 | Subcategory management | dashboard | ☐ | Claude Code | — | — | — |
 | 9 | Task reassignment + drill-down routing | dashboard | ☐ | Claude Code | — | — | — |
 | 10 | Routines tab | dashboard | ☐ | Claude Code | — | — | — |
@@ -71,12 +71,26 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 2026-05-24 | Realtime channel lifecycle: one channel per signed-in user named `user-<userId>`, with seven `postgres_changes` listeners filtered by `user_id=eq.<userId>` covering all user-scoped tables. `startRealtime(userId)` is idempotent on the same userId; switching userId tears down the old channel first; `stopRealtime()` removes the channel. Driven by the `RealtimeBridge` component mounted in `App.tsx`. |
 | 2026-05-24 | Write-path server-echo mirror: after a successful Supabase write, the returned row is `put` into the Dexie cache to overwrite the optimistic row — so server-stamped fields (`updated_at`, defaults) land in cache without waiting for the realtime echo. The realtime echo then arrives and re-`put`s the same row idempotently. |
 | 2026-05-24 | Screens trigger an explicit refetch via a `uiStore` counter (`dashboardRefreshKey` + `forceDashboardRefresh()`), not by subscribing to `syncStore.lastSyncAt`. The repo's `markSyncedNow()` stamps `lastSyncAt` on every successful read, so making the screen's load effect depend on it creates a refetch loop (caught in chunk 6, fix in commit 92934c8). New screens that need a "rerun the repo reads" cue should add their own counter to `uiStore` (or share `dashboardRefreshKey` if scope matches) and have whatever wants the refresh — Force-resync, future explicit refresh buttons — call the bump action. The realtime layer keeps Dexie warm in the background, so this is only for cases where the in-memory snapshot needs an explicit nudge. |
+| 2026-05-24 | Top-level tab navigation uses custom NavLink components (react-router-dom) wrapped in `src/components/Tabs.tsx` rather than shadcn `<Tabs>`. The URL is the source of truth for which tab is active — back/forward, deep links, and `aria-current` come for free. Visual styling matches the shadcn Tabs look so future migration is reversible. Applies to any future top-level navigation surfaces (chunk 16's mobile bottom-nav included). |
+| 2026-05-24 | Protected routes share a single `<ProtectedLayout>` route that wraps `<Protected>`, `<AppShell>`, the top tab nav, and a React Router `<Outlet>`. Four children mount underneath: `/`, `/routines`, `/insights`, `/settings`. InstallHint and SyncIndicator therefore mount once across the protected app, not per-route. New protected screens added in later chunks are children of this layout, not new sibling routes. |
+| 2026-05-24 | `Wipe my data` in Settings → Developer uses `repo.tasks.delete()` for tasks (hard-delete exists) and `repo.<table>.archive()` for subcategories and routine_items (chunk-5 repo only exposes archive for those, not hard-delete). `routine_logs` is left in place. Categories are untouched — no delete affordance was added in chunk 5 because the signup trigger seeds them deterministically. Same precedent applies to any future user-initiated bulk-wipe surface. |
+| 2026-05-24 | Dashboard.tsx owns load + handlers; CategoryColumn and SubcategorySection extracted as pure pass-through components alongside the chunk-7 components. |
+| 2026-05-24 | Mutation optimism stays component-level (await repo, then setState on success); no client-side UUID generation, no manual rollback. Offline optimism is handled inside repo + Dexie + outbox per ARCHITECTURE §6. |
+| 2026-05-24 | Realtime → Dashboard refresh wired directly (src/db/realtime.ts imports useUIStore and calls forceDashboardRefresh after applying each Dexie write) rather than via a subscribe(cb) callback. |
+| 2026-05-24 | Realtime-triggered Dashboard refresh debounced at 200ms to coalesce sample-data bursts and self-originated echoes into one refetch. Verified empirically via the 12-insert sample-data burst smoke. |
+| 2026-05-24 | Inline-edit validation is silent: aria-invalid + red shadow on bad input; Enter is a no-op, Escape/blur reverts. Toasts reserved for completed operations ("Task added", "Task deleted") and a single "Could not save — retry" on error. |
+| 2026-05-24 | Inline-edit draft state uses `string \| null` (null = not editing); no `useEffect` syncing draft ← task prop, which avoids both the React 19 set-state-in-effect lint rule and the realtime-during-edit clobber. |
+| 2026-05-24 | Toast library is Sonner (matches chunk-3 mount). Chunk-7 prompt's "shadcn Toast" wording superseded. |
+| 2026-05-24 | Delete confirm uses shadcn AlertDialog (not Dialog), matching chunk-6's "Wipe my data" precedent. DeleteConfirm.tsx is a reusable wrapper for chunks 8 and 10. |
+| 2026-05-24 | Completed-task filter is at the render layer (SubcategorySection partitions into incomplete + completed); repo.tasks.list() still returns both, so the "Show N completed" expander always has data. |
 
 ## Open questions for Cowork review
 
 | Date | Question |
 |---|---|
 | 2026-05-23 | ~~Supabase default-sender rate limit blocking prod magic-link verification.~~ Resolved same day — Resend SMTP configured (see Decisions log). |
+| 2026-05-26 | (chunk 15) SyncIndicator pill doesn't recover to Synced after reconnect when outbox is non-empty. Any user writing offline once gets a stuck Offline pill until drain ships — pre-existing chunk-3/5 condition that chunk-7 smokes 2026-05-26 surfaced. |
+| 2026-05-26 | (chunk 15) Outbox accumulates entries across sessions; 5 entries observed during chunk-7 smokes (4 from 2026-05-24 + 1 from today). Whether "Wipe my data" clears outbox is unverified — worth confirming when chunk 15 lands, since drain semantics depend on knowing what state Wipe leaves behind. |
 
 ## Revisions
 
@@ -98,6 +112,45 @@ Add a 6-digit OTP code login path to `src/screens/Login.tsx` alongside the exist
 - 7 new tests in `Login.test.tsx`: default render, send + transition, auto-submit, digit stripping, sub-6-no-submit, error display, reset.
 
 **Shipped:** commit 0e39d85. `npm test` 14/14 green, build green, deploy green. iPhone Safari standalone-PWA verification completed out-of-band on 2026-05-23 after resetting Supabase's Email OTP Length from 8 to 6 (project default was 8; see Decisions log).
+
+### Chunk 5 (c26bc23) — Bug B: offline-write contract
+
+The chunk-5 contract per ARCHITECTURE §6 (Dexie as canonical offline source; reads
+fall back to Dexie on Supabase failure) was bypassed in production because chunk-4's
+workbox NetworkFirst handler on Supabase URLs returned stale 200s, so the repo's
+read path never saw the network error that triggered the Dexie fallback — and its
+clear + bulkPut overwrote the offline-written row with the (stale) Supabase view.
+
+Fix: changed the workbox handler for `*.supabase.co/rest/v1/*` and `/graphql/v1/*`
+from NetworkFirst to NetworkOnly (vite.config.ts). The SW is now transparent to the
+Supabase read path; Dexie holds the offline contract end-to-end.
+
+Caveat: SW behavior remains outside the unit-test surface. The new
+repo.test.ts regression locks the repo half of the contract. Future chunks that
+touch SW caching strategy or Supabase request headers must re-verify the offline
+path end-to-end manually until SW integration tests exist.
+
+Mini-prompt: chunk-5-revision-offline-contract.md
+
+### Chunk 2 (b0085a1) — Bug A: Supabase realtime publication
+
+The chunk-2 schema setup did not add the 7 user-scoped tables to the
+`supabase_realtime` publication, so postgres_changes events were never broadcast
+and client-side realtime subscriptions in session B were idle. The chunk-5
+"realtime works" smoke was a false positive — the second tab's initial
+`repo.list()` populated its cache, which was misread as a realtime echo. The
+chunk-7 wiring (forceDashboardRefresh + 200ms debounce) had been structurally
+correct from 9f315f9 but had no events to react to.
+
+Fix: new migration `supabase/migrations/05_realtime.sql` adds `categories`,
+`subcategories`, `tasks`, `routine_items`, `routine_logs`, `settings`,
+`push_subscriptions` to the `supabase_realtime` publication, all with
+`REPLICA IDENTITY FULL`. The latter is required so DELETE events carry
+`user_id` for the realtime RLS filter; without it, deletes silently drop.
+
+Mini-prompt: chunk-7-fix-forward-realtime-ui.md (the prompt aimed at chunk-7
+wiring; the actual fix landed in chunk-2 territory because the bug was deeper
+than the prompt's suspect surfaces).
 
 ## How to update this file
 
