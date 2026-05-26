@@ -457,6 +457,120 @@ const tasksRepo = {
       completedAt: completed ? new Date().toISOString() : null,
     })
   },
+
+  /**
+   * Apply a list of (id, patch) updates. Online path groups by patch
+   * shape so the common case (chunk-8's move-N-tasks-to-the-same-sub
+   * and merge) lands in one Supabase round-trip per unique patch.
+   * Offline path enqueues per-row outbox entries — chunk-15's drain
+   * applies them independently.
+   */
+  async bulkUpdate(
+    updates: {
+      id: string
+      patch: Partial<Omit<Task, 'id' | 'userId' | 'createdAt'>>
+    }[],
+  ): Promise<Task[]> {
+    if (updates.length === 0) return []
+    const now = new Date().toISOString()
+
+    if (!isOnline()) {
+      markOffline()
+      const results: Task[] = []
+      for (const u of updates) {
+        const existing = await db.tasks.get(u.id)
+        if (!existing) continue
+        const next: Task = {
+          ...existing,
+          ...u.patch,
+          id: u.id,
+          updatedAt: now,
+        }
+        await db.tasks.put(next)
+        await enqueueOutbox('update', TABLES.tasks, next)
+        results.push(next)
+      }
+      return results
+    }
+
+    try {
+      // Group by serialized patch so identical patches share one query.
+      const groups = new Map<string, { patch: Partial<Task>; ids: string[] }>()
+      for (const u of updates) {
+        const key = JSON.stringify(u.patch)
+        let g = groups.get(key)
+        if (!g) {
+          g = { patch: u.patch, ids: [] }
+          groups.set(key, g)
+        }
+        g.ids.push(u.id)
+      }
+      const results: Task[] = []
+      for (const g of groups.values()) {
+        const { data, error } = await supabase
+          .from('tasks')
+          .update(taskToRow({ ...g.patch, updatedAt: now }))
+          .in('id', g.ids)
+          .select()
+        throwIfClientError(error)
+        const rows = ((data ?? []) as TaskRow[]).map(taskFromRow)
+        for (const r of rows) {
+          await db.tasks.put(r)
+          results.push(r)
+        }
+      }
+      markSyncedNow()
+      return results
+    } catch (e) {
+      if (isClientError(e)) throw e
+      markOffline()
+      const results: Task[] = []
+      for (const u of updates) {
+        const existing = await db.tasks.get(u.id)
+        if (!existing) continue
+        const next: Task = {
+          ...existing,
+          ...u.patch,
+          id: u.id,
+          updatedAt: now,
+        }
+        await db.tasks.put(next)
+        await enqueueOutbox('update', TABLES.tasks, next)
+        results.push(next)
+      }
+      return results
+    }
+  },
+
+  /**
+   * Hard-delete tasks by id. Online path batches into one `.in()` query;
+   * offline path enqueues a delete outbox entry per row.
+   */
+  async bulkDelete(ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+
+    if (!isOnline()) {
+      markOffline()
+      await db.tasks.bulkDelete(ids)
+      for (const id of ids) {
+        await enqueueOutbox('delete', TABLES.tasks, { id })
+      }
+      return
+    }
+    try {
+      const { error } = await supabase.from('tasks').delete().in('id', ids)
+      throwIfClientError(error)
+      await db.tasks.bulkDelete(ids)
+      markSyncedNow()
+    } catch (e) {
+      if (isClientError(e)) throw e
+      markOffline()
+      await db.tasks.bulkDelete(ids)
+      for (const id of ids) {
+        await enqueueOutbox('delete', TABLES.tasks, { id })
+      }
+    }
+  },
 }
 
 // ---------- routine_items ----------

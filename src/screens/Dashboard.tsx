@@ -153,14 +153,6 @@ export default function Dashboard() {
   const { user } = useSession()
   const userId = user?.id ?? null
 
-  const tasksBySub = useMemo(() => {
-    const m: Record<string, Task[]> = {}
-    for (const t of data.tasks) {
-      ;(m[t.subcategoryId] ??= []).push(t)
-    }
-    return m
-  }, [data.tasks])
-
   const subsByCat = useMemo(() => {
     const m: Record<string, Subcategory[]> = {}
     const live = data.subcategories.filter((s) => !s.archivedAt)
@@ -171,7 +163,29 @@ export default function Dashboard() {
     return m
   }, [data.subcategories])
 
-  const openTasks = data.tasks.filter((t) => !t.completedAt)
+  // Live subcategory ids — used to filter tasks belonging to archived
+  // subs so they don't briefly flash visible while a row update is in
+  // flight. Same render-layer filter approach used for completed tasks.
+  const liveSubIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const sub of data.subcategories) {
+      if (!sub.archivedAt) s.add(sub.id)
+    }
+    return s
+  }, [data.subcategories])
+
+  const tasksBySub = useMemo(() => {
+    const m: Record<string, Task[]> = {}
+    for (const t of data.tasks) {
+      if (!liveSubIds.has(t.subcategoryId)) continue
+      ;(m[t.subcategoryId] ??= []).push(t)
+    }
+    return m
+  }, [data.tasks, liveSubIds])
+
+  const openTasks = data.tasks.filter(
+    (t) => !t.completedAt && liveSubIds.has(t.subcategoryId),
+  )
   const openCount = openTasks.length
   const openMinutes = openTasks.reduce(
     (sum, t) => sum + t.estimateMinutes,
@@ -278,6 +292,195 @@ export default function Dashboard() {
     [setData],
   )
 
+  const upsertSubcategory = useCallback(
+    (next: Subcategory) => {
+      setData((prev) => {
+        const idx = prev.subcategories.findIndex((s) => s.id === next.id)
+        const subcategories =
+          idx === -1
+            ? [...prev.subcategories, next]
+            : prev.subcategories.map((s) => (s.id === next.id ? next : s))
+        return { ...prev, subcategories }
+      })
+    },
+    [setData],
+  )
+
+  const onCreateSubcategory = useCallback(
+    async (input: {
+      categoryId: string
+      name: string
+    }): Promise<boolean> => {
+      if (!userId) return false
+      const siblings = data.subcategories.filter(
+        (s) => s.categoryId === input.categoryId && !s.archivedAt,
+      )
+      const nextSortOrder =
+        siblings.reduce((max, s) => Math.max(max, s.sortOrder), -1) + 1
+      try {
+        const created = await repo.subcategories.create({
+          userId,
+          categoryId: input.categoryId,
+          name: input.name,
+          sortOrder: nextSortOrder,
+        })
+        upsertSubcategory(created)
+        toast('Subcategory added')
+        return true
+      } catch (e) {
+        console.error('Create subcategory failed', e)
+        toast.error(SAVE_ERROR)
+        return false
+      }
+    },
+    [userId, data.subcategories, upsertSubcategory],
+  )
+
+  const onRenameSubcategory = useCallback(
+    async (id: string, name: string) => {
+      try {
+        const updated = await repo.subcategories.update(id, { name })
+        upsertSubcategory(updated)
+      } catch (e) {
+        console.error('Rename subcategory failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertSubcategory],
+  )
+
+  const onDeleteSubcategory = useCallback(
+    async (
+      id: string,
+      options: { moveToId?: string; cascadeDelete?: boolean },
+    ) => {
+      const subTasks = data.tasks.filter((t) => t.subcategoryId === id)
+      try {
+        if (options.moveToId && subTasks.length > 0) {
+          const moved = await repo.tasks.bulkUpdate(
+            subTasks.map((t) => ({
+              id: t.id,
+              patch: { subcategoryId: options.moveToId! },
+            })),
+          )
+          setData((prev) => {
+            const byId = new Map(moved.map((t) => [t.id, t]))
+            return {
+              ...prev,
+              tasks: prev.tasks.map((t) => byId.get(t.id) ?? t),
+            }
+          })
+        } else if (options.cascadeDelete && subTasks.length > 0) {
+          await repo.tasks.bulkDelete(subTasks.map((t) => t.id))
+          setData((prev) => ({
+            ...prev,
+            tasks: prev.tasks.filter((t) => t.subcategoryId !== id),
+          }))
+        }
+        const archived = await repo.subcategories.archive(id)
+        upsertSubcategory(archived)
+        if (options.cascadeDelete && subTasks.length > 0) {
+          toast('Subcategory and tasks deleted')
+        } else if (options.moveToId) {
+          toast('Tasks moved, subcategory deleted')
+        } else {
+          toast('Subcategory deleted')
+        }
+      } catch (e) {
+        console.error('Delete subcategory failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [data.tasks, setData, upsertSubcategory],
+  )
+
+  const onMergeSubcategory = useCallback(
+    async (sourceId: string, targetId: string) => {
+      const sourceTasks = data.tasks.filter(
+        (t) => t.subcategoryId === sourceId,
+      )
+      const targetSub = data.subcategories.find((s) => s.id === targetId)
+      try {
+        if (sourceTasks.length > 0) {
+          const moved = await repo.tasks.bulkUpdate(
+            sourceTasks.map((t) => ({
+              id: t.id,
+              patch: { subcategoryId: targetId },
+            })),
+          )
+          setData((prev) => {
+            const byId = new Map(moved.map((t) => [t.id, t]))
+            return {
+              ...prev,
+              tasks: prev.tasks.map((t) => byId.get(t.id) ?? t),
+            }
+          })
+        }
+        const archived = await repo.subcategories.archive(sourceId)
+        upsertSubcategory(archived)
+        toast(`Merged into ${targetSub?.name ?? 'subcategory'}`)
+      } catch (e) {
+        console.error('Merge subcategory failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [data.tasks, data.subcategories, setData, upsertSubcategory],
+  )
+
+  const reorderSubsByIds = useCallback(
+    async (categoryId: string, orderedIds: string[]) => {
+      // Recompute sort_order densely (0, 1, 2, ...) for the visible
+      // subs in this category. The repo loops updates so each row
+      // becomes its own outbox entry offline — fine for 3-5 rows.
+      const orders = orderedIds.map((id, idx) => ({ id, sortOrder: idx }))
+      // Optimistic local apply before the await so the UI doesn't
+      // bounce back during the round-trip.
+      setData((prev) => ({
+        ...prev,
+        subcategories: prev.subcategories.map((s) => {
+          if (s.categoryId !== categoryId) return s
+          const order = orders.find((o) => o.id === s.id)
+          return order ? { ...s, sortOrder: order.sortOrder } : s
+        }),
+      }))
+      try {
+        await repo.subcategories.reorder(orders)
+      } catch (e) {
+        console.error('Reorder subcategories failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [setData],
+  )
+
+  const onReorderSubcategories = useCallback(
+    (categoryId: string, orderedIds: string[]) => {
+      void reorderSubsByIds(categoryId, orderedIds)
+    },
+    [reorderSubsByIds],
+  )
+
+  const onMoveSubcategory = useCallback(
+    (id: string, direction: 'up' | 'down') => {
+      const target = data.subcategories.find((s) => s.id === id)
+      if (!target) return
+      const siblings = data.subcategories
+        .filter((s) => s.categoryId === target.categoryId && !s.archivedAt)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+      const idx = siblings.findIndex((s) => s.id === id)
+      if (idx === -1) return
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+      if (swapIdx < 0 || swapIdx >= siblings.length) return
+      const next = [...siblings]
+      ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
+      void reorderSubsByIds(
+        target.categoryId,
+        next.map((s) => s.id),
+      )
+    },
+    [data.subcategories, reorderSubsByIds],
+  )
+
   // TODO chunk 9: navigate to drill-down route.
   const onDrillDown = useCallback(() => {}, [])
 
@@ -303,6 +506,12 @@ export default function Dashboard() {
             onEditTitle={onEditTitle}
             onEditMinutes={onEditMinutes}
             onDeleteTask={onDeleteTask}
+            onCreateSubcategory={onCreateSubcategory}
+            onRenameSubcategory={onRenameSubcategory}
+            onDeleteSubcategory={onDeleteSubcategory}
+            onMergeSubcategory={onMergeSubcategory}
+            onReorderSubcategories={onReorderSubcategories}
+            onMoveSubcategory={onMoveSubcategory}
           />
         ))}
       </div>

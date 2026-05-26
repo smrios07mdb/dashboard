@@ -73,6 +73,95 @@ describe('Dashboard', () => {
     expect(tasksList).toHaveBeenCalledTimes(1)
   })
 
+  it('archived subcategories do not render and their tasks do not contribute to totals', async () => {
+    const workId = 'cat-work'
+    const personalId = 'cat-personal'
+    categoriesList.mockResolvedValue([
+      { id: workId, name: 'Work', userId: 'u1' },
+      { id: personalId, name: 'Personal', userId: 'u1' },
+    ])
+    subcategoriesList.mockResolvedValue([
+      {
+        id: 'sub-live',
+        name: 'Inbox',
+        categoryId: workId,
+        sortOrder: 0,
+        userId: 'u1',
+        archivedAt: null,
+      },
+      {
+        id: 'sub-archived',
+        name: 'Old project',
+        categoryId: workId,
+        sortOrder: 1,
+        userId: 'u1',
+        archivedAt: '2026-05-25T12:00:00.000Z',
+      },
+    ])
+    tasksList.mockResolvedValue([
+      {
+        id: 't-live',
+        userId: 'u1',
+        subcategoryId: 'sub-live',
+        title: 'Visible task',
+        notes: null,
+        estimateMinutes: 30,
+        dueAt: null,
+        remindAt: null,
+        notified: false,
+        priority: null,
+        completedAt: null,
+        createdAt: '2026-05-25T00:00:00.000Z',
+        updatedAt: '2026-05-25T00:00:00.000Z',
+      },
+      {
+        id: 't-archived',
+        userId: 'u1',
+        subcategoryId: 'sub-archived',
+        title: 'Hidden task',
+        notes: null,
+        estimateMinutes: 999,
+        dueAt: null,
+        remindAt: null,
+        notified: false,
+        priority: null,
+        completedAt: null,
+        createdAt: '2026-05-25T00:00:00.000Z',
+        updatedAt: '2026-05-25T00:00:00.000Z',
+      },
+    ])
+
+    const { container } = renderDashboard()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Inbox')
+    })
+
+    // Archived subcategory must not appear anywhere in the rendered tree.
+    expect(container.textContent).not.toContain('Old project')
+    // And its task must not be visible either.
+    expect(container.textContent).not.toContain('Hidden task')
+    // The "999m" minutes belonging to the archived task must not bubble
+    // into the visible totals — 30m is the only live estimate.
+    expect(container.textContent).not.toContain('999')
+    expect(container.textContent).toContain('30m')
+  })
+
+  it('renders the "+ Add subcategory" affordance for each category column', async () => {
+    categoriesList.mockResolvedValue([
+      { id: 'cat-work', name: 'Work', userId: 'u1' },
+      { id: 'cat-personal', name: 'Personal', userId: 'u1' },
+    ])
+    subcategoriesList.mockResolvedValue([])
+    tasksList.mockResolvedValue([])
+
+    const { findAllByText } = renderDashboard()
+
+    const buttons = await findAllByText('Add subcategory')
+    // One per category column.
+    expect(buttons.length).toBeGreaterThanOrEqual(2)
+  })
+
   it('renders chevrons on every category and subcategory header', async () => {
     const workId = 'cat-work'
     const personalId = 'cat-personal'

@@ -36,6 +36,7 @@ import {
   subcategoryToRow,
   taskFromRow,
   taskToRow,
+  type TaskRow,
 } from './mappers'
 import { repo } from './repo'
 import { useSyncStore } from './syncStore'
@@ -528,5 +529,124 @@ describe('repo (offline)', () => {
     expect(outboxRows).toHaveLength(1)
     expect(outboxRows[0].op).toBe('insert')
     expect(useSyncStore.getState().state).toBe('offline')
+  })
+})
+
+// ============================================================
+// Repo: bulk operations (chunk 8)
+// ============================================================
+
+function aTaskRow(overrides: Partial<TaskRow> = {}): TaskRow {
+  return {
+    id: 't-x',
+    user_id: 'u-1',
+    subcategory_id: 'sub-1',
+    title: 'Task',
+    notes: null,
+    estimate_minutes: 0,
+    due_at: null,
+    remind_at: null,
+    notified: false,
+    priority: null,
+    completed_at: null,
+    created_at: '2026-05-23T00:00:00.000Z',
+    updated_at: '2026-05-23T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+describe('repo bulk ops (online)', () => {
+  it('tasks.bulkUpdate groups identical patches into one query', async () => {
+    fromMock.mockReturnValue(
+      makeChain({
+        data: [
+          aTaskRow({ id: 't-1', subcategory_id: 'sub-2' }),
+          aTaskRow({ id: 't-2', subcategory_id: 'sub-2' }),
+        ],
+        error: null,
+      }),
+    )
+
+    await repo.tasks.bulkUpdate([
+      { id: 't-1', patch: { subcategoryId: 'sub-2' } },
+      { id: 't-2', patch: { subcategoryId: 'sub-2' } },
+    ])
+
+    expect(fromMock).toHaveBeenCalledTimes(1)
+    const inCall = chainCalls.find((c) => c.method === 'in')
+    expect(inCall?.args[0]).toBe('id')
+    expect(inCall?.args[1]).toEqual(['t-1', 't-2'])
+    expect(await db.tasks.get('t-1')).toMatchObject({ subcategoryId: 'sub-2' })
+    expect(await db.tasks.get('t-2')).toMatchObject({ subcategoryId: 'sub-2' })
+    expect(await db.outbox.count()).toBe(0)
+  })
+
+  it('tasks.bulkDelete issues a single .in() query and clears the cache', async () => {
+    await db.tasks.bulkPut([
+      taskFromRow(aTaskRow({ id: 't-a' })),
+      taskFromRow(aTaskRow({ id: 't-b' })),
+    ])
+    fromMock.mockReturnValue(makeChain({ data: null, error: null }))
+
+    await repo.tasks.bulkDelete(['t-a', 't-b'])
+
+    expect(fromMock).toHaveBeenCalledTimes(1)
+    const inCall = chainCalls.find((c) => c.method === 'in')
+    expect(inCall?.args[0]).toBe('id')
+    expect(inCall?.args[1]).toEqual(['t-a', 't-b'])
+    expect(await db.tasks.get('t-a')).toBeUndefined()
+    expect(await db.tasks.get('t-b')).toBeUndefined()
+    expect(await db.outbox.count()).toBe(0)
+  })
+
+  it('tasks.bulkUpdate is a no-op when called with no updates', async () => {
+    const out = await repo.tasks.bulkUpdate([])
+    expect(out).toEqual([])
+    expect(fromMock).not.toHaveBeenCalled()
+  })
+
+  it('tasks.bulkDelete is a no-op when called with no ids', async () => {
+    await repo.tasks.bulkDelete([])
+    expect(fromMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('repo bulk ops (offline)', () => {
+  beforeEach(() => {
+    isOnlineMock.mockReturnValue(false)
+  })
+
+  it('tasks.bulkUpdate applies to cache and enqueues one outbox row per update', async () => {
+    await db.tasks.bulkPut([
+      taskFromRow(aTaskRow({ id: 't-1' })),
+      taskFromRow(aTaskRow({ id: 't-2' })),
+    ])
+
+    await repo.tasks.bulkUpdate([
+      { id: 't-1', patch: { subcategoryId: 'sub-2' } },
+      { id: 't-2', patch: { subcategoryId: 'sub-2' } },
+    ])
+
+    expect(await db.tasks.get('t-1')).toMatchObject({ subcategoryId: 'sub-2' })
+    expect(await db.tasks.get('t-2')).toMatchObject({ subcategoryId: 'sub-2' })
+    expect(await db.outbox.count()).toBe(2)
+    const rows = await db.outbox.toArray()
+    expect(rows.every((r) => r.op === 'update' && r.table === 'tasks')).toBe(true)
+    expect(useSyncStore.getState().state).toBe('offline')
+  })
+
+  it('tasks.bulkDelete removes rows from cache and enqueues one outbox row per id', async () => {
+    await db.tasks.bulkPut([
+      taskFromRow(aTaskRow({ id: 't-a' })),
+      taskFromRow(aTaskRow({ id: 't-b' })),
+    ])
+
+    await repo.tasks.bulkDelete(['t-a', 't-b'])
+
+    expect(await db.tasks.get('t-a')).toBeUndefined()
+    expect(await db.tasks.get('t-b')).toBeUndefined()
+    expect(await db.outbox.count()).toBe(2)
+    const rows = await db.outbox.toArray()
+    expect(rows.every((r) => r.op === 'delete' && r.table === 'tasks')).toBe(true)
   })
 })
