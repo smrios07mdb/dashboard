@@ -28,6 +28,7 @@
  * already filter subcategories by `!archivedAt`. Reloading after a
  * wipe yields a clean dashboard.
  */
+import { startOfDay, subDays } from 'date-fns'
 import { toast } from 'sonner'
 
 import { repo } from '@/db/repo'
@@ -204,6 +205,14 @@ export async function loadSampleData(userId: string): Promise<void> {
   }
 
   // ----- routine items -----
+  // Backdate created_at so the seed's 21 days of routine_logs attach to
+  // routine_items that "existed" on those days. Per ARCH §11, an item
+  // contributes to a day's streak only if `createdAt < startOfDay(date)`
+  // (strict inequality). The earliest backdated log is 20 days ago, so
+  // we go 22 days back at start-of-day for a safe margin. Without this,
+  // chunk-10's streak math correctly reads 0 against the seed and Test 7
+  // has nothing meaningful to verify.
+  const seedCreatedAt = startOfDay(subDays(new Date(), 22)).toISOString()
   const createdItems: {
     id: string
     createdAt: string
@@ -215,6 +224,7 @@ export async function loadSampleData(userId: string): Promise<void> {
       routine: 'morning',
       label: MORNING_LABELS[i],
       sortOrder: i,
+      createdAt: seedCreatedAt,
     })
     createdItems.push({
       id: item.id,
@@ -228,6 +238,7 @@ export async function loadSampleData(userId: string): Promise<void> {
       routine: 'night',
       label: NIGHT_LABELS[i],
       sortOrder: i,
+      createdAt: seedCreatedAt,
     })
     createdItems.push({
       id: item.id,
