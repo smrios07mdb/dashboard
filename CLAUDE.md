@@ -23,3 +23,13 @@ A chunk is done when:
 ## Routine doc edits
 `PROGRESS.md` updates, decision log entries, and README additions are handled by Cowork — not Claude Code, not by hand. After a chunk's code work lands, hand Cowork a task spec covering the doc changes; it applies the edits and prepares the commit.
 Claude Code's responsibility ends at the code changes (and any tests / migrations that ship with them). If a chunk asks Claude Code to write or modify `PROGRESS.md`, treat that as a Cowork task instead.
+
+## Smoke harness notes (Chrome MCP via Cowork)
+
+Three test-harness facts surfaced during chunk-8 smokes that future smoke passes need to know. None of these reflect implementation issues — they're limitations of the Chrome MCP browser harness that Cowork drives.
+
+**@dnd-kit drag activation.** `@dnd-kit`'s default `PointerSensor` uses a 5px-distance activation constraint. Chrome MCP's `left_click_drag` fires a single instantaneous jump that doesn't accumulate pointer-movement events, so the sensor never activates and the drag is dropped silently. Workaround: synthesize the pointer sequence in JS — `pointerdown` → multiple `pointermove` events with ≥5px cumulative travel (chunk-8 used 20 moves) → `pointerup`. Mirrors the pattern `@dnd-kit`'s own unit tests use. Any future smoke that exercises drag interactions (chunk 9 cross-category drag, any future reorder UI) should use this synthesized-pointer pattern, not `left_click_drag`.
+
+**`(hover: none)` mobile-branch testing.** Chrome MCP does not expose DevTools' device emulation toggle, so the standard "switch to iPhone profile in DevTools" approach isn't available. Workaround: patch `window.matchMedia('(hover: none)')` to return `{ matches: true, … }` from the page console, then force a remount of any component that reads it at mount (chunk-8 uses `useIsTouchDevice` which evaluates once at mount). The cleanest remount path is SPA route navigation (`Insights → Dashboard` via a programmatic `link.click()`) — that unmounts and remounts the screen and any hooks within. Reload alone won't work because the `matchMedia` patch is in-page state lost on reload.
+
+**Screenshot persistence.** Chrome MCP returns screenshots inline in the conversation only — it does not write them to disk regardless of `save_to_disk: true` flags or `/tmp/*.png` path hints in smoke specs. Future smoke specs should reference "inline screenshots in the Cowork transcript" rather than promising filesystem paths.

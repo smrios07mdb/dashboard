@@ -22,7 +22,7 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 5 | Data repo (Supabase + Dexie cache) | dashboard | ☑ | Claude Code | d263885 | — | Manual smoke tests passed: online write echoes to a second tab's IndexedDB via the realtime channel; offline write lands in Dexie + outbox with the expected shape and syncStore flips to 'offline'. Three useSession subscriptions to onAuthStateChange now exist (Protected, AccountMenu, RealtimeBridge) — Supabase multiplexes independent subscribers fine, so not a regression; a future useSession refactor to a single module-level subscriber is a low-priority cleanup. Repo layer throws on 4xx; sonner is used only in UI components, with consumer chunks (6+) responsible for catching and toasting. |
 | 6 | Dashboard read-only + dev sample data | dashboard | ☑ | Claude Code | bafffa2 + 92934c8 (fix) | — | Initial commit bafffa2 shipped a render loop: `useDashboardData` subscribed to `syncStore.lastSyncAt`, but the repo's `markSyncedNow()` stamps `lastSyncAt` on every successful read — so the effect cancel/re-run pattern fired forever and `setLoading(false)` never reached commit (220+ Supabase reads in 30s, dashboard frozen on "Loading…"). Fix in 92934c8: added `uiStore.dashboardRefreshKey` + `forceDashboardRefresh()` and swapped the effect dep; SyncIndicator's Force-resync now bumps the counter instead of calling the repo lists directly. Chunk-06 prompt's "Visible `›` on every header" was implemented with lucide `<ChevronRight />` SVG, which has no `›` text in the DOM — swapped to `<span aria-hidden>›</span>` so the smoke test (and ARCHITECTURE §13) hold by text query. Two regression tests in `Dashboard.test.tsx` cover both (lastSyncAt ticks don't refetch; ≥8 `›` chevrons render). 33 vitest tests green; smoke tests 1, 2, 4 PASS via the Cowork extension. Test 3 verified manually with caveats: with DevTools → Network → Offline + Force resync, the dashboard re-renders the same 6 subcategories + 12 tasks (repo's `isOnline()` returns false → Dexie fallback) and the SyncIndicator pill flips to `● Offline` — chunk-06's data-layer offline path PASSES. The SW-served page-reload variant could not be exercised here because `vite.config.ts` sets `devOptions.enabled: false` (SW is intentionally off in dev for HMR sanity); that part is a chunk-04 concern and is deferred to a prod-URL spot check against the deployed Pages site. Minor follow-up surfaced during the manual run: SyncIndicator's "Resyncing…" button label never appears now because `forceDashboardRefresh()` is a synchronous setState bump, so `setResyncing(true/false)` batch into one React update — pre-fix it stayed visible while awaiting real network calls. Cosmetic; no scope assigned. If addressed later, file as a revisions entry against chunk 6 rather than folding into an unrelated chunk. |
 | 7 | Task CRUD | dashboard | ☑ | Claude Code | 9f315f9 | — | Chunk-7 implementation. Required two follow-up Revisions to land cleanly end-to-end — see Revisions section for chunk 5 (Bug B, c26bc23, offline contract via SW cache strategy in chunk-4 file) and chunk 2 (Bug A, b0085a1 + 05_realtime.sql, Supabase realtime publication setup). Cross-device realtime, debounce coalescing, and reload-while-offline all verified green via Cowork smoke pass 2026-05-26. First chunk in the project whose end-to-end behavior is actually verified rather than inferred from unit tests passing — that smoke pass also surfaced two pre-existing chunk-15 open questions (SyncIndicator pill recovery; outbox accumulation across sessions), logged below. |
-| 8 | Subcategory management | dashboard | ☐ | Claude Code | — | — | — |
+| 8 | Subcategory management | dashboard | ☑ | Claude Code | c1daade | — | Chunk-8 implementation. Required one follow-up Revision (chunk 6, `9c3029d`, Dev-only Developer panel reachable on prod via `?dev=1` for smoke-pass seeding — see Revisions section). Smokes 1–9 PASS via Cowork 2026-05-26 against the deployed PWA at `9c3029d` (runtime-equivalent to `c1daade` at the chunk-8 surface layer). `@dnd-kit/core` + `/sortable` + `/utilities` added as new infrastructure. New components: SubcategoryHeader, AddSubcategoryInline, DeleteSubcategoryDialog, MergeSubcategoryDialog, lib/useIsTouchDevice. New repo methods: `subcategories.archive`/`reorder`, `tasks.bulkUpdate`/`bulkDelete`. Five decisions logged below. Unarchive gap raised as open question (archived subcategories persist in Dexie/Supabase but are filtered out of UI; recoverable only via Supabase Studio). |
 | 9 | Task reassignment + drill-down routing | dashboard | ☐ | Claude Code | — | — | — |
 | 10 | Routines tab | dashboard | ☐ | Claude Code | — | — | — |
 | 11 | AI triage | dashboard | ☐ | Claude Code | — | — | — |
@@ -83,6 +83,11 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 2026-05-24 | Toast library is Sonner (matches chunk-3 mount). Chunk-7 prompt's "shadcn Toast" wording superseded. |
 | 2026-05-24 | Delete confirm uses shadcn AlertDialog (not Dialog), matching chunk-6's "Wipe my data" precedent. DeleteConfirm.tsx is a reusable wrapper for chunks 8 and 10. |
 | 2026-05-24 | Completed-task filter is at the render layer (SubcategorySection partitions into incomplete + completed); repo.tasks.list() still returns both, so the "Show N completed" expander always has data. |
+| 2026-05-26 | One `DndContext` per `CategoryColumn`, not at `Dashboard` level. Within-category drag is all chunk 8 needs; per-column scoping keeps drop targets bounded and avoids global drag state. Cross-category drag in chunk 9 reuses the per-column pattern or lifts to a shared Dashboard-level context if scope demands. |
+| 2026-05-26 | `DeleteSubcategoryDialog` and `MergeSubcategoryDialog` are fresh `AlertDialog`-based components, not extensions of chunk-7's `DeleteConfirm`. Both dialogs need internal state (radio choice for delete-with-move vs cascade; target subcategory `Select`) that `DeleteConfirm`'s flat `trigger`/`title`/`description`/`confirmLabel` API doesn't fit. Future destructive dialogs needing internal selection state follow the fresh-`AlertDialog` pattern; `DeleteConfirm` stays the wrapper for plain confirms. |
+| 2026-05-26 | Bulk-write outbox entries are enqueued per-row, not as a single batched entry, for offline paths. `tasks.bulkUpdate` and `tasks.bulkDelete` both follow this — keeps chunk-15's drain shape uniform (one row per outbox entry, no special-casing for bulk ops). |
+| 2026-05-26 | Archived-subcategory filtering lives in `Dashboard.tsx`'s memos (`subsByCat` + `tasksBySub` + `openTasks`) — downstream components receive already-filtered data, repo stays unopinionated. Same precedent as chunk-6's completed-task filter at `SubcategorySection`. Future render-layer filters (archived routines, filtered insights subsets) follow the same pattern: filter at the screen level closest to the rendering need. |
+| 2026-05-26 | Dialog reset-on-open state uses the React-19 "adjust state during render" pattern (compare `prevOpen` vs `open` prop) instead of `useEffect`, because the `react-hooks/set-state-in-effect` lint fires on the effect form. Matches chunk-7's draft-or-null philosophy of dodging effect-driven syncs. Apply to any future modal/dialog that needs reset-on-open behavior (chunk 9's task-row context menu, chunk 10's routine editor likely consumers). |
 
 ## Open questions for Cowork review
 
@@ -91,6 +96,7 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 2026-05-23 | ~~Supabase default-sender rate limit blocking prod magic-link verification.~~ Resolved same day — Resend SMTP configured (see Decisions log). |
 | 2026-05-26 | (chunk 15) SyncIndicator pill doesn't recover to Synced after reconnect when outbox is non-empty. Any user writing offline once gets a stuck Offline pill until drain ships — pre-existing chunk-3/5 condition that chunk-7 smokes 2026-05-26 surfaced. |
 | 2026-05-26 | (chunk 15) Outbox accumulates entries across sessions; 5 entries observed during chunk-7 smokes (4 from 2026-05-24 + 1 from today). Whether "Wipe my data" clears outbox is unverified — worth confirming when chunk 15 lands, since drain semantics depend on knowing what state Wipe leaves behind. |
+| 2026-05-26 | (post-MVP, no chunk currently plans this) No UI path to unarchive subcategories. Subcategories soft-deleted in chunk 8 (via delete-with-move or merge) persist in Dexie + Supabase indefinitely but are filtered out of the UI by `Dashboard.tsx`'s memos. Recovery requires direct Supabase Studio access. Worth a future chunk if archive volume grows or if users want to undo a merge/move-delete operation. Tasks under archived subs are also filtered out, so the gap leaves a small "hidden retained state" footprint that isn't user-recoverable in-app. |
 
 ## Revisions
 
@@ -151,6 +157,37 @@ Fix: new migration `supabase/migrations/05_realtime.sql` adds `categories`,
 Mini-prompt: chunk-7-fix-forward-realtime-ui.md (the prompt aimed at chunk-7
 wiring; the actual fix landed in chunk-2 territory because the bug was deeper
 than the prompt's suspect surfaces).
+
+### Chunk 6 (9c3029d) — Dev-only Developer panel reachable on prod via ?dev=1
+
+The chunk-6 Settings → Developer section (with `loadSampleData` / `wipeMyData`
+helpers) was gated on `import.meta.env.DEV`, so the production build deployed to
+GH Pages had no UI path to seed sample data. Cowork's chunk-8 smoke pass blocked
+at pre-flight step 5 — no Developer section was reachable on the deployed PWA,
+and the helpers (imported only by `Settings.tsx`) weren't exposed on `window`
+either. Earlier chunk-6 and chunk-7 smokes presumably ran against `npm run dev`
+locally or saw Supabase data persisting from a prior local-dev session; chunk 8
+was the first pass that genuinely needed wipe + re-seed on the deployed build.
+
+Fix: extracted the Developer section into `src/components/DeveloperSection.tsx`
+and lazy-loaded it from `src/screens/Settings.tsx` via `React.lazy` + `Suspense`.
+Gate is now `import.meta.env.DEV || URLSearchParams(window.location.search).has('dev')`.
+Production users see no Developer panel by default; `?dev=1` in the URL flips
+the gate and triggers the lazy chunk fetch. The lazy boundary preserves Vite's
+DCE: the helpers (~2.42 KB gzipped) live in their own chunk
+(`DeveloperSection-CBXkMbzM.js`) that production users never download. Main
+chunk grew by 277 B (the gate + `lazy()` + `Suspense` boilerplate only); user-
+visible Developer strings have zero occurrences in the main chunk.
+
+Caveat (security): `loadSampleData` writes and `wipeMyData` deletes operate on
+the authenticated user's own data only (`wipeMyData` behind an `AlertDialog`
+confirm, per chunk 6). Blast radius is per-user — `?dev=1` lets any
+authenticated user touch their own data, not anyone else's. Acceptable for
+MVP-stage / personal-productivity scope. If the project later opens to broader
+users, harden by tying the gate to a specific user id or removing the
+destructive helper from the user-facing surface entirely.
+
+Mini-prompt: revisions-chunk-06-devgate.md
 
 ## How to update this file
 
