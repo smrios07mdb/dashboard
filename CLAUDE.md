@@ -33,3 +33,9 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 **`(hover: none)` mobile-branch testing.** Chrome MCP does not expose DevTools' device emulation toggle, so the standard "switch to iPhone profile in DevTools" approach isn't available. Workaround: patch `window.matchMedia('(hover: none)')` to return `{ matches: true, … }` from the page console, then force a remount of any component that reads it at mount (chunk-8 uses `useIsTouchDevice` which evaluates once at mount). The cleanest remount path is SPA route navigation (`Insights → Dashboard` via a programmatic `link.click()`) — that unmounts and remounts the screen and any hooks within. Reload alone won't work because the `matchMedia` patch is in-page state lost on reload.
 
 **Screenshot persistence.** Chrome MCP returns screenshots inline in the conversation only — it does not write them to disk regardless of `save_to_disk: true` flags or `/tmp/*.png` path hints in smoke specs. Future smoke specs should reference "inline screenshots in the Cowork transcript" rather than promising filesystem paths.
+
+## Chunk prompt corrections
+
+`prompts/README.md` is an overlay doc capturing the cross-chunk substitutions, path corrections, and conventions that apply to every chunk prompt in this repo. Read it before starting any chunk. Authority order: `ARCHITECTURE.md` → `prompts/README.md` → the individual chunk prompt → the chunk-specific brief (if any).
+
+Chunks 1–8 layered these corrections via per-chunk briefs; chunks 10–16 should reference `prompts/README.md` directly instead of re-inlining them.
