@@ -118,4 +118,4 @@ Future chunk briefs (chunks 10–16) should open with:
 
 …followed by the chunk-specific pre-flight (decisions to flag, new infrastructure, out-of-scope items). This keeps briefs focused on what's actually unique to the chunk.
 
-Chunk-9's brief inlined the substitutions in full because this file didn't exist yet. That's fine — chunk 9 is in flight. Chunks 10+ use the lighter shape.
+Chunk-9's brief inlined the substitutions in full because this file didn't exist yet. That's the last brief that does so — chunk 9 has shipped and closed. Chunks 10+ use the lighter shape.
