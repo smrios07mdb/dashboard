@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
+import { today as clockToday } from '@/lib/clock'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -95,7 +96,22 @@ type TodayStripProps = {
 function TodayStrip({ openCount, openMinutes }: TodayStripProps) {
   const availableMinutes = useUIStore((s) => s.availableMinutes)
   const setAvailableMinutes = useUIStore((s) => s.setAvailableMinutes)
-  const today = useMemo(() => new Date(), [])
+  // Read "today" through the clock module so the DEV-only
+  // `__clockOverride` hook (see src/lib/clock.ts) can pin the displayed
+  // date during smoke passes. We pass the browser's resolved timezone
+  // — matching the pre-override `new Date()` behavior (which used the
+  // browser's local tz implicitly) — instead of plumbing settings.tz
+  // through the dashboard; the routines screen still uses settings.tz
+  // directly where the math actually depends on it.
+  const todayKey = clockToday(
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  )
+  // Mid-day local on the pinned date so DST transitions can't roll the
+  // weekday/month/day result the formatter produces.
+  const today = useMemo(
+    () => new Date(`${todayKey}T12:00:00`),
+    [todayKey],
+  )
   return (
     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
       <div className="flex flex-1 items-baseline gap-2">
