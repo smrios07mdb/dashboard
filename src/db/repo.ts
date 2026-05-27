@@ -730,6 +730,14 @@ const routineLogsRepo = {
    * Toggle a routine item's log for a given date. Inserts if missing,
    * flips `completed` if present. Unique (user_id, routine_item_id,
    * date_key) means we can safely upsert.
+   *
+   * Wrapped in try/catch + re-throw so call sites (notably the
+   * sample-data seeder loop) can wrap each call with their own
+   * per-call try/catch and record failures, and so future diagnostic
+   * work has a single hook to plug logging back in without
+   * restructuring. The catch is intentionally a pure passthrough.
+   * Kept per the Revisions chunk-5 silent-drop investigation (2026-
+   * 05-27) — see PROGRESS.md.
    */
   async toggle(args: {
     userId: string
@@ -737,36 +745,40 @@ const routineLogsRepo = {
     dateKey: string
     completed: boolean
   }): Promise<RoutineLog> {
-    const existing = await db.routine_logs
-      .where('[routineItemId+dateKey]')
-      .equals([args.routineItemId, args.dateKey])
-      .first()
-    const full: RoutineLog = {
-      id: existing?.id ?? crypto.randomUUID(),
-      userId: args.userId,
-      routineItemId: args.routineItemId,
-      dateKey: args.dateKey,
-      completed: args.completed,
+    try {
+      const existing = await db.routine_logs
+        .where('[routineItemId+dateKey]')
+        .equals([args.routineItemId, args.dateKey])
+        .first()
+      const full: RoutineLog = {
+        id: existing?.id ?? crypto.randomUUID(),
+        userId: args.userId,
+        routineItemId: args.routineItemId,
+        dateKey: args.dateKey,
+        completed: args.completed,
+      }
+      return await writeRow({
+        op: existing ? 'update' : 'insert',
+        table: TABLES.routineLogs,
+        optimistic: full,
+        cacheApply: async () => {
+          await db.routine_logs.put(full)
+        },
+        online: async () => {
+          const { data, error } = await supabase
+            .from('routine_logs')
+            .upsert(routineLogToRow(full), {
+              onConflict: 'user_id,routine_item_id,date_key',
+            })
+            .select()
+            .single()
+          throwIfClientError(error)
+          return routineLogFromRow(data as RoutineLogRow)
+        },
+      })
+    } catch (err) {
+      throw err
     }
-    return writeRow({
-      op: existing ? 'update' : 'insert',
-      table: TABLES.routineLogs,
-      optimistic: full,
-      cacheApply: async () => {
-        await db.routine_logs.put(full)
-      },
-      online: async () => {
-        const { data, error } = await supabase
-          .from('routine_logs')
-          .upsert(routineLogToRow(full), {
-            onConflict: 'user_id,routine_item_id,date_key',
-          })
-          .select()
-          .single()
-        throwIfClientError(error)
-        return routineLogFromRow(data as RoutineLogRow)
-      },
-    })
   },
 }
 

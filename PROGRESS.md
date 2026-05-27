@@ -1,6 +1,6 @@
 # Build Progress
 
-Last updated: 2026-05-27 (chunk 6 sample-data seed clean-recent-days)
+Last updated: 2026-05-27 (Revisions chunk-5 routine_logs.toggle silent-drop investigation)
 
 This file is the canonical tracker. A GitHub Project board mirrors it for visual review in Cowork.
 
@@ -19,7 +19,7 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 2 | Supabase schema + RLS + signup trigger | dashboard | ☑ | Claude Code | 50296c0 | — | Added SUPABASE_ANON_KEY to .env.test for RLS tests (service-role bypasses RLS). Separate supabase/tests/vitest.config.ts to isolate from app's jsdom config. Fixed bad redirect URL example in chunk-02 prompt during commit. |
 | 3 | Auth + protected shell | dashboard | ☑ | Claude Code | fd6c419 | — | Scope expanded to include design-system port (CSS tokens, fonts, .label utility, AppShell) — Login requires it. Localhost magic-link roundtrip verified end-to-end. Prod URL renders correctly; prod magic-link redirect URL verified statically via email content (window.location.origin used correctly). Prod click-through not tested live due to Supabase default-sender email rate limit. |
 | 4 | PWA shell | dashboard | ☑ | Claude Code | fb67581 | — | Manifest colors resolved from Obsidian tokens per prompt-time override (background_color #0a0b0e from --background, theme_color #c8d2e2 from --accent ice). Workbox precaches @fontsource woff2 directly — no Google Fonts handler needed. Added iOS PWA meta tags + apple-touch-icon link beyond the prompt (apple-mobile-web-app-capable=yes is required for navigator.standalone to flip reliably, which gates the dismiss flow). AppShell gained a topBanner slot so InstallHint mounts in App.tsx while rendering above the header. jsdom 29 localStorage/sessionStorage polyfill added in setupTests.ts. Lighthouse PWA audit ≥90 on deploy URL and iPhone Safari install flow remain to verify manually out-of-band per user instruction. |
-| 5 | Data repo (Supabase + Dexie cache) | dashboard | ☑ | Claude Code | d263885 | — | Manual smoke tests passed: online write echoes to a second tab's IndexedDB via the realtime channel; offline write lands in Dexie + outbox with the expected shape and syncStore flips to 'offline'. Three useSession subscriptions to onAuthStateChange now exist (Protected, AccountMenu, RealtimeBridge) — Supabase multiplexes independent subscribers fine, so not a regression; a future useSession refactor to a single module-level subscriber is a low-priority cleanup. Repo layer throws on 4xx; sonner is used only in UI components, with consumer chunks (6+) responsible for catching and toasting. |
+| 5 | Data repo (Supabase + Dexie cache) | dashboard | ☑ | Claude Code | d263885 | — | Manual smoke tests passed: online write echoes to a second tab's IndexedDB via the realtime channel; offline write lands in Dexie + outbox with the expected shape and syncStore flips to 'offline'. Three useSession subscriptions to onAuthStateChange now exist (Protected, AccountMenu, RealtimeBridge) — Supabase multiplexes independent subscribers fine, so not a regression; a future useSession refactor to a single module-level subscriber is a low-priority cleanup. Repo layer throws on 4xx; sonner is used only in UI components, with consumer chunks (6+) responsible for catching and toasting. · routine_logs.toggle silent-drop investigation, see Revisions 2026-05-27 |
 | 6 | Dashboard read-only + dev sample data | dashboard | ☑ | Claude Code | bafffa2 + 92934c8 (fix) | — | · Sample-data seed clean-recent-days, see Revisions 2026-05-27 · Initial commit bafffa2 shipped a render loop: `useDashboardData` subscribed to `syncStore.lastSyncAt`, but the repo's `markSyncedNow()` stamps `lastSyncAt` on every successful read — so the effect cancel/re-run pattern fired forever and `setLoading(false)` never reached commit (220+ Supabase reads in 30s, dashboard frozen on "Loading…"). Fix in 92934c8: added `uiStore.dashboardRefreshKey` + `forceDashboardRefresh()` and swapped the effect dep; SyncIndicator's Force-resync now bumps the counter instead of calling the repo lists directly. Chunk-06 prompt's "Visible `›` on every header" was implemented with lucide `<ChevronRight />` SVG, which has no `›` text in the DOM — swapped to `<span aria-hidden>›</span>` so the smoke test (and ARCHITECTURE §13) hold by text query. Two regression tests in `Dashboard.test.tsx` cover both (lastSyncAt ticks don't refetch; ≥8 `›` chevrons render). 33 vitest tests green; smoke tests 1, 2, 4 PASS via the Cowork extension. Test 3 verified manually with caveats: with DevTools → Network → Offline + Force resync, the dashboard re-renders the same 6 subcategories + 12 tasks (repo's `isOnline()` returns false → Dexie fallback) and the SyncIndicator pill flips to `● Offline` — chunk-06's data-layer offline path PASSES. The SW-served page-reload variant could not be exercised here because `vite.config.ts` sets `devOptions.enabled: false` (SW is intentionally off in dev for HMR sanity); that part is a chunk-04 concern and is deferred to a prod-URL spot check against the deployed Pages site. Minor follow-up surfaced during the manual run: SyncIndicator's "Resyncing…" button label never appears now because `forceDashboardRefresh()` is a synchronous setState bump, so `setResyncing(true/false)` batch into one React update — pre-fix it stayed visible while awaiting real network calls. Cosmetic; no scope assigned. If addressed later, file as a revisions entry against chunk 6 rather than folding into an unrelated chunk. · Sample-data created_at backdate, see Revisions 2026-05-27 |
 | 7 | Task CRUD | dashboard | ☑ | Claude Code | 9f315f9 | — | Chunk-7 implementation. Required two follow-up Revisions to land cleanly end-to-end — see Revisions section for chunk 5 (Bug B, c26bc23, offline contract via SW cache strategy in chunk-4 file) and chunk 2 (Bug A, b0085a1 + 05_realtime.sql, Supabase realtime publication setup). Cross-device realtime, debounce coalescing, and reload-while-offline all verified green via Cowork smoke pass 2026-05-26. First chunk in the project whose end-to-end behavior is actually verified rather than inferred from unit tests passing — that smoke pass also surfaced two pre-existing chunk-15 open questions (SyncIndicator pill recovery; outbox accumulation across sessions), logged below. |
 | 8 | Subcategory management | dashboard | ☑ | Claude Code | c1daade | — | Chunk-8 implementation. Required one follow-up Revision (chunk 6, `9c3029d`, Dev-only Developer panel reachable on prod via `?dev=1` for smoke-pass seeding — see Revisions section). Smokes 1–9 PASS via Cowork 2026-05-26 against the deployed PWA at `9c3029d` (runtime-equivalent to `c1daade` at the chunk-8 surface layer). `@dnd-kit/core` + `/sortable` + `/utilities` added as new infrastructure. New components: SubcategoryHeader, AddSubcategoryInline, DeleteSubcategoryDialog, MergeSubcategoryDialog, lib/useIsTouchDevice. New repo methods: `subcategories.archive`/`reorder`, `tasks.bulkUpdate`/`bulkDelete`. Five decisions logged below. Unarchive gap raised as open question (archived subcategories persist in Dexie/Supabase but are filtered out of UI; recoverable only via Supabase Studio). |
@@ -263,6 +263,46 @@ the override observable on the dashboard. The routines screen still
 uses `settings.timezone` directly where the math depends on it.
 
 Mini-prompt: this file (the Revisions chunk-10 brief delivered 2026-05-27).
+
+### 2026-05-27 — chunk 5 routine_logs.toggle silent-drop investigation (<SHA>)
+
+Chunk-10 smoke v2 surfaced 2–3 silent drops per `loadSampleData` run
+in `repo.routineLogs.toggle`. Diagnose-first per the spec: shipped
+`[toggle:*]` and `[seeder:*]` instrumentation tracing every call
+through the Supabase upsert + Dexie cache write, plus seeder-side
+`success / fail / offlineFallback` accounting and an online → offline
+sync-state-transition detector to make writeRow's silent offline-
+fallback arm visible. Ran 3 consecutive wipe + clear-logs + seed
+cycles against a fresh Supabase routine_logs table.
+
+Result: **3-for-3 clean**. Every run reported `{ planned: 158,
+success: 158, fail: 0, offlineFallback: 0, failedSamples: [] }`.
+Today and yesterday each landed 9/9 active items every run,
+satisfying the spec's primary acceptance criterion. Bug not
+reproducing in current code state — most likely closed by chunk-6's
+clean-recent-days carve-out (2591de9) shifting the race window
+enough to suppress whatever timing-dependent condition originally
+triggered the prior observation.
+
+Diagnostic `console.*` lines stripped. Kept as production code per
+spec: toggle's `try / catch + throw err` structural hook (so call
+sites have a clear contract and future diagnostic work has one place
+to plug logs back in); seeder's per-call try/catch + planned /
+success / fail / offlineFallback accounting; new `toast.warning`
+branch that fires when `failCount > 0` or `offlineFallbackCount > 0`
+— turns this class of silent failure into a loud one going forward
+("Sample data loaded with issues — N/M logs landed, X failed, Y
+routed via offline path" instead of a falsely green success toast).
+
+Side-finding (not silent-drop-related): Supabase's upsert returns
+server-generated log ids that differ from the client-sent
+`crypto.randomUUID()` in toggle's payload. `applyServerEcho` already
+mirrors the server's id into Dexie so no rows are lost, but the
+client-side UUID generation is wasted work. Worth a small follow-up
+later.
+
+Mini-prompt: the Revisions chunk-5 brief delivered 2026-05-27 (this
+file's instigating spec).
 
 ### 2026-05-27 — chunk 6 sample-data seed clean-recent-days (2591de9)
 

@@ -32,6 +32,7 @@ import { startOfDay, subDays } from 'date-fns'
 import { toast } from 'sonner'
 
 import { repo } from '@/db/repo'
+import { syncStore } from '@/db/syncStore'
 
 const MORNING_LABELS = [
   'Make bed',
@@ -259,7 +260,20 @@ export async function loadSampleData(userId: string): Promise<void> {
   // the `!isRecentDay && rand() …` short-circuits before calling
   // `rand()` on recent days, so older days' behavior is identical to
   // before this revision. See PROGRESS.md Revisions 2026-05-27.
-  let logsCount = 0
+  //
+  // Per-call try/catch + success/fail/offline-fallback accounting kept
+  // from the Revisions chunk-5 silent-drop investigation. The toast
+  // previously incremented unconditionally — that hid offline-fallback
+  // returns (writeRow's catch arm returns the optimistic row without
+  // throwing) and exception swallows. Now any non-zero failCount or
+  // offlineFallbackCount surfaces in a warning toast so future drops
+  // of the silent-drop class become loud. See PROGRESS.md Revisions
+  // 2026-05-27 (Revisions chunk-5).
+  let plannedCount = 0
+  let successCount = 0
+  let failCount = 0
+  let offlineFallbackCount = 0
+  const failedToggles: { itemId: string; dateKey: string; err: unknown }[] = []
   for (let offset = 20; offset >= 0; offset -= 1) {
     const dateKey = dateKeyForDaysAgo(offset)
     const isRecentDay = offset <= 1
@@ -269,19 +283,40 @@ export async function loadSampleData(userId: string): Promise<void> {
       const skipThisItem = !isRecentDay && rand() < 0.1 // ~1 in 10 items (older only)
       if (skipThisItem) continue
       const completed = isRecentDay ? true : rand() < 0.92
-      await repo.routineLogs.toggle({
-        userId,
-        routineItemId: item.id,
-        dateKey,
-        completed,
-      })
-      logsCount += 1
+      plannedCount += 1
+      const stateBefore = syncStore.getState().state
+      try {
+        await repo.routineLogs.toggle({
+          userId,
+          routineItemId: item.id,
+          dateKey,
+          completed,
+        })
+        successCount += 1
+        const stateAfter = syncStore.getState().state
+        // writeRow flips to 'offline' on transient errors and returns
+        // the optimistic row — silent to this caller. Detecting that
+        // online → offline transition is what makes the silent-drop
+        // class of failure visible.
+        if (stateAfter === 'offline' && stateBefore !== 'offline') {
+          offlineFallbackCount += 1
+        }
+      } catch (err) {
+        failCount += 1
+        failedToggles.push({ itemId: item.id, dateKey, err })
+      }
     }
   }
 
-  toast.success(
-    `Sample data loaded (${taskCount} tasks, ${createdItems.length} routine items, ${logsCount} logs)`,
-  )
+  if (failCount > 0 || offlineFallbackCount > 0) {
+    toast.warning(
+      `Sample data loaded with issues — ${successCount}/${plannedCount} logs landed, ${failCount} failed, ${offlineFallbackCount} routed via offline path. Some logs may be missing from the server.`,
+    )
+  } else {
+    toast.success(
+      `Sample data loaded (${taskCount} tasks, ${createdItems.length} routine items, ${successCount} logs)`,
+    )
+  }
 }
 
 export async function wipeMyData(userId: string): Promise<void> {
