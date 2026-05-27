@@ -1,7 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import type { RoutineItem, RoutineLog } from '@/db/types'
+import { __clockOverride, today } from './clock'
 import { calcStreak, requiredItemsByDay } from './streak'
+
+// Streak tests pass `today` explicitly per pre-flight note #6 in
+// `streak.ts`, so they don't depend on the clock module. The DEV-only
+// override test below verifies the harness path — that callers reading
+// `clock.today(tz)` pick up the pinned value — and is what the
+// chunk-10 smoke pass relies on for Tests 3 / 4 in the v2 spec. Always
+// clear the override on test teardown so it never leaks between cases.
+afterEach(() => {
+  __clockOverride?.clear()
+})
 
 // All tests fix `today` to a known date so day-arithmetic is
 // reproducible. We don't `vi.mock('@/lib/clock', …)` here because the
@@ -185,6 +196,43 @@ describe('streak — calcStreak', () => {
     }
     expect(calcStreak('morning', items, logs, TODAY, TZ)).toBe(0)
     expect(calcStreak('night', items, logs, TODAY, TZ)).toBe(7)
+  })
+})
+
+describe('streak — DEV harness clock override', () => {
+  it('streak math reads the pinned today from clock.__clockOverride (smoke-pass path)', () => {
+    // Pin "today" to a known dateKey via the DEV-only override hook.
+    // This is the path the chunk-10 smoke pass v2 uses to advance
+    // "today" — see PROGRESS.md Revisions 2026-05-27.
+    const pinned = '2026-06-15'
+    __clockOverride!.set(pinned)
+
+    const items = [
+      buildItem({ id: 'a', routine: 'morning' }),
+      buildItem({ id: 'b', routine: 'morning' }),
+    ]
+    // Both items checked on the pinned day and the prior 2.
+    const logs: RoutineLog[] = []
+    for (let d = 0; d <= 2; d += 1) {
+      const dk = daysAgo(pinned, d)
+      logs.push(logFor('a', dk))
+      logs.push(logFor('b', dk))
+    }
+
+    // Read today via the clock module — this is what real consumers do.
+    const todayKey = today(TZ)
+    expect(todayKey).toBe(pinned)
+    expect(calcStreak('morning', items, logs, todayKey, TZ)).toBe(3)
+  })
+
+  it('clearing the override returns calcStreak inputs back to live behavior', () => {
+    __clockOverride!.set('2026-06-15')
+    expect(today(TZ)).toBe('2026-06-15')
+    __clockOverride!.clear()
+    // Now today(TZ) is the live value; streak math depends on the
+    // current wall clock plus whatever logs are present (none here).
+    const items = [buildItem({ id: 'a', routine: 'morning' })]
+    expect(calcStreak('morning', items, [], today(TZ), TZ)).toBe(0)
   })
 })
 

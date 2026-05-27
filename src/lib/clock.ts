@@ -5,24 +5,32 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
  * timezone" used by the routines streak, the 14-day dot grid, and
  * anything else that needs to honor `settings.timezone` (ARCH §11).
  *
- * Pure functions — no module-level state, no `let _override` escape
- * hatch. Tests stub the module via Vitest's `vi.mock`. If a browser-
- * console smoke pass needs to manipulate "today", it can either
- * temporarily monkey-patch this module or import the patch hook from
- * the smoke harness. Adding an `__override` escape hatch here would
- * widen the surface area of the production bundle for a once-in-a-
- * sprint dev affordance, so it stays out.
- *
  * `today()` and `startOfDayIso()` accept `timezone` as an explicit
  * parameter. The default `'America/New_York'` matches the schema
  * default for `settings.timezone` (ARCH §4); callers should pass the
  * user's loaded setting so the value flows from the source of truth.
+ *
+ * DEV-only escape hatch: `__clockOverride` (module-level, gated behind
+ * `import.meta.env.DEV`) lets the test harness pin `today()` to a
+ * specific dateKey without timezone gymnastics. Production builds
+ * collapse the `import.meta.env.DEV ? … : undefined` ternary to
+ * `undefined`, and tree-shaking drops the unused export — verified
+ * by grepping the prod bundle for `__clockOverride`. The chunk-10
+ * smoke pass needed this affordance and chunks 13 / 14 (calendar,
+ * notifications) will need it too, resolving the 2026-05-27 "add a
+ * hatch later only if a recurring need surfaces" deferral. See
+ * PROGRESS.md Revisions 2026-05-27.
  */
 
 const DEFAULT_TZ = 'America/New_York'
 
+let __override: string | null = null
+
 /** Returns `YYYY-MM-DD` for today in the given timezone. */
 export function today(timezone: string = DEFAULT_TZ): string {
+  if (import.meta.env.DEV && __override) {
+    return __override
+  }
   return formatInTimeZone(new Date(), timezone, 'yyyy-MM-dd')
 }
 
@@ -55,3 +63,34 @@ export function dateKeyDaysAgo(dateKey: string, daysAgo: number): string {
   d.setUTCDate(d.getUTCDate() - daysAgo)
   return d.toISOString().slice(0, 10)
 }
+
+/**
+ * DEV-only override of `today()`. From the DevTools console:
+ *
+ *   window.__clockOverride.set('2026-05-30')   // pin today
+ *   window.__clockOverride.clear()             // restore real today
+ *   window.__clockOverride.get()               // current override (or null)
+ *
+ * `set` validates `YYYY-MM-DD` format and throws on anything else. The
+ * override is session-only — not persisted to settings, localStorage,
+ * or anywhere else. Absent from production builds: the ternary
+ * collapses to `undefined` and tree-shaking removes the export.
+ */
+export const __clockOverride = import.meta.env.DEV
+  ? {
+      set(dateKey: string) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+          throw new Error(
+            `__clockOverride.set expects YYYY-MM-DD, got: ${dateKey}`,
+          )
+        }
+        __override = dateKey
+      },
+      clear() {
+        __override = null
+      },
+      get() {
+        return __override
+      },
+    }
+  : undefined
