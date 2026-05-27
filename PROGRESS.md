@@ -251,6 +251,17 @@ across devices and shared cross-tab) — both still excluded per spec.
 Added a survives-reload test (vitest `vi.resetModules` + re-import) and
 a malformed-storage-ignored test.
 
+Second fix-forward in `91a1376`: the Dashboard's TODAY pill rendered a
+direct `new Date()` (chunk-6 implementation, predates the clock module
+becoming the single source of truth), so the override took effect on
+the Routines streak / dot grid but not on the dashboard date display
+the spec's verify flow checks. Routed the TodayStrip through
+`clock.today(browserTz)` and reconstructed a Date from that dateKey
+for the existing `toLocaleDateString` formatter. Preserves the prior
+behavior in normal operation (browser-local tz, same string) and makes
+the override observable on the dashboard. The routines screen still
+uses `settings.timezone` directly where the math depends on it.
+
 Mini-prompt: this file (the Revisions chunk-10 brief delivered 2026-05-27).
 
 ## How to update this file
