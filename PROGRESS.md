@@ -264,7 +264,7 @@ uses `settings.timezone` directly where the math depends on it.
 
 Mini-prompt: this file (the Revisions chunk-10 brief delivered 2026-05-27).
 
-### 2026-05-27 — chunk 5 routine_logs.toggle silent-drop investigation (<SHA>)
+### 2026-05-27 — chunk 5 routine_logs.toggle silent-drop investigation (e85ad5f)
 
 Chunk-10 smoke v2 surfaced 2–3 silent drops per `loadSampleData` run
 in `repo.routineLogs.toggle`. Diagnose-first per the spec: shipped
