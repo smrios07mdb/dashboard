@@ -250,15 +250,25 @@ export async function loadSampleData(userId: string): Promise<void> {
   // ----- routine logs (past 21 days inclusive of today) -----
   // ~85% complete. Sprinkle in skipped days (no log for any item) and
   // skipped items (no log for that specific item on that day).
+  //
+  // Recent-days carve-out: offset 0 (today) and offset 1 (yesterday)
+  // are always 100% complete for every active item, regardless of PRNG
+  // seed value. Eliminates the chunk-10 smoke v2 Night-streak=0 finding
+  // (mulberry32(0xc0ffee) deterministically landed a skip on today's
+  // "Set out clothes"). The PRNG state at offset >= 2 is unaffected —
+  // the `!isRecentDay && rand() …` short-circuits before calling
+  // `rand()` on recent days, so older days' behavior is identical to
+  // before this revision. See PROGRESS.md Revisions 2026-05-27.
   let logsCount = 0
   for (let offset = 20; offset >= 0; offset -= 1) {
     const dateKey = dateKeyForDaysAgo(offset)
-    const skipWholeDay = rand() < 0.05 // ~1 in 20 days
+    const isRecentDay = offset <= 1
+    const skipWholeDay = !isRecentDay && rand() < 0.05 // ~1 in 20 days (older only)
     if (skipWholeDay) continue
     for (const item of createdItems) {
-      const skipThisItem = rand() < 0.1 // ~1 in 10 items
+      const skipThisItem = !isRecentDay && rand() < 0.1 // ~1 in 10 items (older only)
       if (skipThisItem) continue
-      const completed = rand() < 0.92
+      const completed = isRecentDay ? true : rand() < 0.92
       await repo.routineLogs.toggle({
         userId,
         routineItemId: item.id,
