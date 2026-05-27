@@ -264,7 +264,7 @@ uses `settings.timezone` directly where the math depends on it.
 
 Mini-prompt: this file (the Revisions chunk-10 brief delivered 2026-05-27).
 
-### 2026-05-27 — chunk 6 sample-data seed clean-recent-days (5a5ebc9)
+### 2026-05-27 — chunk 6 sample-data seed clean-recent-days (70123fc)
 
 Chunk-10 smoke v2 surfaced that the seed's deterministic PRNG
 (`mulberry32(0xc0ffee)`) lands a skip on today's "Set out clothes" for
