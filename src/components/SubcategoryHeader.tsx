@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useDroppable } from '@dnd-kit/core'
 import {
   ArrowDown,
   ArrowUp,
@@ -107,6 +108,15 @@ export default function SubcategoryHeader({
   const trimmed = (draft ?? '').trim()
   const invalid = editing && trimmed.length === 0
 
+  // Chunk 9: subcategory header is a drop target for task drags within
+  // the same DndContext (Dashboard category column or CategoryView).
+  // Drop data carries the target subcategoryId so the DndContext's
+  // onDragEnd handler can fan it into repo.tasks.update.
+  const { isOver, setNodeRef: setDropRef } = useDroppable({
+    id: `subdrop:${subcategory.id}`,
+    data: { type: 'subcategory', subcategoryId: subcategory.id },
+  })
+
   useEffect(() => {
     if (editing) inputRef.current?.select()
   }, [editing])
@@ -131,6 +141,7 @@ export default function SubcategoryHeader({
 
   return (
     <header
+      ref={setDropRef}
       role="button"
       tabIndex={editing ? -1 : 0}
       onDoubleClick={() => !editing && onDrillDown(subcategory.id)}
@@ -141,7 +152,12 @@ export default function SubcategoryHeader({
           onDrillDown(subcategory.id)
         }
       }}
-      className="grid cursor-pointer items-center gap-2 px-3 py-3 hover:bg-secondary/40 [grid-template-columns:auto_1fr_auto_auto_auto_auto]"
+      className={cn(
+        'grid cursor-pointer items-center gap-2 px-3 py-3 transition-colors [grid-template-columns:auto_1fr_auto_auto_auto_auto]',
+        isOver
+          ? 'bg-[hsl(var(--ring)/0.15)] ring-1 ring-inset ring-[hsl(var(--ring))]'
+          : 'hover:bg-secondary/40',
+      )}
     >
       {/* Drag handle — desktop only */}
       {!isTouch ? (

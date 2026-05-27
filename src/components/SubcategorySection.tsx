@@ -4,7 +4,7 @@ import { ChevronDown } from 'lucide-react'
 import AddTaskInline from '@/components/AddTaskInline'
 import SubcategoryHeader from '@/components/SubcategoryHeader'
 import TaskRow from '@/components/TaskRow'
-import type { Subcategory, Task } from '@/db/types'
+import type { Category, Subcategory, Task } from '@/db/types'
 import { cn } from '@/lib/utils'
 
 /*
@@ -24,6 +24,8 @@ import { cn } from '@/lib/utils'
 
 export type SubcategorySectionProps = {
   subcategory: Subcategory
+  allCategories: Category[]
+  allSubcategories: Subcategory[]
   tasks: Task[]
   otherSubsInCategory: Subcategory[]
   canMoveUp: boolean
@@ -43,6 +45,15 @@ export type SubcategorySectionProps = {
   onEditTitle: (id: string, title: string) => void | Promise<void>
   onEditMinutes: (id: string, minutes: number) => void | Promise<void>
   onDeleteTask: (id: string) => void | Promise<void>
+  onMoveTaskToSubcategory: (
+    taskId: string,
+    targetSubcategoryId: string,
+  ) => void | Promise<void>
+  onSetTaskReminder: (
+    id: string,
+    remindAt: string | null,
+  ) => void | Promise<void>
+  onEditTaskNotes: (id: string, notes: string | null) => void | Promise<void>
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,
@@ -57,6 +68,8 @@ export type SubcategorySectionProps = {
 
 export default function SubcategorySection({
   subcategory,
+  allCategories,
+  allSubcategories,
   tasks,
   otherSubsInCategory,
   canMoveUp,
@@ -69,6 +82,9 @@ export default function SubcategorySection({
   onEditTitle,
   onEditMinutes,
   onDeleteTask,
+  onMoveTaskToSubcategory,
+  onSetTaskReminder,
+  onEditTaskNotes,
   onRenameSubcategory,
   onDeleteSubcategory,
   onMergeSubcategory,
@@ -112,10 +128,15 @@ export default function SubcategorySection({
             <TaskRow
               key={t.id}
               task={t}
+              categories={allCategories}
+              subcategories={allSubcategories}
               onComplete={onCompleteTask}
               onEditTitle={onEditTitle}
               onEditMinutes={onEditMinutes}
               onDelete={onDeleteTask}
+              onMoveToSubcategory={onMoveTaskToSubcategory}
+              onSetReminder={onSetTaskReminder}
+              onEditNotes={onEditTaskNotes}
             />
           ))
         )}
@@ -141,10 +162,15 @@ export default function SubcategorySection({
                 <TaskRow
                   key={t.id}
                   task={t}
+                  categories={allCategories}
+                  subcategories={allSubcategories}
                   onComplete={onCompleteTask}
                   onEditTitle={onEditTitle}
                   onEditMinutes={onEditMinutes}
                   onDelete={onDeleteTask}
+                  onMoveToSubcategory={onMoveTaskToSubcategory}
+                  onSetReminder={onSetTaskReminder}
+                  onEditNotes={onEditTaskNotes}
                 />
               ))}
           </>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -152,6 +153,7 @@ export default function Dashboard() {
   const { data, setData, loading } = useDashboardData()
   const { user } = useSession()
   const userId = user?.id ?? null
+  const navigate = useNavigate()
 
   const subsByCat = useMemo(() => {
     const m: Record<string, Subcategory[]> = {}
@@ -290,6 +292,55 @@ export default function Dashboard() {
       }
     },
     [setData],
+  )
+
+  const onMoveTaskToSubcategory = useCallback(
+    async (id: string, targetSubcategoryId: string) => {
+      try {
+        const updated = await repo.tasks.update(id, {
+          subcategoryId: targetSubcategoryId,
+        })
+        upsertTask(updated)
+        toast('Task moved')
+      } catch (e) {
+        console.error('Move task failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
+  const onSetTaskReminder = useCallback(
+    async (id: string, remindAt: string | null) => {
+      try {
+        const updated = await repo.tasks.update(id, {
+          remindAt,
+          // Resetting `remindAt` resets the notified flag so a future
+          // reminder fires; chunk 14 owns the actual delivery.
+          notified: false,
+        })
+        upsertTask(updated)
+        toast(remindAt ? 'Reminder set' : 'Reminder cleared')
+      } catch (e) {
+        console.error('Set reminder failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
+  const onEditTaskNotes = useCallback(
+    async (id: string, notes: string | null) => {
+      try {
+        const updated = await repo.tasks.update(id, { notes })
+        upsertTask(updated)
+        toast('Notes saved')
+      } catch (e) {
+        console.error('Edit notes failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
   )
 
   const upsertSubcategory = useCallback(
@@ -481,8 +532,17 @@ export default function Dashboard() {
     [data.subcategories, reorderSubsByIds],
   )
 
-  // TODO chunk 9: navigate to drill-down route.
-  const onDrillDown = useCallback(() => {}, [])
+  const onDrillDown = useCallback(
+    (kind: 'category' | 'subcategory', id: string) => {
+      navigate(`/${kind}/${id}`)
+    },
+    [navigate],
+  )
+
+  const liveSubcategories = useMemo(
+    () => data.subcategories.filter((s) => !s.archivedAt),
+    [data.subcategories],
+  )
 
   if (loading) {
     return (
@@ -498,6 +558,8 @@ export default function Dashboard() {
           <CategoryColumn
             key={cat.id}
             category={cat}
+            allCategories={data.categories}
+            allSubcategories={liveSubcategories}
             subcategories={subsByCat[cat.id] ?? []}
             tasksBySub={tasksBySub}
             onDrillDown={onDrillDown}
@@ -506,6 +568,9 @@ export default function Dashboard() {
             onEditTitle={onEditTitle}
             onEditMinutes={onEditMinutes}
             onDeleteTask={onDeleteTask}
+            onMoveTaskToSubcategory={onMoveTaskToSubcategory}
+            onSetTaskReminder={onSetTaskReminder}
+            onEditTaskNotes={onEditTaskNotes}
             onCreateSubcategory={onCreateSubcategory}
             onRenameSubcategory={onRenameSubcategory}
             onDeleteSubcategory={onDeleteSubcategory}

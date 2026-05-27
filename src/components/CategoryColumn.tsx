@@ -19,6 +19,15 @@ import type { Category, Subcategory, Task } from '@/db/types'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 
 /*
+ * Drag discriminator helpers. `useDraggable` IDs we emit are prefixed
+ * with `task:` (in TaskRow); sortable subcategory items use their raw
+ * UUID. The unified onDragEnd handler routes on this prefix.
+ */
+function isTaskDragId(id: unknown): boolean {
+  return typeof id === 'string' && id.startsWith('task:')
+}
+
+/*
  * One category column on the dashboard ("Work" or "Personal").
  *
  * Renders the category header with totals plus a card listing each
@@ -44,9 +53,13 @@ function formatMinutes(mins: number): string {
 
 export type CategoryColumnProps = {
   category: Category
+  /** All categories — needed for the task-menu MoveToPicker. */
+  allCategories: Category[]
+  /** All non-archived subcategories — needed for the task-menu MoveToPicker. */
+  allSubcategories: Subcategory[]
   subcategories: Subcategory[]
   tasksBySub: Record<string, Task[]>
-  onDrillDown: (id: string) => void
+  onDrillDown: (kind: 'category' | 'subcategory', id: string) => void
   onCreateTask: (input: {
     subcategoryId: string
     title: string
@@ -56,6 +69,18 @@ export type CategoryColumnProps = {
   onEditTitle: (id: string, title: string) => void | Promise<void>
   onEditMinutes: (id: string, minutes: number) => void | Promise<void>
   onDeleteTask: (id: string) => void | Promise<void>
+  onMoveTaskToSubcategory: (
+    taskId: string,
+    targetSubcategoryId: string,
+  ) => void | Promise<void>
+  onSetTaskReminder: (
+    id: string,
+    remindAt: string | null,
+  ) => void | Promise<void>
+  onEditTaskNotes: (
+    id: string,
+    notes: string | null,
+  ) => void | Promise<void>
   onCreateSubcategory: (input: {
     categoryId: string
     name: string
@@ -78,6 +103,8 @@ export type CategoryColumnProps = {
 
 export default function CategoryColumn({
   category,
+  allCategories,
+  allSubcategories,
   subcategories,
   tasksBySub,
   onDrillDown,
@@ -86,6 +113,9 @@ export default function CategoryColumn({
   onEditTitle,
   onEditMinutes,
   onDeleteTask,
+  onMoveTaskToSubcategory,
+  onSetTaskReminder,
+  onEditTaskNotes,
   onCreateSubcategory,
   onRenameSubcategory,
   onDeleteSubcategory,
@@ -116,7 +146,34 @@ export default function CategoryColumn({
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
-    if (!over || active.id === over.id) return
+    if (!over) return
+
+    // Task drag → drop on a SubcategoryHeader's useDroppable. Active
+    // id is prefixed `task:<uuid>`; the drop target's data carries
+    // `{ type: 'subcategory', subcategoryId }`.
+    if (isTaskDragId(active.id)) {
+      const data = active.data.current as
+        | { taskId?: string; currentSubcategoryId?: string }
+        | undefined
+      const target = over.data.current as
+        | { type?: string; subcategoryId?: string }
+        | undefined
+      const taskId = data?.taskId
+      const targetSubId = target?.subcategoryId
+      const currentSubId = data?.currentSubcategoryId
+      if (
+        taskId &&
+        targetSubId &&
+        target?.type === 'subcategory' &&
+        targetSubId !== currentSubId
+      ) {
+        void onMoveTaskToSubcategory(taskId, targetSubId)
+      }
+      return
+    }
+
+    // Subcategory sortable reorder (chunk-8 behavior).
+    if (active.id === over.id) return
     const oldIndex = subIds.indexOf(String(active.id))
     const newIndex = subIds.indexOf(String(over.id))
     if (oldIndex === -1 || newIndex === -1) return
@@ -131,11 +188,11 @@ export default function CategoryColumn({
       <header
         role="button"
         tabIndex={0}
-        onDoubleClick={() => onDrillDown(category.id)}
+        onDoubleClick={() => onDrillDown('category', category.id)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
-            onDrillDown(category.id)
+            onDrillDown('category', category.id)
           }
         }}
         className="mb-3 grid cursor-pointer items-baseline gap-3 pb-3 [grid-template-columns:4px_1fr_auto_auto_auto]"
@@ -160,7 +217,7 @@ export default function CategoryColumn({
           aria-label={`Open ${category.name}`}
           onClick={(e) => {
             e.stopPropagation()
-            onDrillDown(category.id)
+            onDrillDown('category', category.id)
           }}
           className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[20px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
@@ -182,6 +239,8 @@ export default function CategoryColumn({
                 <SortableSubSection
                   key={sub.id}
                   subcategory={sub}
+                  allCategories={allCategories}
+                  allSubcategories={allSubcategories}
                   tasks={tasksBySub[sub.id] ?? []}
                   otherSubsInCategory={subcategories.filter(
                     (s) => s.id !== sub.id,
@@ -189,12 +248,15 @@ export default function CategoryColumn({
                   canMoveUp={index > 0}
                   canMoveDown={index < subcategories.length - 1}
                   isTouch={isTouch}
-                  onDrillDown={onDrillDown}
+                  onDrillDown={(id) => onDrillDown('subcategory', id)}
                   onCreateTask={onCreateTask}
                   onCompleteTask={onCompleteTask}
                   onEditTitle={onEditTitle}
                   onEditMinutes={onEditMinutes}
                   onDeleteTask={onDeleteTask}
+                  onMoveTaskToSubcategory={onMoveTaskToSubcategory}
+                  onSetTaskReminder={onSetTaskReminder}
+                  onEditTaskNotes={onEditTaskNotes}
                   onRenameSubcategory={onRenameSubcategory}
                   onDeleteSubcategory={onDeleteSubcategory}
                   onMergeSubcategory={onMergeSubcategory}
@@ -216,6 +278,8 @@ export default function CategoryColumn({
 
 type SortableSubSectionProps = {
   subcategory: Subcategory
+  allCategories: Category[]
+  allSubcategories: Subcategory[]
   tasks: Task[]
   otherSubsInCategory: Subcategory[]
   canMoveUp: boolean
@@ -231,6 +295,15 @@ type SortableSubSectionProps = {
   onEditTitle: (id: string, title: string) => void | Promise<void>
   onEditMinutes: (id: string, minutes: number) => void | Promise<void>
   onDeleteTask: (id: string) => void | Promise<void>
+  onMoveTaskToSubcategory: (
+    taskId: string,
+    targetSubcategoryId: string,
+  ) => void | Promise<void>
+  onSetTaskReminder: (
+    id: string,
+    remindAt: string | null,
+  ) => void | Promise<void>
+  onEditTaskNotes: (id: string, notes: string | null) => void | Promise<void>
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,
