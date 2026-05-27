@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { __clockOverride, today } from './clock'
 
@@ -59,5 +59,35 @@ describe('clock — __clockOverride', () => {
     expect(__clockOverride!.get()).toBe(null)
     const live = today(TZ)
     expect(live).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('set() writes to sessionStorage; clear() removes it', () => {
+    __clockOverride!.set('1999-06-04')
+    expect(sessionStorage.getItem('__clockOverride')).toBe('1999-06-04')
+    __clockOverride!.clear()
+    expect(sessionStorage.getItem('__clockOverride')).toBe(null)
+  })
+
+  it('a fresh module load (simulated reload) picks up the stored override', async () => {
+    // The smoke-pass harness uses this exact flow: set → reload → use.
+    // Simulate the reload by writing the storage value, dropping the
+    // module cache, and re-importing.
+    sessionStorage.setItem('__clockOverride', '1999-06-05')
+    vi.resetModules()
+    const fresh = await import('./clock')
+    expect(fresh.today(TZ)).toBe('1999-06-05')
+    expect(fresh.__clockOverride!.get()).toBe('1999-06-05')
+    // Cleanup goes through the fresh module so its in-memory variable
+    // is also reset, not just sessionStorage.
+    fresh.__clockOverride!.clear()
+  })
+
+  it('a fresh module load with malformed sessionStorage value ignores it', async () => {
+    sessionStorage.setItem('__clockOverride', 'garbage')
+    vi.resetModules()
+    const fresh = await import('./clock')
+    expect(fresh.__clockOverride!.get()).toBe(null)
+    expect(fresh.today(TZ)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(fresh.today(TZ)).not.toBe('garbage')
   })
 })

@@ -20,11 +20,37 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
  * notifications) will need it too, resolving the 2026-05-27 "add a
  * hatch later only if a recurring need surfaces" deferral. See
  * PROGRESS.md Revisions 2026-05-27.
+ *
+ * The override is backed by `sessionStorage` so that the test-harness
+ * flow `set → reload → verify` works as the spec describes — a page
+ * reload would otherwise wipe the in-memory variable. `sessionStorage`
+ * is session-scoped (same tab, dies on tab close); it is NOT
+ * `localStorage` (persistent across sessions) and NOT a `settings`
+ * row (persistent across devices). That matches the spec's
+ * "session-only" intent.
  */
 
 const DEFAULT_TZ = 'America/New_York'
+const STORAGE_KEY = '__clockOverride'
 
-let __override: string | null = null
+function readStoredOverride(): string | null {
+  if (typeof sessionStorage === 'undefined') return null
+  try {
+    const stored = sessionStorage.getItem(STORAGE_KEY)
+    return stored && /^\d{4}-\d{2}-\d{2}$/.test(stored) ? stored : null
+  } catch {
+    return null
+  }
+}
+
+// Initialize from sessionStorage so a `set` survives a page reload.
+// DEV-only: in prod the override branch in `today()` is never taken,
+// so we don't even bother reading sessionStorage at module init —
+// `import.meta.env.DEV` resolves to `false` and the ternary collapses
+// to `null`, leaving `readStoredOverride` eligible for tree-shaking.
+let __override: string | null = import.meta.env.DEV
+  ? readStoredOverride()
+  : null
 
 /** Returns `YYYY-MM-DD` for today in the given timezone. */
 export function today(timezone: string = DEFAULT_TZ): string {
@@ -85,9 +111,22 @@ export const __clockOverride = import.meta.env.DEV
           )
         }
         __override = dateKey
+        try {
+          sessionStorage.setItem(STORAGE_KEY, dateKey)
+        } catch {
+          // sessionStorage unavailable (private mode, SSR shim) — the
+          // in-memory override still works for the current page load,
+          // we just can't survive a reload. Quiet failure is fine
+          // because this is a DEV-only affordance.
+        }
       },
       clear() {
         __override = null
+        try {
+          sessionStorage.removeItem(STORAGE_KEY)
+        } catch {
+          // see set() — same swallow.
+        }
       },
       get() {
         return __override
