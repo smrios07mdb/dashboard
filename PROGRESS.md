@@ -103,7 +103,7 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 2026-05-27 | Routines: routine-item removal reuses `DeleteConfirm` (single click → confirm). Copy distinguishes archival (`archived_at` set, streak history preserved) from hard deletion. Explicit divergence from chunk 9's TaskMenu three-dot pattern. |
 | 2026-05-27 | Routines: optimistic log toggle uses an id-prefix discriminator (`optimistic-<itemId>-<dateKey>`). The realtime row from `routineLogs.toggle` replaces the placeholder by id on success; failure rolls back by dropping the prefixed row. |
 | 2026-05-27 | Routines reorder: per-panel `DndContext` + `SortableContext` (Morning and Night are independent routine values). No cross-panel drag. The chunk-9 cross-context `closestCenter` open question is Dashboard-only and stays open. |
-| 2026-05-27 | Clock escape hatch shipped as DEV-only `__clockOverride` module export on `src/lib/clock.ts`, registered on `window` in dev only. Resolves the chunk-10 deferral after the smoke pass demonstrated recurring need. `today()` reads override first when set; `startOfDayIso` / `dateKeyDaysAgo` unaffected. Prod builds DCE the export — verified via prod-bundle grep. Session-only (not persisted to settings, localStorage, or anywhere else). |
+| 2026-05-27 | Clock escape hatch shipped as DEV-only `__clockOverride` module export on `src/lib/clock.ts`, registered on `window` in dev only. Resolves the chunk-10 deferral after the smoke pass demonstrated recurring need. `today()` reads override first when set; `startOfDayIso` / `dateKeyDaysAgo` unaffected. Prod builds DCE the export — verified via prod-bundle grep. Backed by `sessionStorage` (tab-scoped, survives reload, dies on tab close) so the harness `set → reload → verify` flow works as the spec describes. Explicitly **not** `localStorage` (persistent across sessions) and **not** a `settings` row (persistent across devices, shared cross-tab). Module-init reads sessionStorage only in DEV — prod branch collapses the read to `null` literal. |
 
 ## Open questions for Cowork review
 
@@ -227,7 +227,7 @@ a force-push to correct.)
 
 Mini-prompt: this file (the Revisions chunk-6 brief delivered 2026-05-27).
 
-### 2026-05-27 — chunk 10 DEV-only clock override hook (8dad8f0)
+### 2026-05-27 — chunk 10 DEV-only clock override hook (8dad8f0 + ce09ae1)
 
 Chunk-10 deferred a clock escape hatch with "add later only if a recurring
 need surfaces." The smoke pass surfaced it — TZ override and
@@ -237,9 +237,19 @@ same testing need. Add a `__clockOverride` module export gated behind
 `import.meta.env.DEV`, registered on `window` in dev only. `today()`
 reads the override first when set; everything else unchanged. Absent
 from prod builds — verified by grepping `dist/` for `__clockOverride`
-after `npm run build` (zero matches; sanity check confirms grep is
-working). 6 new clock tests + 2 new streak harness tests; full suite
-59/59 green.
+after `npm run build` (zero matches; sanity check on the same build
+finds known strings, confirming grep is working). Full suite 62/62 green.
+
+Fix-forward in `ce09ae1`: the initial commit (8dad8f0) stored the
+override in a module-level `let`, which `today()` read correctly but
+which was wiped on every page reload — breaking the spec's
+`set → reload → verify` flow. Switched to a `sessionStorage` backing
+that's read on module init and written by `set` / `clear`. Tab-scoped:
+survives reload, dies on tab close. This is **not** `localStorage`
+(persistent across sessions) and **not** a `settings` row (persistent
+across devices and shared cross-tab) — both still excluded per spec.
+Added a survives-reload test (vitest `vi.resetModules` + re-import) and
+a malformed-storage-ignored test.
 
 Mini-prompt: this file (the Revisions chunk-10 brief delivered 2026-05-27).
 
