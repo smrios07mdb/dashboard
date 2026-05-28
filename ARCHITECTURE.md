@@ -46,7 +46,7 @@ Single-user installable PWA. Runs on iPhone, iPad, and Mac (Safari + installable
 
 **AI**
 - Anthropic API called client-side with `anthropic-dangerous-direct-browser-access: true`
-- Model: `claude-sonnet-4-5`
+- Model: `claude-sonnet-4-6`
 - User-supplied API key stored in `settings.ai_api_key`
 
 ---
@@ -253,7 +253,7 @@ Client-side call to `https://api.anthropic.com/v1/messages`:
 - Header `anthropic-dangerous-direct-browser-access: true`
 - Header `x-api-key: <user key from settings>`
 - Header `anthropic-version: 2023-06-01`
-- Model `claude-sonnet-4-5`, `max_tokens: 800`
+- Model `claude-sonnet-4-6`, `max_tokens: 800`
 - System prompt frames Claude as a triage assistant
 - User message: JSON of incomplete tasks (id, title, subcategory_name, category_name, estimate_minutes, due_at, priority) + available minutes
 - Expected response: `{ recommendations: [{ task_id, reason }], note: string }`

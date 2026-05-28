@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 
 import CategoryColumn from '@/components/CategoryColumn'
-import { Button } from '@/components/ui/button'
+import WhatsNextSheet from '@/components/WhatsNextSheet'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
@@ -151,15 +150,7 @@ function TodayStrip({ openCount, openMinutes }: TodayStripProps) {
             min
           </span>
         </label>
-        <Button
-          size="sm"
-          disabled
-          // Chunk 11 wires the AI triage call. Disabled placeholder for chunk 6.
-          title="What's next? is enabled in chunk 11"
-        >
-          <Sparkles className="size-4" />
-          What&rsquo;s next?
-        </Button>
+        <WhatsNextSheet />
       </div>
     </div>
   )

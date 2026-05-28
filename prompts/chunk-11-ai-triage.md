@@ -29,7 +29,7 @@ Add an "AI" section to `src/screens/Settings.tsx`:
     anthropic-dangerous-direct-browser-access: true
     content-type: application/json
   body:
-    model: claude-sonnet-4-5
+    model: claude-sonnet-4-6
     max_tokens: 800
     system: <triage prompt>
     messages: [{ role: 'user', content: <task list JSON + available minutes> }]

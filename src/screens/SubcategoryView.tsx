@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Navigate, useParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { ChevronDown, Move, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -94,6 +94,9 @@ export default function SubcategoryView() {
   const { data, setData, loading } = useSubcategoryViewData()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showCompleted, setShowCompleted] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const highlightId = searchParams.get('task')
+  const highlightRef = useRef<HTMLDivElement | null>(null)
 
   const subcategory = useMemo(
     () => data.subcategories.find((s) => s.id === subcategoryId) ?? null,
@@ -128,6 +131,30 @@ export default function SubcategoryView() {
     () => data.subcategories.filter((s) => !s.archivedAt),
     [data.subcategories],
   )
+
+  // AI "Start" deep-link: arriving with ?task=<id> scrolls the row into
+  // view and flashes a ring, then drops the param so a reload/re-render
+  // doesn't re-flash. The ring is derived from the URL param (no local
+  // state → no set-state-in-effect lint), and TaskRow stays untouched.
+  useEffect(() => {
+    if (loading || !highlightId) return
+    if (!visibleTasks.some((t) => t.id === highlightId)) return
+    highlightRef.current?.scrollIntoView?.({
+      block: 'center',
+      behavior: 'smooth',
+    })
+    const timer = window.setTimeout(() => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev)
+          next.delete('task')
+          return next
+        },
+        { replace: true },
+      )
+    }, 2200)
+    return () => window.clearTimeout(timer)
+  }, [loading, highlightId, visibleTasks, setSearchParams])
 
   // ---------- selection helpers ----------
 
@@ -417,23 +444,31 @@ export default function SubcategoryView() {
           </div>
         ) : (
           visibleTasks.map((t) => (
-            <TaskRow
+            <div
               key={t.id}
-              task={t}
-              categories={data.categories}
-              subcategories={liveSubs}
-              selectable
-              selected={selected.has(t.id)}
-              onToggleSelected={toggleSelected}
-              dragEnabled={false}
-              onComplete={onCompleteTask}
-              onEditTitle={onEditTitle}
-              onEditMinutes={onEditMinutes}
-              onDelete={onDeleteTask}
-              onMoveToSubcategory={onMoveTaskToSubcategory}
-              onSetReminder={onSetTaskReminder}
-              onEditNotes={onEditTaskNotes}
-            />
+              ref={t.id === highlightId ? highlightRef : undefined}
+              className={cn(
+                t.id === highlightId &&
+                  'rounded-md ring-2 ring-ring ring-inset transition-shadow duration-500',
+              )}
+            >
+              <TaskRow
+                task={t}
+                categories={data.categories}
+                subcategories={liveSubs}
+                selectable
+                selected={selected.has(t.id)}
+                onToggleSelected={toggleSelected}
+                dragEnabled={false}
+                onComplete={onCompleteTask}
+                onEditTitle={onEditTitle}
+                onEditMinutes={onEditMinutes}
+                onDelete={onDeleteTask}
+                onMoveToSubcategory={onMoveTaskToSubcategory}
+                onSetReminder={onSetTaskReminder}
+                onEditNotes={onEditTaskNotes}
+              />
+            </div>
           ))
         )}
         <AddTaskInline
