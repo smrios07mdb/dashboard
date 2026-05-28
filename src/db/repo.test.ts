@@ -650,3 +650,67 @@ describe('repo bulk ops (offline)', () => {
     expect(rows.every((r) => r.op === 'delete' && r.table === 'tasks')).toBe(true)
   })
 })
+
+// ============================================================
+// Repo: routineLogs.deleteAllForUser (Revisions 2026-05-27)
+// ============================================================
+
+describe('repo.routineLogs.deleteAllForUser', () => {
+  it('online: deletes via Supabase, clears Dexie mirror, returns count', async () => {
+    await db.routine_logs.bulkPut([
+      {
+        id: 'rl-1',
+        userId: 'u-1',
+        routineItemId: 'ri-1',
+        dateKey: '2026-05-25',
+        completed: true,
+      },
+      {
+        id: 'rl-2',
+        userId: 'u-1',
+        routineItemId: 'ri-1',
+        dateKey: '2026-05-26',
+        completed: false,
+      },
+    ])
+    fromMock.mockReturnValue(
+      makeChain({
+        data: [{ id: 'rl-1' }, { id: 'rl-2' }],
+        error: null,
+      }),
+    )
+
+    const count = await repo.routineLogs.deleteAllForUser('u-1')
+
+    expect(count).toBe(2)
+    expect(fromMock).toHaveBeenCalledWith('routine_logs')
+    expect(chainCalls.some((c) => c.method === 'delete')).toBe(true)
+    const eqCall = chainCalls.find(
+      (c) => c.method === 'eq' && c.args[0] === 'user_id',
+    )
+    expect(eqCall?.args[1]).toBe('u-1')
+    expect(await db.routine_logs.count()).toBe(0)
+    expect(await db.outbox.count()).toBe(0)
+    expect(useSyncStore.getState().state).toBe('synced')
+  })
+
+  it('offline: throws and does not touch Dexie or the outbox', async () => {
+    isOnlineMock.mockReturnValue(false)
+    await db.routine_logs.bulkPut([
+      {
+        id: 'rl-1',
+        userId: 'u-1',
+        routineItemId: 'ri-1',
+        dateKey: '2026-05-25',
+        completed: true,
+      },
+    ])
+
+    await expect(repo.routineLogs.deleteAllForUser('u-1')).rejects.toThrow(
+      /Reset requires an online connection/,
+    )
+    expect(fromMock).not.toHaveBeenCalled()
+    expect(await db.routine_logs.count()).toBe(1)
+    expect(await db.outbox.count()).toBe(0)
+  })
+})

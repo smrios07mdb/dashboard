@@ -780,6 +780,36 @@ const routineLogsRepo = {
       throw err
     }
   },
+
+  /**
+   * Developer-only bulk reset: delete every routine_log for `userId` from
+   * Supabase and clear the Dexie mirror. Used by Settings → Developer →
+   * "Reset routine logs" so the smoke harness can establish a known-empty
+   * streak baseline without changing prod UX (Wipe my data preserves
+   * routine_logs by design — see PROGRESS.md Revisions 2026-05-27).
+   *
+   * Destructive bulk op: online-only, no outbox enqueue. If offline, the
+   * method throws and nothing is touched — the caller surfaces the error.
+   * Mirrors the chunk-5 write-path convention that bulk destructive
+   * operations don't fan out across the offline outbox.
+   *
+   * Returns the number of rows deleted server-side.
+   */
+  async deleteAllForUser(userId: string): Promise<number> {
+    if (!isOnline()) {
+      throw new Error('Reset requires an online connection')
+    }
+    const { data, error } = await supabase
+      .from('routine_logs')
+      .delete()
+      .eq('user_id', userId)
+      .select('id')
+    throwIfClientError(error as SupabaseError | null)
+    // Cache is per-device — no user_id column in Dexie, see ARCH §6.
+    await db.routine_logs.clear()
+    markSyncedNow()
+    return (data as { id: string }[] | null)?.length ?? 0
+  },
 }
 
 // ---------- settings ----------

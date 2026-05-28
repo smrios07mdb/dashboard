@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 
+import DeleteConfirm from '@/components/DeleteConfirm'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,11 +14,13 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { repo } from '@/db/repo'
 import { useSession } from '@/lib/auth'
 import { loadSampleData, wipeMyData } from '@/lib/sample-data'
 
 /**
- * Developer tools panel — "Load sample data" and "Wipe my data".
+ * Developer tools panel — "Load sample data", "Wipe my data", and
+ * "Reset routine logs".
  *
  * Extracted from Settings.tsx in the Revisions chunk-6 pass so it can
  * be loaded lazily. The gating (`import.meta.env.DEV || ?dev=1`) lives
@@ -24,9 +28,16 @@ import { loadSampleData, wipeMyData } from '@/lib/sample-data'
  * already decided to render it. Default export keeps the dynamic
  * `import('@/components/DeveloperSection')` shape simple.
  *
- * Both helpers operate on the currently authenticated user's own data
- * (per ARCHITECTURE §6 / RLS). Per-user blast radius is acceptable for
- * MVP-stage / personal-productivity scope.
+ * All three helpers operate on the currently authenticated user's own
+ * data (per ARCHITECTURE §6 / RLS). Per-user blast radius is acceptable
+ * for MVP-stage / personal-productivity scope.
+ *
+ * "Reset routine logs" was added in the Revisions 2026-05-27 pass as a
+ * targeted affordance for smoke testing — "Wipe my data" preserves
+ * routine_logs by design (so a user wiping items doesn't lose historical
+ * performance), but smoke v3 needs a known-empty baseline to verify
+ * streak behavior unambiguously. Online-only; no outbox enqueue for a
+ * destructive bulk op.
  */
 export default function DeveloperSection() {
   const { user } = useSession()
@@ -34,6 +45,7 @@ export default function DeveloperSection() {
 
   const [loading, setLoading] = useState(false)
   const [wiping, setWiping] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
 
   async function onLoad() {
     if (!userId) return
@@ -52,6 +64,21 @@ export default function DeveloperSection() {
       await wipeMyData(userId)
     } finally {
       setWiping(false)
+    }
+  }
+
+  async function handleResetRoutineLogs() {
+    if (!userId) return
+    setIsResetting(true)
+    try {
+      const count = await repo.routineLogs.deleteAllForUser(userId)
+      toast.success(`Routine logs reset (${count} logs deleted)`)
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Could not reset routine logs'
+      toast.error(message)
+    } finally {
+      setIsResetting(false)
     }
   }
 
@@ -103,6 +130,20 @@ export default function DeveloperSection() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <DeleteConfirm
+          trigger={
+            <Button variant="outline" disabled={isResetting || !userId}>
+              {isResetting ? 'Resetting…' : 'Reset routine logs'}
+            </Button>
+          }
+          title="Clear all routine completion history?"
+          description={
+            'This deletes every routine log for your account. Routine items, tasks, subcategories, and settings are not affected. Streak calculations and the 14-day dot grid will reset to empty. Developer/testing utility — "Wipe my data" is the broader reset.'
+          }
+          confirmLabel="Reset routine logs"
+          onConfirm={handleResetRoutineLogs}
+        />
       </div>
     </section>
   )
