@@ -1,6 +1,6 @@
 # Build Progress
 
-Last updated: 2026-05-28 (chunk 11 AI triage shipped)
+Last updated: 2026-05-28 (chunk 11 AI triage shipped; model swapped to claude-haiku-4-5)
 
 This file is the canonical tracker. A GitHub Project board mirrors it for visual review in Cowork.
 
@@ -105,6 +105,7 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 | 2026-05-27 | Routines reorder: per-panel `DndContext` + `SortableContext` (Morning and Night are independent routine values). No cross-panel drag. The chunk-9 cross-context `closestCenter` open question is Dashboard-only and stays open. |
 | 2026-05-27 | Clock escape hatch shipped as DEV-only `__clockOverride` module export on `src/lib/clock.ts`, registered on `window` in dev only. Resolves the chunk-10 deferral after the smoke pass demonstrated recurring need. `today()` reads override first when set; `startOfDayIso` / `dateKeyDaysAgo` unaffected. Prod builds DCE the export — verified via prod-bundle grep. Backed by `sessionStorage` (tab-scoped, survives reload, dies on tab close) so the harness `set → reload → verify` flow works as the spec describes. Explicitly **not** `localStorage` (persistent across sessions) and **not** a `settings` row (persistent across devices, shared cross-tab). Module-init reads sessionStorage only in DEV — prod branch collapses the read to `null` literal. |
 | 2026-05-28 | Bumped AI triage model from claude-sonnet-4-5 to claude-sonnet-4-6 — 4-5 superseded (now listed under legacy models). ARCH §2/§10 + chunk-11 prompt updated to match. |
+| 2026-05-28 | AI triage model changed from claude-sonnet-4-6 to claude-haiku-4-5 — lightweight ranking task; Haiku is sufficient and cheaper. ARCH §2/§10, chunk-11 prompt, `src/lib/ai.ts`, `ai.test.ts` assertion, Settings note, and the `design/Settings.tsx` mock all updated. |
 
 ## Open questions for Cowork review
 
