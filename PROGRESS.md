@@ -354,7 +354,7 @@ for smoke v3.
 
 Mini-prompt: this file (path in repo).
 
-### 2026-05-27 — chunk 10 §11 archival semantics fix (Option B) (<short SHA>)
+### 2026-05-27 — chunk 10 §11 archival semantics fix (Option B) (b614127)
 
 The diagnose-first investigation in commit `a583888` confirmed ARCH §11
 was silent on item archival and that the "archived-today item still
