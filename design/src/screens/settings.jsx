@@ -168,7 +168,7 @@ function Settings({ data, mode, setMode, hideCompleted, setHideCompleted, caldav
           <Input value={apiKey} onChange={e=>setApiKey(e.target.value)} type="password" placeholder="sk-ant-…"/>
           <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' }}>
             <Button onClick={()=>onPushToast('Key saved locally.')}>Save key</Button>
-            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>Uses <span className="mono">claude-sonnet-4-5</span>.</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>Uses <span className="mono">claude-haiku-4-5</span>.</span>
           </div>
         </SettingsRow>
       </SettingsSection>

@@ -12,17 +12,18 @@
  * (`parseTriageResult`) are pure and unit-tested without mocks. Only
  * `triage()` touches the network / session / settings boundary.
  *
- * Model: bumped to `claude-sonnet-4-6` — the prompt/ARCH originally
- * specified `claude-sonnet-4-5`, which is now a legacy model (verified
- * against docs.claude.com 2026-05-28). Dateless 4.6-gen IDs are pinned
- * snapshots, so no date suffix is needed.
+ * Model: `claude-haiku-4-5`. Triage just ranks a small JSON payload by
+ * deadline / priority / time-fit — no reasoning-heavy generation — so
+ * Haiku is sufficient and meaningfully cheaper per call than Sonnet.
+ * `claude-haiku-4-5` is the convenience alias for the current Haiku 4.5
+ * snapshot.
  */
 import { repo } from '@/db/repo'
 import { supabase } from '@/lib/supabase'
 import type { Category, Subcategory, Task } from '@/db/types'
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'claude-haiku-4-5'
 const MAX_TOKENS = 800
 
 const SYSTEM_PROMPT =

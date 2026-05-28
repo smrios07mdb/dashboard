@@ -103,7 +103,7 @@ function AiKeySection() {
           {saving ? 'Saving…' : 'Save key'}
         </Button>
         <span className="font-mono text-[11px] text-muted-foreground">
-          Uses claude-sonnet-4-6
+          Uses claude-haiku-4-5
         </span>
       </div>
 

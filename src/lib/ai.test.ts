@@ -302,7 +302,7 @@ describe('triage', () => {
       'true',
     )
     const body = JSON.parse(init.body)
-    expect(body.model).toBe('claude-sonnet-4-6')
+    expect(body.model).toBe('claude-haiku-4-5')
     expect(body.max_tokens).toBe(800)
     const userContent = JSON.parse(body.messages[0].content)
     expect(userContent.available_minutes).toBe(30)
