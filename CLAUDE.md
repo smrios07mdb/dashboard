@@ -5,6 +5,9 @@
 - If a chunk prompt and `ARCHITECTURE.md` disagree, stop and surface the conflict. Do not silently pick one.
 
 ## Progress tracking
+
+The PROGRESS.md backfill pass (steps 1–6 below) is owned by Cowork, run after the chunk's deploy is green. Claude Code's per-chunk responsibility ends at code + tests + the same-chunk ARCH / prompt / `docs/` edits. If a chunk prompt asks Claude Code to write or modify `PROGRESS.md`, treat that as a Cowork task instead — Claude Code hands off a task spec, Cowork applies the edits.
+
 After completing any chunk:
 1. Flip the row's status in `PROGRESS.md` from ☐ to ☑.
 2. Add the short commit SHA to the "PR / Commit" column.
