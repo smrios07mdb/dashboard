@@ -7,10 +7,12 @@ import type { RoutineItem, RoutineLog } from '@/db/types'
  * Canon: ARCHITECTURE.md §11. Restated here so the rules don't drift
  * between this file and the renderers:
  *
- *   1. An item is REQUIRED for `date` iff it existed at start-of-day
- *      in the user's timezone — `createdAt < startOfDay(date)` — and
- *      was not yet archived at that moment (`archivedAt is null` or
- *      `archivedAt >= startOfDay(date)`).
+ *   1. An item is REQUIRED for `date` iff it was created before `date`
+ *      began in the user's timezone — `createdAt < startOfDay(date)` —
+ *      and was not archived before `date` ended (`archivedAt is null`
+ *      or `archivedAt >= startOfDay(date + 1 day)`). Archival takes
+ *      effect from the day of archival forward: an item archived
+ *      during day D is NOT required for D. See ARCH §11.
  *   2. A day is COMPLETE iff (a) at least one item was required, and
  *      (b) every required item has a `completed: true` log for that
  *      `date_key`. A day with zero required items is NOT complete —
@@ -43,10 +45,14 @@ export const DOT_GRID_DAYS = 14
  * were required on that day (per the rule above). Returns a Map so
  * lookups stay O(1) for the caller's iteration.
  *
- * The check uses `startOfDayIso(dateKey, timezone)` for the boundary,
- * so `createdAt` / `archivedAt` (both ISO timestamps in UTC) compare
- * lexically against an equally-formatted ISO string — `<` on ISO
- * strings is timestamp ordering when both are in UTC.
+ * The check uses `startOfDayIso(dateKey, timezone)` for the creation
+ * boundary and `startOfDayIso(dateKey + 1, timezone)` for the archival
+ * boundary, so `createdAt` / `archivedAt` (both ISO timestamps in UTC)
+ * compare lexically against equally-formatted ISO strings — `<` on ISO
+ * strings is timestamp ordering when both are in UTC. The "+1 day"
+ * step flows through `dateKeyDaysAgo(dateKey, -1)` so the boundary is
+ * DST-safe (raw ms arithmetic would skew across spring/fall
+ * transitions in the `settings.timezone`).
  */
 export function requiredItemsByDay(
   items: RoutineItem[],
@@ -55,11 +61,15 @@ export function requiredItemsByDay(
 ): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>()
   for (const dateKey of dateKeys) {
-    const boundary = startOfDayIso(dateKey, timezone)
+    const startBoundary = startOfDayIso(dateKey, timezone)
+    // End-of-day boundary = start of the next day. ARCH §11: items
+    // archived during `dateKey` are not required for `dateKey`.
+    // `dateKeyDaysAgo(_, -1)` steps one calendar day forward; see clock.ts.
+    const endBoundary = startOfDayIso(dateKeyDaysAgo(dateKey, -1), timezone)
     const req = new Set<string>()
     for (const item of items) {
-      if (item.createdAt >= boundary) continue
-      if (item.archivedAt && item.archivedAt < boundary) continue
+      if (item.createdAt >= startBoundary) continue
+      if (item.archivedAt && item.archivedAt < endBoundary) continue
       req.add(item.id)
     }
     out.set(dateKey, req)

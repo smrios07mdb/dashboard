@@ -268,6 +268,8 @@ A routine has a streak of N when every routine_item that **existed at start-of-d
 
 Items created on day X are **not required** for day X's streak credit.
 
+Items archived on day X are **not required** for day X's streak credit; archival takes effect from the day of archival forward. Equivalently, an item is required for day X iff it was created before X began and was not archived before X ended.
+
 ---
 
 ## 12. Insights rendering rule
