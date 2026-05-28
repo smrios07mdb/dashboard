@@ -9,6 +9,7 @@ import '@fontsource/ibm-plex-mono/500.css'
 
 import './index.css'
 import App from './App.tsx'
+import { repo } from './db/repo'
 import { __clockOverride } from './lib/clock'
 
 // DEV-only: expose the clock override hook on `window` so the test
@@ -18,10 +19,21 @@ import { __clockOverride } from './lib/clock'
 // DCE since `import.meta.env.DEV` resolves to `false`. See
 // `src/lib/clock.ts` for the API. Added 2026-05-27 — see PROGRESS.md
 // Revisions chunk-10 DEV-only clock override hook.
+//
+// Also DEV-only: expose `repo` on `window.__claudeDashboard` so smoke
+// passes can backdate `routine_items.created_at` or otherwise drive the
+// data layer from the DevTools console without going through Supabase
+// Studio. Same DCE guarantee as `__clockOverride` — the `if` block is
+// dropped from prod builds and `window.__claudeDashboard` is undefined
+// there. Added 2026-05-27 as a smoke-v3 prerequisite — see PROGRESS.md
+// Revisions chunk-10 smoke v3 pass.
 if (import.meta.env.DEV) {
   ;(
     window as Window & { __clockOverride?: typeof __clockOverride }
   ).__clockOverride = __clockOverride
+  ;(
+    window as Window & { __claudeDashboard?: { repo: typeof repo } }
+  ).__claudeDashboard = { repo }
 }
 
 createRoot(document.getElementById('root')!).render(
