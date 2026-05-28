@@ -338,7 +338,7 @@ seeder error handling) brief.
 Mini-prompt: this file (the Revisions chunk-6 sample-data-clean-recent
 brief delivered 2026-05-27).
 
-### 2026-05-27 — chunk 6 Developer-only Reset routine logs button (<short SHA>)
+### 2026-05-27 — chunk 6 Developer-only Reset routine logs button (6ebc17a)
 
 Wipe my data preserves routine_logs by design (prod UX: a user wiping
 items shouldn't lose historical performance). Chunk-10's smoke pass
