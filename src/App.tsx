@@ -4,6 +4,7 @@ import { Toaster } from 'sonner'
 import InAppReminders from '@/components/InAppReminders'
 import ProtectedLayout from '@/components/ProtectedLayout'
 import RealtimeBridge from '@/components/RealtimeBridge'
+import SyncRunner from '@/components/SyncRunner'
 import UpdatePrompt from '@/components/UpdatePrompt'
 import AuthCallback from '@/screens/AuthCallback'
 import CategoryView from '@/screens/CategoryView'
@@ -37,6 +38,7 @@ export default function App() {
       <UpdatePrompt />
       <RealtimeBridge />
       <InAppReminders />
+      <SyncRunner />
     </BrowserRouter>
   )
 }

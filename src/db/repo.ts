@@ -102,6 +102,7 @@ async function enqueueOutbox(
     createdAt: new Date().toISOString(),
     attempts: 0,
     lastError: null,
+    lastAttemptAt: null,
   }
   await db.outbox.add(row)
 }

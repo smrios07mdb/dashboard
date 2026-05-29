@@ -12,7 +12,7 @@
  * `.version(N)` and add a `.upgrade()` block. Don't reuse version 1 — new
  * fields → new version + upgrade migration.
  */
-import Dexie, { type EntityTable } from 'dexie'
+import Dexie, { type EntityTable, type Transaction } from 'dexie'
 
 import type {
   BusyCacheEntry,
@@ -61,7 +61,31 @@ export class DashboardCacheDB extends Dexie {
     this.version(2).stores({
       busyCache: '&dateKey',
     })
+    // v3: chunk 15 adds `lastAttemptAt` to outbox rows. The field isn't an
+    // index (the replay engine filters in JS), so the outbox `.stores()`
+    // string is unchanged — but we still bump the version + run an upgrade so
+    // rows queued on existing installs are backfilled to `lastAttemptAt: null`
+    // rather than left `undefined`. Unmentioned stores (the cache mirrors,
+    // busyCache) inherit unchanged, so this preserves all existing data.
+    this.version(3)
+      .stores({ outbox: '++id, createdAt, table, attempts' })
+      .upgrade(upgradeToV3)
   }
+}
+
+/**
+ * Dexie v2→v3 upgrade (chunk 15). Backfills `lastAttemptAt = null` on outbox
+ * rows that predate the field. Idempotent and only touches rows missing the
+ * field, so cache mirrors and queued outbox rows are otherwise untouched.
+ * Exported so the migration can be exercised against a populated DB in tests.
+ */
+export async function upgradeToV3(tx: Transaction): Promise<void> {
+  await tx
+    .table('outbox')
+    .toCollection()
+    .modify((row: { lastAttemptAt?: string | null }) => {
+      if (row.lastAttemptAt === undefined) row.lastAttemptAt = null
+    })
 }
 
 export const db = new DashboardCacheDB()
