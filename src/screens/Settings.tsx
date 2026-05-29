@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { Bell, Eye, EyeOff, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -6,8 +6,16 @@ import DeleteConfirm from '@/components/DeleteConfirm'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  discardAllFailed,
+  discardOutboxRow,
+  getSyncIssues,
+  retryAllFailed,
+  retryOutboxRow,
+} from '@/db/outbox'
 import { repo } from '@/db/repo'
-import type { CaldavStatus } from '@/db/types'
+import { useSyncStore } from '@/db/syncStore'
+import type { CaldavStatus, OutboxRow } from '@/db/types'
 import { useSession } from '@/lib/auth'
 import {
   CalendarError,
@@ -44,6 +52,146 @@ import { recoverSignedOut } from '@/lib/session'
 const DeveloperSection = lazy(() => import('@/components/DeveloperSection'))
 
 const SAVE_ERROR = 'Could not save — retry'
+
+function formatAge(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (Number.isNaN(ms)) return ''
+  const mins = Math.floor(ms / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+/**
+ * Sync issues (chunk 15). Rendered only while `syncStore.state === 'sync_issues'`
+ * — i.e. one or more outbox rows have exhausted their retries (ARCH §6). Lists
+ * the failed bucket with per-row Retry / Discard plus bulk actions. Retry resets
+ * the row's attempts/backoff and re-runs the drain; Discard drops the change on
+ * this device without touching Supabase.
+ */
+function SyncIssuesSection() {
+  const state = useSyncStore((s) => s.state)
+  const [rows, setRows] = useState<OutboxRow[]>([])
+  const [busy, setBusy] = useState(false)
+
+  // Reload used by the action handlers (event-driven setState is fine).
+  const reload = useCallback(async () => {
+    setRows(await getSyncIssues())
+  }, [])
+
+  // Initial/on-state-change load uses the .then(setState) + cancelled form so
+  // the setState lands in a promise callback (the project's established
+  // pattern — avoids react-hooks/set-state-in-effect; see prompts/README.md).
+  useEffect(() => {
+    if (state !== 'sync_issues') return
+    let cancelled = false
+    getSyncIssues()
+      .then((r) => {
+        if (!cancelled) setRows(r)
+      })
+      .catch(() => {
+        // Reading the local outbox shouldn't fail; nothing to surface.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [state])
+
+  if (state !== 'sync_issues') return null
+
+  async function run(action: () => Promise<unknown>) {
+    setBusy(true)
+    try {
+      await action()
+    } catch (e) {
+      console.error('Sync issue action failed', e)
+      toast.error(SAVE_ERROR)
+    } finally {
+      setBusy(false)
+      await reload()
+    }
+  }
+
+  return (
+    <section id="sync-issues" className="mt-8 border-t border-border pt-6">
+      <div className="label mb-1">Sync</div>
+      <h2
+        className="mb-3 text-[18px] font-semibold text-destructive"
+        style={{ letterSpacing: '-0.01em' }}
+      >
+        Sync issues
+      </h2>
+      <p className="mb-4 max-w-md text-[12px] leading-relaxed text-muted-foreground">
+        These changes couldn&apos;t be saved to the server after several
+        attempts. Retry them, or discard to drop the change on this device.
+      </p>
+
+      <ul className="max-w-2xl space-y-2">
+        {rows.map((r) => (
+          <li
+            key={r.id}
+            className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2"
+          >
+            <div className="min-w-0">
+              <div className="text-[13px] text-foreground">
+                <span className="font-medium capitalize">{r.op}</span>{' '}
+                <span className="font-mono text-[12px] text-secondary-foreground">
+                  {r.table}
+                </span>
+              </div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                {r.lastError ?? 'Unknown error'} · {r.attempts} attempts ·{' '}
+                {formatAge(r.createdAt)}
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy || r.id === undefined}
+                onClick={() => run(() => retryOutboxRow(r.id as number))}
+              >
+                Retry
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy || r.id === undefined}
+                onClick={() => run(() => discardOutboxRow(r.id as number))}
+              >
+                Discard
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-3 flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy || rows.length === 0}
+          onClick={() => run(retryAllFailed)}
+        >
+          Retry all
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={busy || rows.length === 0}
+          onClick={() => run(discardAllFailed)}
+        >
+          Discard all
+        </Button>
+      </div>
+    </section>
+  )
+}
 
 function AiKeySection() {
   const { user } = useSession()
@@ -587,6 +735,7 @@ export default function Settings() {
         Settings
       </h1>
 
+      <SyncIssuesSection />
       <AiKeySection />
       <CalendarSection />
       <NotificationsSection />

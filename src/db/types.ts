@@ -111,6 +111,13 @@ export type OutboxRow = {
   createdAt: string
   attempts: number
   lastError: string | null
+  /**
+   * ISO timestamp of the last replay attempt, or `null` if never attempted
+   * (chunk 15). Drives the exponential-backoff skip in the replay engine.
+   * Rows queued before the chunk-15 Dexie v3 migration are backfilled to
+   * `null` (see `upgradeToV3` in dexie.ts).
+   */
+  lastAttemptAt: string | null
 }
 
 export type SyncState = 'synced' | 'syncing' | 'offline' | 'sync_issues'
