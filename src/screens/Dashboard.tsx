@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import BusyStrip from '@/components/BusyStrip'
 import CategoryColumn from '@/components/CategoryColumn'
 import WhatsNextSheet from '@/components/WhatsNextSheet'
 import { repo } from '@/db/repo'
@@ -559,6 +560,7 @@ export default function Dashboard() {
 
   return (
     <div>
+      <BusyStrip />
       <TodayStrip openCount={openCount} openMinutes={openMinutes} />
       <div className="grid gap-6 sm:grid-cols-2 sm:gap-8">
         {data.categories.map((cat) => (

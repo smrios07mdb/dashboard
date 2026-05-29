@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { Bell, FileText, MoreHorizontal, Trash2 } from 'lucide-react'
+import { Bell, CalendarClock, FileText, MoreHorizontal, Trash2 } from 'lucide-react'
 
+import BlockTimeSheet from '@/components/BlockTimeSheet'
 import DeleteConfirm from '@/components/DeleteConfirm'
 import EditNotesDialog from '@/components/EditNotesDialog'
 import MoveToPicker from '@/components/MoveToPicker'
@@ -51,6 +52,7 @@ export default function TaskMenu({
   onDelete,
 }: TaskMenuProps) {
   const [notesOpen, setNotesOpen] = useState(false)
+  const [blockTimeOpen, setBlockTimeOpen] = useState(false)
 
   return (
     <>
@@ -74,6 +76,10 @@ export default function TaskMenu({
           <DropdownMenuItem onSelect={() => onOpenReminder()}>
             <Bell className="size-3.5" aria-hidden />
             {task.remindAt ? 'Edit reminder' : 'Set reminder…'}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setBlockTimeOpen(true)}>
+            <CalendarClock className="size-3.5" aria-hidden />
+            Block time
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => setNotesOpen(true)}>
             <FileText className="size-3.5" aria-hidden />
@@ -107,6 +113,12 @@ export default function TaskMenu({
         taskTitle={task.title}
         notes={task.notes}
         onSave={onEditNotes}
+      />
+
+      <BlockTimeSheet
+        task={task}
+        open={blockTimeOpen}
+        onOpenChange={setBlockTimeOpen}
       />
     </>
   )

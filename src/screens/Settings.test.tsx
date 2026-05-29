@@ -90,7 +90,9 @@ describe('Settings — AI key', () => {
     render(<Settings />)
     const input = await screen.findByLabelText(/anthropic api key/i)
     expect(input).toHaveAttribute('type', 'password')
-    await user.click(screen.getByRole('button', { name: /show|reveal/i }))
+    // Specific to the AI-key toggle — the Calendar section (chunk 13) adds its
+    // own "Show password" toggle, so a bare /show/ query would now be ambiguous.
+    await user.click(screen.getByRole('button', { name: /show api key/i }))
     expect(input).toHaveAttribute('type', 'text')
   })
 })

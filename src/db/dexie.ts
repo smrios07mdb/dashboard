@@ -15,6 +15,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 
 import type {
+  BusyCacheEntry,
   Category,
   OutboxRow,
   PushSubscription,
@@ -36,6 +37,10 @@ export class DashboardCacheDB extends Dexie {
   settings!: EntityTable<Settings, 'userId'>
   push_subscriptions!: EntityTable<PushSubscription, 'id'>
   outbox!: EntityTable<OutboxRow, 'id'>
+  // Cache-only (not a Postgres mirror): one local day's busy ranges keyed by
+  // dateKey, with a short TTL applied in lib/busyCache. camelCase name since
+  // it's never referenced by the outbox `table` field or a realtime channel.
+  busyCache!: EntityTable<BusyCacheEntry, 'dateKey'>
 
   constructor() {
     super('dashboard-cache')
@@ -49,6 +54,12 @@ export class DashboardCacheDB extends Dexie {
       settings: '&userId',
       push_subscriptions: '&id, endpoint',
       outbox: '++id, createdAt, table, attempts',
+    })
+    // v2: add the client-only busy-range cache (chunk 13). New table only —
+    // unchanged stores are inherited from v1, so no .upgrade() migration is
+    // needed (the comment above governs schema-shape changes to existing rows).
+    this.version(2).stores({
+      busyCache: '&dateKey',
     })
   }
 }

@@ -80,6 +80,27 @@ export type PushSubscription = {
   createdAt: string
 }
 
+/**
+ * A busy time interval (ISO-8601 `start`/`end`) as returned by the CalDAV
+ * proxy's `/busy` endpoint (ARCHITECTURE.md §7). Shared by the calendar API
+ * client, the slot proposer (§8), the busy strip, and the Dexie busy cache.
+ */
+export type BusyRange = {
+  start: string
+  end: string
+}
+
+/**
+ * Dexie cache entry for one local day's busy ranges. Keyed by `dateKey`
+ * (YYYY-MM-DD in the user's timezone) with a short TTL — see `lib/busyCache`.
+ * Cache-only (never synced to Supabase); not part of the outbox/realtime set.
+ */
+export type BusyCacheEntry = {
+  dateKey: string
+  ranges: BusyRange[]
+  fetchedAt: number
+}
+
 export type OutboxOp = 'insert' | 'update' | 'delete'
 
 export type OutboxRow = {
