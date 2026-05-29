@@ -1,0 +1,55 @@
+-- Chunk 14 (ARCHITECTURE.md §9) — cron schedule for notify-due-reminders.
+--
+-- This migration is intentionally INERT (every statement is commented out) so
+-- `supabase db push` stays safe across plans. Scheduling needs values that are
+-- project-/plan-specific and must NOT be committed:
+--   * your project ref (in the function URL),
+--   * a bearer token for the call (service-role key — keep it in Vault),
+-- and pg_cron / pg_net availability varies by Supabase plan. So scheduling is
+-- an operator step: run ONE option below in the SQL editor, or use the
+-- Dashboard's Integrations -> Cron UI. Full runbook: docs/notifications.md.
+--
+-- The Edge Function is deployed with `--no-verify-jwt` and has no
+-- caller-controlled targeting (it only sweeps rows already due and claims them
+-- atomically), so an early/extra trigger just re-runs the idempotent sweep
+-- (chunk-14 brief, resolution 7).
+--
+-- ---------------------------------------------------------------------------
+-- Option A — pg_cron + pg_net, bearer pulled from Vault (recommended)
+-- ---------------------------------------------------------------------------
+-- create extension if not exists pg_cron;
+-- create extension if not exists pg_net;
+--
+-- -- one-time: store the service-role key in Vault (do NOT inline it here):
+-- -- select vault.create_secret('<SERVICE_ROLE_KEY>', 'notify_due_reminders_bearer');
+--
+-- select cron.schedule(
+--   'notify-due-reminders',
+--   '* * * * *',                       -- every minute
+--   $$
+--     select net.http_post(
+--       url     := 'https://<PROJECT_REF>.supabase.co/functions/v1/notify-due-reminders',
+--       headers := jsonb_build_object(
+--         'Content-Type',  'application/json',
+--         'Authorization', 'Bearer ' || (
+--           select decrypted_secret from vault.decrypted_secrets
+--           where name = 'notify_due_reminders_bearer'
+--         )
+--       ),
+--       body := '{}'::jsonb
+--     );
+--   $$
+-- );
+--
+-- -- inspect / change / remove later:
+-- --   select jobid, schedule, command from cron.job where jobname = 'notify-due-reminders';
+-- --   select cron.unschedule('notify-due-reminders');
+--
+-- ---------------------------------------------------------------------------
+-- Option B — Dashboard UI (no SQL)
+-- ---------------------------------------------------------------------------
+-- Supabase Dashboard -> Integrations -> Cron -> Create job:
+--   name     : notify-due-reminders
+--   schedule : * * * * *        (every minute)
+--   type     : Supabase Edge Function -> notify-due-reminders
+-- The UI wires the Authorization header for you.

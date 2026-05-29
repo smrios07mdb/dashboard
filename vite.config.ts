@@ -10,6 +10,14 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // injectManifest (chunk 14): the SW is now src/sw.ts so we can own the
+      // push + notificationclick handlers. The precache, navigateFallback,
+      // Supabase NetworkOnly route, cleanupOutdatedCaches, and the autoUpdate
+      // skipWaiting/clientsClaim that chunk 4 expressed declaratively here now
+      // live in src/sw.ts and MUST stay equivalent (see that file).
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'icons/icon.svg'],
@@ -50,32 +58,11 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
-        // Precache the app shell + bundled @fontsource woff2 files.
+      injectManifest: {
+        // Precache the app shell + bundled @fontsource woff2 files — the same
+        // glob the chunk-4 generateSW config used. The runtime routes that
+        // used to sit under `workbox` are now code in src/sw.ts.
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,woff2}'],
-        navigateFallback: '/dashboard/index.html',
-        cleanupOutdatedCaches: true,
-        runtimeCaching: [
-          {
-            // Supabase REST + GraphQL: NetworkOnly. Dexie is the
-            // canonical offline cache for these endpoints (chunk 5),
-            // and the chunk-4 NetworkFirst handler caused a chunk-5
-            // contract violation: when offline, the SW would return
-            // a previously-cached 200 GET response for a list query;
-            // the repo's read path saw a non-error response, wiped
-            // the Dexie cache, and bulkPut the stale list — evicting
-            // any task written via the offline path. Fix is to make
-            // the SW transparent for Supabase: when the network is
-            // unreachable, Supabase JS returns a real network error,
-            // the repo's catch falls back to Dexie, and the offline
-            // write survives. Bug B revision, 2026-05-24.
-            urlPattern: ({ url }) =>
-              url.hostname.endsWith('.supabase.co') &&
-              (url.pathname.startsWith('/rest/v1') ||
-                url.pathname.startsWith('/graphql/v1')),
-            handler: 'NetworkOnly',
-          },
-        ],
       },
       devOptions: {
         enabled: false,
