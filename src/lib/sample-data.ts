@@ -31,6 +31,7 @@
 import { startOfDay, subDays } from 'date-fns'
 import { toast } from 'sonner'
 
+import { db } from '@/db/dexie'
 import { repo } from '@/db/repo'
 import { syncStore } from '@/db/syncStore'
 
@@ -320,6 +321,15 @@ export async function loadSampleData(userId: string): Promise<void> {
 }
 
 export async function wipeMyData(userId: string): Promise<void> {
+  // Clear the outbox FIRST (chunk-15 resolution 10b). Pending offline
+  // mutations from before the wipe must not survive and replay against the
+  // wiped dataset (phantom mutations / spurious sync_issues). Order matters:
+  // clearing first lets the teardown below re-enqueue its OWN offline deletes/
+  // archives (when offline) so the wipe still syncs on reconnect — clearing
+  // last would delete the wipe's own queued mutations. The outbox is
+  // per-device local state, so no server call is involved.
+  await db.outbox.clear()
+
   // tasks (real delete — repo supports it; ON DELETE RESTRICT from
   // subcategories means we MUST take these out before archiving subs).
   const tasks = await repo.tasks.list()
