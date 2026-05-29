@@ -571,6 +571,36 @@ const tasksRepo = {
       }
     }
   },
+
+  /**
+   * Claim this user's due reminders via the `claim_due_reminders()` RPC — a
+   * conditional UPDATE (notified false -> true) that returns only the rows it
+   * won. This is the client half of the race-safe exactly-once design (ARCH
+   * §9): mutually exclusive with the Edge Function's per-row claim, so a
+   * reminder is never delivered twice.
+   *
+   * Online-only and best-effort by design: claiming requires the server (no
+   * offline claim exists), and this runs on a 60s background poll, so any
+   * failure returns `[]` and the next tick retries — it deliberately does NOT
+   * throw on 4xx or flip the sync indicator the way user-initiated writes do.
+   * Claimed rows are mirrored to the Dexie cache as notified so a local read
+   * doesn't re-surface them before the realtime echo arrives.
+   */
+  async claimDueReminders(): Promise<{ id: string; title: string }[]> {
+    if (!isOnline()) return []
+    try {
+      const { data, error } = await supabase.rpc('claim_due_reminders')
+      if (error) return []
+      const rows = (data ?? []) as { id: string; title: string }[]
+      for (const r of rows) {
+        const existing = await db.tasks.get(r.id)
+        if (existing) await db.tasks.put({ ...existing, notified: true })
+      }
+      return rows
+    } catch {
+      return []
+    }
+  },
 }
 
 // ---------- routine_items ----------

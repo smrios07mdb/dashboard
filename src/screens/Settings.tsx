@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
-import { Eye, EyeOff, Link2 } from 'lucide-react'
+import { Bell, Eye, EyeOff, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import DeleteConfirm from '@/components/DeleteConfirm'
@@ -19,6 +19,13 @@ import {
   testCredentials,
   type DiscoveredCalendar,
 } from '@/lib/calendarApi'
+import {
+  getPermission,
+  isPushSupported,
+  isSubscribed,
+  requestPermissionAndSubscribe,
+  unsubscribe,
+} from '@/lib/push'
 import { recoverSignedOut } from '@/lib/session'
 
 /**
@@ -424,6 +431,146 @@ function CalendarSection() {
   )
 }
 
+function NotificationStatusBadge({
+  supported,
+  permission,
+  subscribed,
+}: {
+  supported: boolean
+  permission: NotificationPermission
+  subscribed: boolean
+}) {
+  if (!supported) {
+    return <Badge variant="secondary">Not supported on this device</Badge>
+  }
+  if (permission === 'denied') {
+    return <Badge variant="destructive">Permission denied</Badge>
+  }
+  if (subscribed) return <Badge variant="success">Enabled</Badge>
+  return <Badge variant="secondary">Disabled</Badge>
+}
+
+function NotificationsSection() {
+  const supported = isPushSupported()
+  const [permission, setPermission] = useState<NotificationPermission>(() =>
+    getPermission(),
+  )
+  const [subscribed, setSubscribed] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  // Read the current subscription state once mounted (browser only — in jsdom
+  // / unsupported environments `supported` is false and we skip straight to
+  // the "Not supported" badge without touching the service worker).
+  useEffect(() => {
+    if (!supported) return
+    let cancelled = false
+    isSubscribed()
+      .then((s) => {
+        if (!cancelled) setSubscribed(s)
+      })
+      .catch(() => {
+        // No active registration yet — treat as not subscribed.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [supported])
+
+  async function refresh() {
+    setPermission(getPermission())
+    try {
+      setSubscribed(await isSubscribed())
+    } catch {
+      setSubscribed(false)
+    }
+  }
+
+  async function enable() {
+    setBusy(true)
+    try {
+      await requestPermissionAndSubscribe()
+      await refresh()
+      toast('Notifications enabled')
+    } catch (e) {
+      // Permission may have just flipped to denied — reflect it in the badge.
+      setPermission(getPermission())
+      toast.error(
+        e instanceof Error ? e.message : 'Could not enable notifications',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function disable() {
+    setBusy(true)
+    try {
+      await unsubscribe()
+      await refresh()
+      toast('Notifications disabled')
+    } catch (e) {
+      console.error('Disable notifications failed', e)
+      toast.error(SAVE_ERROR)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="mt-8 border-t border-border pt-6">
+      <div className="label mb-1">Notifications</div>
+      <h2
+        className="mb-3 text-[18px] font-semibold text-foreground"
+        style={{ letterSpacing: '-0.01em' }}
+      >
+        Reminder notifications
+      </h2>
+
+      <div className="mb-4">
+        <NotificationStatusBadge
+          supported={supported}
+          permission={permission}
+          subscribed={subscribed}
+        />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {supported && permission !== 'denied' && !subscribed && (
+          <Button type="button" onClick={enable} disabled={busy}>
+            <Bell className="size-4" />
+            {busy ? 'Enabling…' : 'Enable notifications'}
+          </Button>
+        )}
+        {supported && subscribed && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={disable}
+            disabled={busy}
+          >
+            {busy ? 'Disabling…' : 'Disable notifications'}
+          </Button>
+        )}
+      </div>
+
+      {permission === 'denied' && (
+        <p className="mt-3 max-w-md text-[12px] leading-relaxed text-muted-foreground">
+          Notifications are blocked for this site. Re-enable them in your
+          browser or system settings, then reload.
+        </p>
+      )}
+
+      <p className="mt-4 max-w-md text-[12px] leading-relaxed text-muted-foreground">
+        On iPhone and iPad, Web Push requires the app to be installed to the
+        Home Screen (iOS 16.4+). Without an installed PWA and granted
+        permission, reminders only appear in-app while a tab is open. See{' '}
+        <span className="font-mono">docs/notifications.md</span>.
+      </p>
+    </section>
+  )
+}
+
 export default function Settings() {
   const isDevSurface =
     import.meta.env.DEV ||
@@ -442,6 +589,7 @@ export default function Settings() {
 
       <AiKeySection />
       <CalendarSection />
+      <NotificationsSection />
 
       {isDevSurface && (
         <Suspense fallback={null}>

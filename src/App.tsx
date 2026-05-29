@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'sonner'
 
+import InAppReminders from '@/components/InAppReminders'
 import ProtectedLayout from '@/components/ProtectedLayout'
 import RealtimeBridge from '@/components/RealtimeBridge'
 import UpdatePrompt from '@/components/UpdatePrompt'
@@ -35,6 +36,7 @@ export default function App() {
       <Toaster theme="dark" position="top-center" richColors closeButton />
       <UpdatePrompt />
       <RealtimeBridge />
+      <InAppReminders />
     </BrowserRouter>
   )
 }

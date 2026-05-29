@@ -26,5 +26,11 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // src/sw.ts is the injectManifest service worker: it targets the WebWorker
+  // lib (ServiceWorkerGlobalScope, clients, self.__WB_MANIFEST), which clashes
+  // with this project's DOM lib. vite-plugin-pwa bundles it via esbuild, so it
+  // is excluded from the app's tsc program. It delegates its logic to the
+  // unit-tested src/lib/pushPayload.ts, which IS type-checked here.
+  "exclude": ["src/sw.ts"]
 }
