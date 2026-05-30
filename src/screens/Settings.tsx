@@ -1,11 +1,21 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
-import { Bell, Eye, EyeOff, Link2 } from 'lucide-react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { Bell, Download, Eye, EyeOff, Link2, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 
+import About from '@/components/About'
 import DeleteConfirm from '@/components/DeleteConfirm'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { wipeLocalCache } from '@/db/localCache'
 import {
   discardAllFailed,
   discardOutboxRow,
@@ -17,6 +27,18 @@ import { repo } from '@/db/repo'
 import { useSyncStore } from '@/db/syncStore'
 import type { CaldavStatus, OutboxRow } from '@/db/types'
 import { useSession } from '@/lib/auth'
+import {
+  downloadExport,
+  exportAllData,
+  exportFilename,
+} from '@/lib/export'
+import {
+  importData,
+  type ImportMode,
+  previewCounts,
+  validateImport,
+} from '@/lib/import'
+import { useUIStore } from '@/state/uiStore'
 import {
   CalendarError,
   clearVerified,
@@ -719,6 +741,294 @@ function NotificationsSection() {
   )
 }
 
+/**
+ * Data section (chunk 16): export, import (Merge / Replace), and the SAFE
+ * "Wipe local cache" (R3 — Dexie-only, distinct from Developer's destructive
+ * "Wipe my data"). Replace validates the file before any delete (R4) and
+ * requires a typed REPLACE; Wipe local cache requires a typed CACHE.
+ */
+function DataSection() {
+  const { user } = useSession()
+  const userId = user?.id ?? null
+  const [busy, setBusy] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [importOpen, setImportOpen] = useState(false)
+  const [parsed, setParsed] = useState<unknown>(null)
+  const [counts, setCounts] = useState<Record<string, number> | null>(null)
+  const [mode, setMode] = useState<ImportMode>('merge')
+  const [confirmText, setConfirmText] = useState('')
+
+  const [wipeOpen, setWipeOpen] = useState(false)
+  const [wipeConfirm, setWipeConfirm] = useState('')
+
+  async function onExport() {
+    if (!userId) return
+    setBusy(true)
+    try {
+      const payload = await exportAllData(userId)
+      downloadExport(payload, exportFilename())
+      toast('Data exported')
+    } catch (e) {
+      console.error('Export failed', e)
+      toast.error('Could not export — retry')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file later
+    if (!file) return
+    try {
+      const json = JSON.parse(await file.text())
+      // Validate BEFORE opening the dialog so a bad file never reaches Replace.
+      const validated = validateImport(json)
+      setParsed(json)
+      setCounts(previewCounts(validated))
+      setMode('merge')
+      setConfirmText('')
+      setImportOpen(true)
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : 'That file could not be read.',
+      )
+    }
+  }
+
+  const canConfirmImport =
+    mode === 'merge' || confirmText.trim().toUpperCase() === 'REPLACE'
+
+  async function onConfirmImport() {
+    if (!userId || parsed === null || !canConfirmImport) return
+    setBusy(true)
+    try {
+      const res = await importData(parsed, mode, userId)
+      setImportOpen(false)
+      useUIStore.getState().forceDashboardRefresh()
+      const total = Object.values(res.counts).reduce((a, b) => a + b, 0)
+      toast(
+        mode === 'replace'
+          ? `Replaced — ${total} items imported. Reconnect Apple Calendar; push notifications weren't included (device-specific).`
+          : `Merged — ${total} items applied.`,
+      )
+    } catch (e) {
+      console.error('Import failed', e)
+      toast.error('Could not import — retry')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onWipeCache() {
+    if (wipeConfirm.trim().toUpperCase() !== 'CACHE') return
+    setBusy(true)
+    try {
+      await wipeLocalCache()
+      useUIStore.getState().forceDashboardRefresh()
+      setWipeOpen(false)
+      setWipeConfirm('')
+      toast('Local cache cleared — re-downloading from the server.')
+    } catch (e) {
+      console.error('Wipe local cache failed', e)
+      toast.error('Could not clear the cache — retry')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="mt-8 border-t border-border pt-6">
+      <div className="label mb-1">Data</div>
+      <h2
+        className="mb-3 text-[18px] font-semibold text-foreground"
+        style={{ letterSpacing: '-0.01em' }}
+      >
+        Export &amp; import
+      </h2>
+      <p className="mb-4 max-w-md text-[12px] leading-relaxed text-muted-foreground">
+        Export pulls your data from the server as JSON (the encrypted calendar
+        password is never included). Import can merge into, or fully replace,
+        your current data.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={onExport} disabled={busy || !userId}>
+          <Download className="size-4" />
+          Export all data
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={busy || !userId}
+        >
+          <Upload className="size-4" />
+          Import data
+        </Button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          aria-hidden
+          tabIndex={-1}
+          onChange={onFileSelected}
+        />
+      </div>
+
+      <div className="mt-6">
+        <div className="label mb-1">Local cache</div>
+        <p className="mb-3 max-w-md text-[12px] leading-relaxed text-muted-foreground">
+          Safe: clears only this device&rsquo;s cached copy. Your data on the
+          server is untouched and re-downloads on next load; un-synced offline
+          edits are kept. This is <strong>not</strong> &ldquo;Wipe my
+          data&rdquo; (Developer tools), which deletes from the server.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setWipeConfirm('')
+            setWipeOpen(true)
+          }}
+          disabled={busy}
+        >
+          <Trash2 className="size-4" />
+          Wipe local cache
+        </Button>
+      </div>
+
+      {/* Import dialog */}
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import data</DialogTitle>
+            <DialogDescription>
+              Choose how to apply this file to your account.
+            </DialogDescription>
+          </DialogHeader>
+
+          {counts && (
+            <ul className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-[12px] text-secondary-foreground">
+              {Object.entries(counts).map(([table, n]) => (
+                <li key={table} className="flex justify-between">
+                  <span className="font-mono">{table}</span>
+                  <span>{n}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div
+            className="flex gap-2"
+            role="group"
+            aria-label="Import mode"
+          >
+            {(['merge', 'replace'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={mode === m}
+                onClick={() => setMode(m)}
+                className={`flex-1 rounded-md border px-3 py-2 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  mode === m
+                    ? 'border-primary bg-secondary font-semibold text-foreground'
+                    : 'border-border text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {m === 'merge' ? 'Merge' : 'Replace all'}
+              </button>
+            ))}
+          </div>
+
+          <p className="text-[12px] leading-relaxed text-muted-foreground">
+            {mode === 'merge'
+              ? 'Adds new rows and overwrites matching ones (by id). Nothing is deleted.'
+              : 'Deletes all your current data, then loads the file. The Apple Calendar password and push subscriptions are not restored — you’ll reconnect the calendar and re-enable notifications.'}
+          </p>
+
+          {mode === 'replace' && (
+            <div>
+              <label
+                htmlFor="import-replace-confirm"
+                className="label mb-1 block"
+              >
+                Type REPLACE to confirm
+              </label>
+              <Input
+                id="import-replace-confirm"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="REPLACE"
+                autoComplete="off"
+              />
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={onConfirmImport}
+              disabled={!canConfirmImport || busy}
+              className={
+                mode === 'replace'
+                  ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                  : undefined
+              }
+            >
+              {busy
+                ? 'Importing…'
+                : mode === 'replace'
+                  ? 'Replace everything'
+                  : 'Merge'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Wipe local cache dialog */}
+      <Dialog open={wipeOpen} onOpenChange={setWipeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Wipe local cache</DialogTitle>
+            <DialogDescription>
+              Clears this device&rsquo;s cached copy only. The server is
+              untouched and the cache rebuilds on next load; un-synced offline
+              edits are kept.
+            </DialogDescription>
+          </DialogHeader>
+          <div>
+            <label htmlFor="wipe-cache-confirm" className="label mb-1 block">
+              Type CACHE to confirm
+            </label>
+            <Input
+              id="wipe-cache-confirm"
+              value={wipeConfirm}
+              onChange={(e) => setWipeConfirm(e.target.value)}
+              placeholder="CACHE"
+              autoComplete="off"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWipeOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={onWipeCache}
+              disabled={wipeConfirm.trim().toUpperCase() !== 'CACHE' || busy}
+            >
+              {busy ? 'Clearing…' : 'Clear cache'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
+  )
+}
+
 export default function Settings() {
   const isDevSurface =
     import.meta.env.DEV ||
@@ -739,6 +1049,8 @@ export default function Settings() {
       <AiKeySection />
       <CalendarSection />
       <NotificationsSection />
+      <DataSection />
+      <About />
 
       {isDevSurface && (
         <Suspense fallback={null}>

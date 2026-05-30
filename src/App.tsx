@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'sonner'
 
@@ -9,12 +10,15 @@ import UpdatePrompt from '@/components/UpdatePrompt'
 import AuthCallback from '@/screens/AuthCallback'
 import CategoryView from '@/screens/CategoryView'
 import Dashboard from '@/screens/Dashboard'
-import Insights from '@/screens/Insights'
 import Routines from '@/screens/Routines'
 import Settings from '@/screens/Settings'
 import SubcategoryView from '@/screens/SubcategoryView'
 // Side-effect import: registers window online/offline → syncStore.
 import '@/lib/network'
+
+// Insights pulls in recharts (a sizable dep) — lazy-load so it lands in its own
+// chunk and doesn't bloat the initial bundle / Lighthouse Perf (chunk-16 R7).
+const Insights = lazy(() => import('@/screens/Insights'))
 
 export default function App() {
   return (
@@ -29,7 +33,21 @@ export default function App() {
             element={<SubcategoryView />}
           />
           <Route path="routines" element={<Routines />} />
-          <Route path="insights" element={<Insights />} />
+          <Route
+            path="insights"
+            element={
+              <Suspense
+                fallback={
+                  <div
+                    className="h-[280px] animate-pulse rounded-md bg-secondary motion-reduce:animate-none"
+                    aria-hidden
+                  />
+                }
+              >
+                <Insights />
+              </Suspense>
+            }
+          />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
