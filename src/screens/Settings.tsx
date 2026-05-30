@@ -810,7 +810,7 @@ function DataSection() {
       const total = Object.values(res.counts).reduce((a, b) => a + b, 0)
       toast(
         mode === 'replace'
-          ? `Replaced — ${total} items imported. Reconnect Apple Calendar; push notifications weren't included (device-specific).`
+          ? `Replaced — ${total} items imported from the file. Your Apple Calendar connection is preserved; re-enable notifications on this device if you use them (push subscriptions aren't part of an export).`
           : `Merged — ${total} items applied.`,
       )
     } catch (e) {
