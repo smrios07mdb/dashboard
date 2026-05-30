@@ -949,7 +949,7 @@ function DataSection() {
           <p className="text-[12px] leading-relaxed text-muted-foreground">
             {mode === 'merge'
               ? 'Adds new rows and overwrites matching ones (by id). Nothing is deleted.'
-              : 'Deletes all your current data, then loads the file. The Apple Calendar password and push subscriptions are not restored — you’ll reconnect the calendar and re-enable notifications.'}
+              : 'Deletes all your current data, then loads the file. Your Apple Calendar connection is preserved; you’ll re-enable notifications on this device (push subscriptions aren’t part of an export).'}
           </p>
 
           {mode === 'replace' && (

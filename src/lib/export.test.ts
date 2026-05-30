@@ -3,16 +3,18 @@ import { describe, expect, it } from 'vitest'
 import { buildExportPayload, EXPORT_VERSION, redactSettings } from './export'
 
 describe('redactSettings', () => {
-  it('nulls caldav_app_password_encrypted but preserves other fields', () => {
+  it('nulls every device-local credential but preserves config fields', () => {
     const out = redactSettings({
       user_id: 'u1',
       timezone: 'America/New_York',
-      ai_api_key: 'k',
+      caldav_apple_id: 'me@icloud.com',
+      ai_api_key: 'sk-ant-LIVE',
       caldav_app_password_encrypted: 'SUPER-SECRET',
     })
     expect(out?.caldav_app_password_encrypted).toBeNull()
+    expect(out?.ai_api_key).toBeNull() // credential — must not leave the device
     expect(out?.timezone).toBe('America/New_York')
-    expect(out?.ai_api_key).toBe('k')
+    expect(out?.caldav_apple_id).toBe('me@icloud.com') // config, not a secret
   })
 
   it('handles a null settings row', () => {
@@ -32,7 +34,11 @@ describe('buildExportPayload', () => {
         routine_items: [],
         routine_logs: [],
       },
-      settings: { user_id: 'u1', caldav_app_password_encrypted: 'SECRET' },
+      settings: {
+        user_id: 'u1',
+        ai_api_key: 'sk-ant-LIVE',
+        caldav_app_password_encrypted: 'SECRET',
+      },
     })
 
     expect(payload.version).toBe(EXPORT_VERSION)
@@ -41,5 +47,6 @@ describe('buildExportPayload', () => {
     expect(payload.exported_at).toBe('2026-05-29T00:00:00.000Z')
     expect(payload.tasks).toHaveLength(2)
     expect(payload.settings?.caldav_app_password_encrypted).toBeNull()
+    expect(payload.settings?.ai_api_key).toBeNull()
   })
 })

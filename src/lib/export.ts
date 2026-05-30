@@ -13,6 +13,17 @@ export const EXPORT_VERSION = 1
 
 type Row = Record<string, unknown>
 
+/**
+ * Device-local credentials on the settings row. Single source of truth shared
+ * by export (redacted → null so they never leave the device) and import
+ * (omitted from the settings upsert so a redacted-null never overwrites the
+ * live secret). Add any future secret/token column here — not whack-a-mole.
+ */
+export const CREDENTIAL_SETTINGS_KEYS = [
+  'caldav_app_password_encrypted',
+  'ai_api_key',
+] as const
+
 /** User-scoped tables included in the export, in dependency-friendly order. */
 const EXPORT_TABLES = [
   'categories',
@@ -34,10 +45,12 @@ export type ExportPayload = {
   settings: Row | null
 }
 
-/** Force the encrypted CalDAV password to null; preserve everything else. */
+/** Null every device-local credential (R5); preserve all config fields. */
 export function redactSettings(row: Row | null): Row | null {
   if (!row) return null
-  return { ...row, caldav_app_password_encrypted: null }
+  const out = { ...row }
+  for (const k of CREDENTIAL_SETTINGS_KEYS) out[k] = null
+  return out
 }
 
 /** Pure assembly — keeps the redaction unit-testable without network. */

@@ -74,23 +74,37 @@ describe('validateImport', () => {
 })
 
 describe('settings credential safety (chunk-16 review fix)', () => {
-  it('strips caldav_app_password_encrypted from the settings upsert — never nulls the live password', async () => {
-    await importData(
+  function settingsRowAfterImport(mode: 'merge' | 'replace') {
+    return importData(
       validPayload({
         settings: {
           user_id: 'u1',
           timezone: 'America/Chicago',
+          ai_api_key: null,
           caldav_app_password_encrypted: null,
         },
       }),
-      'merge',
+      mode,
       'u1',
-    )
-    const settingsCall = bulkUpsert.mock.calls.find((c) => c[0] === 'settings')
-    const row = (settingsCall?.[1] as Record<string, unknown>[])?.[0]
+    ).then(() => {
+      const call = bulkUpsert.mock.calls.find((c) => c[0] === 'settings')
+      return (call?.[1] as Record<string, unknown>[])?.[0]
+    })
+  }
+
+  it('omits every credential key from the settings upsert on Merge — live secrets survive', async () => {
+    const row = await settingsRowAfterImport('merge')
     expect(row).toBeDefined()
     expect('caldav_app_password_encrypted' in (row as object)).toBe(false)
+    expect('ai_api_key' in (row as object)).toBe(false)
     expect((row as Record<string, unknown>).timezone).toBe('America/Chicago')
+  })
+
+  it('omits every credential key from the settings upsert on Replace too', async () => {
+    const row = await settingsRowAfterImport('replace')
+    expect(row).toBeDefined()
+    expect('caldav_app_password_encrypted' in (row as object)).toBe(false)
+    expect('ai_api_key' in (row as object)).toBe(false)
   })
 })
 

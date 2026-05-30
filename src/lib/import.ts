@@ -12,7 +12,7 @@ import { wipeLocalCache } from '@/db/localCache'
 import { repo } from '@/db/repo'
 import type { TableName } from '@/db/types'
 
-import { type ExportPayload } from './export'
+import { CREDENTIAL_SETTINGS_KEYS, type ExportPayload } from './export'
 
 export class ImportValidationError extends Error {
   constructor(message: string) {
@@ -101,12 +101,12 @@ async function upsertContent(payload: ExportPayload): Promise<void> {
   await repo.data.bulkUpsert('routine_items', payload.routine_items as RowList)
   await repo.data.bulkUpsert('routine_logs', payload.routine_logs as RowList)
   if (payload.settings) {
-    // Strip the credential column so the upsert's ON CONFLICT DO UPDATE never
-    // touches it (chunk-16 review fix). The export redacts it to null; writing
-    // that null back would zero the LIVE encrypted CalDAV password and silently
-    // break calendar sync (chunk-13). Omitting the key preserves it.
+    // Strip every credential column so the upsert's ON CONFLICT DO UPDATE never
+    // touches them (chunk-16 review fix). The export redacts them to null;
+    // writing that null back would zero the LIVE secret (CalDAV password,
+    // Anthropic API key) and silently break calendar/AI. Omitting preserves them.
     const settingsRow = { ...(payload.settings as Record<string, unknown>) }
-    delete settingsRow.caldav_app_password_encrypted
+    for (const k of CREDENTIAL_SETTINGS_KEYS) delete settingsRow[k]
     await repo.data.bulkUpsert('settings', [settingsRow], 'user_id')
   }
 }
