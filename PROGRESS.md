@@ -4,7 +4,7 @@ Last updated: 2026-05-30 (chunk 16 Insights + export/import + a11y polish shippe
 
 **MVP COMPLETE — 2026-05-30.** All 16 build chunks are shipped, merged, and deployed. The final chunk 16 (Insights + data export/import + the a11y / ship-it pass) squash-merged to `main` as `56582b5` (PR #3); the GitHub Pages deploy is green and the live `version.json` reads `56582b5`. Lighthouse (mobile, deployed): Performance 90 / Accessibility 100 / Best Practices 100 / SEO 90 — the PWA category was retired in Lighthouse 12+, so installability was verified live instead (valid manifest + active service worker over HTTPS). A Day-7 lived-use revision backlog is seeded under Revisions.
 
-This file is the canonical tracker. A GitHub Project board mirrors it for visual review in Cowork.
+This file is the canonical tracker — the single source of truth. "The board" is just this file rendered on GitHub; there is no separate GitHub Projects v2 or monday.com board mirroring it.
 
 ## Status legend
 
@@ -38,19 +38,19 @@ This file is the canonical tracker. A GitHub Project board mirrors it for visual
 
 | Date | Decision |
 |---|---|
-| YYYY-MM-DD | Chose Path B (Supabase + CalDAV proxy) over native Apple app. |
-| YYYY-MM-DD | App-specific iCloud password wrapped with AES-GCM (env-var key) on top of Supabase at-rest encryption. |
-| YYYY-MM-DD | Seed categories via `auth.users` signup trigger (not first-insert). |
+| 2026-05-22 | Chose Path B (Supabase + CalDAV proxy) over native Apple app. |
+| 2026-05-22 | App-specific iCloud password wrapped with AES-GCM (env-var key) on top of Supabase at-rest encryption. |
+| 2026-05-23 | Seed categories via `auth.users` signup trigger (not first-insert). |
 | 2026-05-28 | AI key remains client-side; documented security tradeoff in ARCHITECTURE §10. |
 | 2026-05-29 | Cron for `notify-due-reminders` scheduled via Dashboard → Integrations → Cron (Option B in `supabase/migrations/07_notify_cron.sql`) rather than Option A (`pg_cron.schedule` + `pg_net.http_post` + Vault-stored service-role key). Dashboard UI wires the Authorization header automatically; Option A deferred to operators who need Vault secret rotation or SQL-only deploys. `pg_cron` enabled in `pg_catalog`; `pg_net` enabled in `extensions`. |
 | 2026-05-29 | Supabase CLI workaround documented: when `supabase secrets set` returns "Invalid access token format. Must be like `sbp_0102...1920`." despite successful `supabase login`/`supabase link` in the same shell, generate a personal access token at supabase.com/dashboard/account/tokens and `export SUPABASE_ACCESS_TOKEN=sbp_...` in the shell before retrying. Rotate the PAT when the session ends. Root cause not isolated (`--debug` produced no additional output); env-var path bypasses the keychain read entirely. |
 | 2026-05-29 | (chunk 15) `wipeMyData` clears the Dexie outbox as its FIRST step (before the repo teardown), not last — resolution 10b. Pending pre-wipe offline mutations must not survive and replay against the wiped dataset (phantom mutations / spurious sync_issues); clearing first also preserves the wipe's OWN offline-enqueued teardown so it still syncs on reconnect. Outbox is per-device local state, so `clear()` needs no server call. Fix lives in `lib/sample-data.ts` (where `wipeMyData` is defined), not `DeveloperSection.tsx`; `sample-data.test.ts` covers the online (empties) + offline (stale gone, teardown survives) cases. The live destructive wipe was deliberately NOT run during the chunk-15 runtime verify (it permanently deletes real tasks); 10b confirmed via the two unit tests + code read. |
-| YYYY-MM-DD | Slot proposal uses 9–18 local working hours, 15-min granularity. |
-| YYYY-MM-DD | Insights groups beyond top-7 subcategories into "Other". |
-| YYYY-MM-DD | Streak ignores items created on the same day. |
-| YYYY-MM-DD | Outbox replay is its own chunk (15) for testability. |
-| YYYY-MM-DD | Drill-down primary affordance: visible chevron; double-click on desktop only; no long-press. |
-| YYYY-MM-DD | Cross-subcategory drag on Dashboard + Category view (desktop only); menu picker on mobile. |
+| 2026-05-29 | Slot proposal uses 9–18 local working hours, 15-min granularity. |
+| 2026-05-30 | Insights groups beyond top-7 subcategories into "Other". |
+| 2026-05-27 | Streak ignores items created on the same day. |
+| 2026-05-22 | Outbox replay is its own chunk (15) for testability. |
+| 2026-05-26 | Drill-down primary affordance: visible chevron; double-click on desktop only; no long-press. |
+| 2026-05-26 | Cross-subcategory drag on Dashboard + Category view (desktop only); menu picker on mobile. |
 | 2026-05-23 | Migration files use numeric prefixes (00_, 01_, …) not Supabase CLI's default timestamps. Future migrations hand-named to match — documented in supabase/README.md. |
 | 2026-05-23 | RLS schema tests run against an anon-key Supabase client (not service-role) because service-role bypasses RLS. Anon key lives in supabase/.env.test alongside URL + service-role; safe because the anon key is already public. |
 | 2026-05-23 | Design tokens map to shadcn's HSL slots where concepts overlap (--bg→--background, --ink→--foreground, --ink-3→--muted-foreground, --line→--border) with Obsidian palette values. Design-only tokens (--work, --personal, --accent, --jewel-*, --surface-2, --ink-4, --accent-soft) added as net-new variables. --accent defaults to "ice". |
