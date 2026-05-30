@@ -360,6 +360,38 @@ const tasksRepo = {
     })
   },
 
+  /**
+   * Completed tasks whose `completed_at` falls in [from, to) — the Insights
+   * read (chunk 16, additive). Cache-first per the chunk-5 pattern. Uses
+   * `completed_at`, NOT `created_at`.
+   */
+  async listCompletedInRange(from: string, to: string): Promise<Task[]> {
+    return readWithFallback({
+      online: async () => {
+        const { data, error } = await supabase
+          .from('tasks')
+          .select('*')
+          .gte('completed_at', from)
+          .lt('completed_at', to)
+          .order('completed_at', { ascending: true })
+        throwIfClientError(error)
+        const rows = (data ?? []) as TaskRow[]
+        const mapped = rows.map(taskFromRow)
+        await db.tasks.bulkPut(mapped)
+        return mapped
+      },
+      fallback: async () =>
+        db.tasks
+          .filter(
+            (t) =>
+              t.completedAt !== null &&
+              t.completedAt >= from &&
+              t.completedAt < to,
+          )
+          .toArray(),
+    })
+  },
+
   async create(
     input: Omit<Task, 'id' | 'notified' | 'createdAt' | 'updatedAt'> & {
       id?: string
@@ -1048,9 +1080,42 @@ async function applyServerEcho(table: TableName, row: unknown): Promise<void> {
   }
 }
 
+// ---------- bulk data import primitives (chunk 16) ----------
+//
+// Generic, raw-row helpers used by the export/import feature. Distinct from
+// chunk-9's `tasks.bulkDelete(ids)` (do not overload that). These operate on
+// snake_case rows + table names so a whole-account import round-trips exactly
+// (including server-managed columns like created_at). Online-only — import is
+// a deliberate, connected action; cache is reloaded from Supabase afterward.
+
+const dataRepo = {
+  /** Upsert raw rows into `table` (default conflict key `id`; `user_id` for settings). */
+  async bulkUpsert(
+    table: TableName,
+    rows: Record<string, unknown>[],
+    conflictKey = 'id',
+  ): Promise<void> {
+    if (rows.length === 0) return
+    const { error } = await supabase
+      .from(table)
+      .upsert(rows, { onConflict: conflictKey })
+    throwIfClientError(error as SupabaseError | null)
+  },
+
+  /** Hard-delete every row this user owns in `table` (Replace-import teardown). */
+  async bulkDeleteAllForUser(table: TableName, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq('user_id', userId)
+    throwIfClientError(error as SupabaseError | null)
+  },
+}
+
 // ---------- exported namespace ----------
 
 export const repo = {
+  data: dataRepo,
   categories: categoriesRepo,
   subcategories: subcategoriesRepo,
   tasks: tasksRepo,

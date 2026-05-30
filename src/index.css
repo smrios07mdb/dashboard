@@ -40,7 +40,9 @@
     --secondary-foreground: 225 7% 68%;  /* #a8abb4 ink-2 */
 
     --muted: 227 21% 8%;
-    --muted-foreground: 227 5% 50%;      /* #7a7d87 ink-3 */
+    /* ink-3, nudged lighter (chunk-16 a11y): ≥4.5:1 on cards (#14171f) for
+       small muted text. 50% (#797c86) measured 4.3:1; 54% clears AA. */
+    --muted-foreground: 227 5% 54%;
 
     --accent: 217 31% 84%;               /* ice — design's --accent slot */
     --accent-foreground: 225 17% 5%;
@@ -116,5 +118,35 @@
     text-transform: uppercase;
     color: hsl(var(--muted-foreground));
     white-space: nowrap;
+  }
+}
+
+/*
+ * A11y polish (chunk 16, R10).
+ *
+ * Global keyboard focus ring: 2px ring-token (`--ring` = ice) outline with a
+ * 2px offset, always visible. Lives in @layer base so component utilities
+ * (`focus-visible:ring-2 focus-visible:ring-ring`, which set `outline-none`)
+ * still win where they opt in — this is the fallback so NOTHING is left without
+ * a visible focus indicator. The prompt's literal `#3a5a40` predates the
+ * Obsidian dark palette; the app's focal/ring token is ice, matching every
+ * existing component's ring.
+ */
+@layer base {
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+}
+
+/* Respect reduced-motion: kill transitions/animations for users who ask. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -1,8 +1,36 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite'
+import { execFileSync } from 'node:child_process'
+import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
+
+/**
+ * Emit `version.json` (git short SHA + build timestamp) into the build output
+ * so Settings → About can surface the deployed version (chunk-16 R9). Not
+ * matched by the PWA precache glob (json), so it's fetched fresh at runtime.
+ */
+function versionJsonPlugin(): PluginOption {
+  return {
+    name: 'write-version-json',
+    apply: 'build',
+    generateBundle() {
+      let sha = 'unknown'
+      try {
+        sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'])
+          .toString()
+          .trim()
+      } catch {
+        // not a git checkout (e.g. tarball build) — leave as 'unknown'
+      }
+      this.emitFile({
+        type: 'asset',
+        fileName: 'version.json',
+        source: JSON.stringify({ sha, builtAt: new Date().toISOString() }),
+      })
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -68,6 +96,7 @@ export default defineConfig({
         enabled: false,
       },
     }),
+    versionJsonPlugin(),
   ],
   resolve: {
     alias: {
