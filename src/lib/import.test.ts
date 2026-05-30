@@ -60,6 +60,38 @@ describe('validateImport', () => {
   it('rejects non-object input', () => {
     expect(() => validateImport('nope')).toThrow(ImportValidationError)
   })
+  it('rejects a malformed table row (not an object with a string id) before any delete', () => {
+    expect(() => validateImport(validPayload({ tasks: [{ title: 'no id' }] }))).toThrow(
+      ImportValidationError,
+    )
+    expect(() => validateImport(validPayload({ subcategories: ['nope'] }))).toThrow(
+      ImportValidationError,
+    )
+    expect(() =>
+      validateImport(validPayload({ tasks: [{ id: '' }] })),
+    ).toThrow(ImportValidationError)
+  })
+})
+
+describe('settings credential safety (chunk-16 review fix)', () => {
+  it('strips caldav_app_password_encrypted from the settings upsert — never nulls the live password', async () => {
+    await importData(
+      validPayload({
+        settings: {
+          user_id: 'u1',
+          timezone: 'America/Chicago',
+          caldav_app_password_encrypted: null,
+        },
+      }),
+      'merge',
+      'u1',
+    )
+    const settingsCall = bulkUpsert.mock.calls.find((c) => c[0] === 'settings')
+    const row = (settingsCall?.[1] as Record<string, unknown>[])?.[0]
+    expect(row).toBeDefined()
+    expect('caldav_app_password_encrypted' in (row as object)).toBe(false)
+    expect((row as Record<string, unknown>).timezone).toBe('America/Chicago')
+  })
 })
 
 describe('previewCounts', () => {

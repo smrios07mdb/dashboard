@@ -815,7 +815,11 @@ function DataSection() {
       )
     } catch (e) {
       console.error('Import failed', e)
-      toast.error('Could not import — retry')
+      toast.error(
+        mode === 'replace'
+          ? 'Replace failed partway — some data may not have imported. Re-import your export file to restore.'
+          : 'Could not import — retry',
+      )
     } finally {
       setBusy(false)
     }

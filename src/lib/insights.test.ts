@@ -178,4 +178,14 @@ describe('buildColorMap', () => {
     expect(map1['s-3'].toLowerCase()).toBe('#a85a3c') // Personal base
     expect(map1['s-2']).not.toBe(map1['s-1']) // second Work sub lightened
   })
+
+  it('gives every subcategory a distinct color even past the 7th in a category', () => {
+    const subs = Array.from({ length: 8 }, (_, i) =>
+      sub(`s-${i}`, 'c-work', `Sub ${i}`),
+    )
+    const map = buildColorMap(subs, [WORK])
+    const colors = subs.map((s) => map[s.id])
+    expect(new Set(colors).size).toBe(8) // all distinct — no clamp collisions
+    expect(colors[0].toLowerCase()).toBe('#3a5a40') // first still the base
+  })
 })

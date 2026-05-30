@@ -56,6 +56,25 @@ export function validateImport(parsed: unknown): ExportPayload {
   ) {
     throw new ImportValidationError('Export "settings" block is malformed.')
   }
+  // Row-level gate (chunk-16 review): every content row must be an object with
+  // a non-empty string id. This catches malformed rows BEFORE the Replace
+  // teardown deletes anything (extends R4's validate-before-delete guarantee).
+  // Full FK / NOT NULL integrity is the Day-7 atomic-replace revision.
+  for (const key of REQUIRED_TABLE_KEYS) {
+    for (const row of p[key] as unknown[]) {
+      if (
+        !row ||
+        typeof row !== 'object' ||
+        Array.isArray(row) ||
+        typeof (row as { id?: unknown }).id !== 'string' ||
+        !(row as { id: string }).id
+      ) {
+        throw new ImportValidationError(
+          `Export table "${key}" has a malformed row (each row needs a string id).`,
+        )
+      }
+    }
+  }
   return parsed as ExportPayload
 }
 
@@ -82,7 +101,13 @@ async function upsertContent(payload: ExportPayload): Promise<void> {
   await repo.data.bulkUpsert('routine_items', payload.routine_items as RowList)
   await repo.data.bulkUpsert('routine_logs', payload.routine_logs as RowList)
   if (payload.settings) {
-    await repo.data.bulkUpsert('settings', [payload.settings], 'user_id')
+    // Strip the credential column so the upsert's ON CONFLICT DO UPDATE never
+    // touches it (chunk-16 review fix). The export redacts it to null; writing
+    // that null back would zero the LIVE encrypted CalDAV password and silently
+    // break calendar sync (chunk-13). Omitting the key preserves it.
+    const settingsRow = { ...(payload.settings as Record<string, unknown>) }
+    delete settingsRow.caldav_app_password_encrypted
+    await repo.data.bulkUpsert('settings', [settingsRow], 'user_id')
   }
 }
 

@@ -88,8 +88,13 @@ export function buildColorMap(
     const subs = subcategories
       .filter((s) => catById.get(s.categoryId)?.name === name)
       .sort(byIdAsc)
+    // Scale the ramp to the per-category count so every sub gets a distinct
+    // step (first = base at t=0). A fixed 0.13 step clamped at 0.7 collided
+    // for the 7th+ sub in a category — visible at exactly 8 subs, where the
+    // chart does no "Other" grouping (chunk-16 review fix).
     subs.forEach((s, i) => {
-      map[s.id] = lighten(base, Math.min(i * 0.13, 0.7))
+      const t = subs.length > 1 ? Math.min(0.7, (i * 0.7) / (subs.length - 1)) : 0
+      map[s.id] = lighten(base, t)
     })
   }
   // Subs whose category is unknown fall back to neutral gray.
