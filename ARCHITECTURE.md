@@ -298,6 +298,8 @@ If more than 8 subcategories appear in the filtered range, group all but the top
 - 640–1024px: two-column dashboard
 - ≥1024px: sidebar + dashboard + detail
 - All interactive elements ≥44pt hit target on mobile
+- Inline inputs render at ≥16px font-size on touch (compact only at `sm:` and up) so iOS Safari does not zoom the viewport on focus.
+- `viewport-fit=cover` + `env(safe-area-inset-*)`: the top inset is applied at the AppShell wrapper (not the header alone) so the header and the InstallHint banner clear the notch / Dynamic Island; the fixed bottom nav and scroll container are padded for the home indicator.
 
 ---
 
