@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import ReconnectBanner from '@/components/ReconnectBanner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Sheet,
   SheetContent,
@@ -74,6 +75,9 @@ export default function BlockTimeSheet({
   const [selected, setSelected] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [reloadNonce, setReloadNonce] = useState(0)
+  // Notes are NOT written to the calendar event unless the user opts in
+  // (PRIV-03) — they'd otherwise sync to every device on the Apple ID.
+  const [includeNotes, setIncludeNotes] = useState(false)
 
   // Reset to the loading state when the sheet opens — done during render via
   // the prevOpen-compare pattern (NOT a useEffect), matching EditNotesDialog and
@@ -85,6 +89,7 @@ export default function BlockTimeSheet({
     if (open) {
       setPhase({ status: 'loading' })
       setSelected(null)
+      setIncludeNotes(false)
     }
   }
 
@@ -154,8 +159,10 @@ export default function BlockTimeSheet({
           title: task.title,
           start: slot.start,
           end: slot.end,
-          // Task notes become the event description; null → omitted (resolution 8).
-          description: task.notes ?? undefined,
+          // Title-only by default (PRIV-03). Notes only leave the device — and
+          // sync to every device on the Apple ID + any shared calendars — when
+          // the user explicitly opts in via the toggle below.
+          description: includeNotes ? (task.notes ?? undefined) : undefined,
         }),
       )
       // Bust the affected day(s) so the next strip/sheet refresh sees the new
@@ -258,6 +265,26 @@ export default function BlockTimeSheet({
                   />
                 ))}
               </div>
+              {task.notes && (
+                <div className="flex items-center gap-2 pt-1">
+                  <Checkbox
+                    id="include-notes"
+                    checked={includeNotes}
+                    onCheckedChange={(c) => setIncludeNotes(c === true)}
+                  />
+                  <label
+                    htmlFor="include-notes"
+                    className="text-[13px] text-foreground"
+                  >
+                    Include notes in calendar event
+                  </label>
+                </div>
+              )}
+              <p className="text-[12px] leading-relaxed text-muted-foreground">
+                The event title
+                {task.notes ? ' (and notes, if included above)' : ''} is saved to
+                Apple Calendar and syncs to all devices on your Apple ID.
+              </p>
               <div className="pt-1">
                 <Button
                   onClick={() => {

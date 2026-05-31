@@ -22,6 +22,7 @@ import {
   routineLogFromRow,
   routineLogToRow,
   settingsFromRow,
+  toCachedSettings,
   settingsToRow,
   subcategoryFromRow,
   subcategoryToRow,
@@ -224,7 +225,7 @@ const SPECS: Record<string, TableSpec> = {
   },
   settings: {
     toRow: settingsToRow,
-    cachePut: (r) => db.settings.put(settingsFromRow(r)),
+    cachePut: (r) => db.settings.put(toCachedSettings(settingsFromRow(r))),
     updateKeyColumn: 'user_id',
     updateKeyValue: (p) => p.userId,
     deleteKeyColumn: 'user_id',

@@ -306,11 +306,12 @@ If more than 8 subcategories appear in the filtered range, group all but the top
 | Limitation | Mitigation |
 |---|---|
 | IndexedDB is per-browser-profile; clearing site data wipes the cache | Export/import in Settings; Supabase data unaffected |
+| Local cache (task titles + notes) is cleartext in IndexedDB while signed in | Wiped on `SIGNED_OUT` (chunk 18 — token expiry / multi-tab too); outbox preserved + warned |
 | iOS PWA storage can be evicted under pressure | Outbox drains on every reconnect; failures surfaced in UI |
 | Supabase realtime free tier: 200 concurrent connections, 2M messages/month | Single-user — not a constraint |
 | CalDAV latency 1–3s | Busy ranges cached 5min client-side |
 | No push from iCloud to proxy | Poll busy ranges on focus + every 5min |
-| AI key exposed in browser traffic | Documented; future: proxy AI calls |
+| AI key exposed in browser traffic | Documented (docs/security.md). NOT cached at rest — `aiApiKey`/`caldavAppleId` are never written to Dexie (chunk 18); future: proxy AI calls |
 | iOS PWA sessions evicted after ~7 days inactivity | Re-login is expected; documented |
 | iOS Web Push requires installed PWA + 16.4+ | In-app fallback for other contexts |
 

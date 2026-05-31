@@ -28,6 +28,7 @@ import {
   routineLogToRow,
   settingsFromRow,
   settingsToRow,
+  toCachedSettings,
   subcategoryFromRow,
   subcategoryToRow,
   taskFromRow,
@@ -889,7 +890,8 @@ const settingsRepo = {
         throwIfClientError(error)
         if (!data) return null
         const mapped = settingsFromRow(data as SettingsRow)
-        await db.settings.put(mapped)
+        // Cache without the online-only secrets (PRIV-02); return the full row.
+        await db.settings.put(toCachedSettings(mapped))
         return mapped
       },
       fallback: async () => {
@@ -919,7 +921,7 @@ const settingsRepo = {
       table: TABLES.settings,
       optimistic: next,
       cacheApply: async () => {
-        await db.settings.put(next)
+        await db.settings.put(toCachedSettings(next))
       },
       online: async () => {
         const { data, error } = await supabase
@@ -1072,7 +1074,7 @@ async function applyServerEcho(table: TableName, row: unknown): Promise<void> {
       await db.routine_logs.put(row as RoutineLog)
       return
     case TABLES.settings:
-      await db.settings.put(row as Settings)
+      await db.settings.put(toCachedSettings(row as Settings))
       return
     case TABLES.pushSubscriptions:
       await db.push_subscriptions.put(row as PushSubscription)

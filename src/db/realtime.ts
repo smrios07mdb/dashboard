@@ -28,6 +28,7 @@ import {
   routineItemFromRow,
   routineLogFromRow,
   settingsFromRow,
+  toCachedSettings,
   subcategoryFromRow,
   taskFromRow,
   type CategoryRow,
@@ -151,7 +152,9 @@ async function settingsHandler(
       const userId = payload.old?.user_id
       if (userId) await db.settings.delete(userId)
     } else if (payload.new) {
-      await db.settings.put(settingsFromRow(payload.new))
+      // Strip online-only secrets before caching (PRIV-02). Behavior-only change
+      // to the cache payload; the debounce/coalescing logic is untouched.
+      await db.settings.put(toCachedSettings(settingsFromRow(payload.new)))
     }
     scheduleDashboardRefresh()
   } catch (e) {

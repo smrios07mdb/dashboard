@@ -11,6 +11,7 @@ import './index.css'
 import App from './App.tsx'
 import { repo } from './db/repo'
 import { __clockOverride } from './lib/clock'
+import { installSignOutCleanup } from './lib/signOutCleanup'
 
 // DEV-only: expose the clock override hook on `window` so the test
 // harness can pin `today()` from the DevTools console without doing
@@ -35,6 +36,15 @@ if (import.meta.env.DEV) {
     window as Window & { __claudeDashboard?: { repo: typeof repo } }
   ).__claudeDashboard = { repo }
 }
+
+// Wipe the per-device cache on sign-out (chunk 18 — AUTH-01/PRIV-01). Installed
+// once here, at module scope, rather than inside `useSession` (mounted by ~14
+// components) so it fires exactly once per sign-out and also catches token
+// expiry / sign-out on another tab or device.
+const stopSignOutCleanup = installSignOutCleanup()
+// In dev, drop the previous listener on HMR so hot-reloads don't stack
+// duplicates (no-op in production, where modules don't hot-reload).
+if (import.meta.hot) import.meta.hot.dispose(() => stopSignOutCleanup())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
