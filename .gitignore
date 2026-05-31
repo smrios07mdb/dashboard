@@ -4,6 +4,11 @@
 **/.env.local
 .env.test
 **/.env.test
+# .env.test backups / local variants — keep only the committed .env.test.example
+.env.test.*
+**/.env.test.*
+!.env.test.example
+!**/.env.test.example
 node_modules/
 dist/
 .playwright-mcp/
