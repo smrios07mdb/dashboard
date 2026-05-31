@@ -260,6 +260,8 @@ Client-side call to `https://api.anthropic.com/v1/messages`:
 
 **Security tradeoff (documented):** The API key is visible in browser network traffic on the user's device. Acceptable for single-user personal use. Future hardening: route through the proxy with key as server env var.
 
+**Compensating control (chunk 17, SRV-01):** a build-time `<meta http-equiv="Content-Security-Policy">` (injected by a `build`-only Vite plugin so dev is unconstrained) restricts `connect-src` to Supabase — including `wss://*.supabase.co` for Realtime — the Anthropic API, and the CalDAV proxy, and blocks inline/cross-origin scripts; this bounds where an injected script could exfiltrate the in-DOM key. `style-src` retains `'unsafe-inline'` for recharts' inline styles (§12) pending deployed-console confirmation that dropping it is safe.
+
 ---
 
 ## 11. Streak calculation rule

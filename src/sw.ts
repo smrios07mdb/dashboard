@@ -70,7 +70,12 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = notificationTargetUrl(event.notification.data)
+  // Pass the registration scope so the guard validates the click-through URL
+  // against the real deployed origin + `/dashboard/` base (CLI-01 / SRV-04).
+  const url = notificationTargetUrl(
+    event.notification.data,
+    self.registration.scope,
+  )
   event.waitUntil(focusOrOpenWindow(url))
 })
 

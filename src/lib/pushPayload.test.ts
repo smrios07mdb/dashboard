@@ -59,3 +59,44 @@ describe('notificationTargetUrl', () => {
     expect(notificationTargetUrl({ url: 123 })).toBe('/dashboard/')
   })
 })
+
+describe('notificationTargetUrl — same-origin / BASE_PATH guard (CLI-01)', () => {
+  // The SW passes its real `self.registration.scope` as the base; tests inject
+  // an explicit absolute base so the guard is origin-independent and the
+  // assertions don't depend on the test runner's location.
+  const base = 'https://app.example/dashboard/'
+
+  it('falls back to BASE_PATH for an absolute external URL', () => {
+    expect(notificationTargetUrl({ url: 'https://evil.example/x' }, base)).toBe(
+      '/dashboard/',
+    )
+  })
+
+  it('falls back to BASE_PATH for a path-traversal escaping the base', () => {
+    // new URL normalizes '/dashboard/../evil' to '/evil' — no longer under
+    // BASE_PATH, so it must not pass through.
+    expect(notificationTargetUrl({ url: '/dashboard/../evil' }, base)).toBe(
+      '/dashboard/',
+    )
+  })
+
+  it('falls back to BASE_PATH for a protocol-relative URL', () => {
+    expect(notificationTargetUrl({ url: '//evil.com/x' }, base)).toBe(
+      '/dashboard/',
+    )
+  })
+
+  it('falls back to BASE_PATH for a javascript: URI', () => {
+    // new URL('javascript:…') has an opaque ('null') origin, so the
+    // origin-equality check rejects it before it can reach navigate().
+    expect(notificationTargetUrl({ url: 'javascript:alert(1)' }, base)).toBe(
+      '/dashboard/',
+    )
+  })
+
+  it('passes through a valid same-origin path under BASE_PATH', () => {
+    expect(
+      notificationTargetUrl({ url: '/dashboard/subcategory/s1' }, base),
+    ).toBe('/dashboard/subcategory/s1')
+  })
+})
