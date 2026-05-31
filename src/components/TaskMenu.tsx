@@ -13,6 +13,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { Category, Subcategory, Task } from '@/db/types'
+import { cn } from '@/lib/utils'
+import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 
 /*
  * Three-dot menu attached to each TaskRow.
@@ -52,6 +54,7 @@ export default function TaskMenu({
   onDelete,
 }: TaskMenuProps) {
   const [notesOpen, setNotesOpen] = useState(false)
+  const isTouch = useIsTouchDevice()
   const [blockTimeOpen, setBlockTimeOpen] = useState(false)
 
   return (
@@ -61,7 +64,10 @@ export default function TaskMenu({
           <button
             type="button"
             aria-label={`Actions for "${task.title}"`}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-secondary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              'inline-flex items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-secondary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              isTouch ? 'h-11 w-11' : 'h-6 w-6',
+            )}
           >
             <MoreHorizontal className="size-3.5" aria-hidden />
           </button>

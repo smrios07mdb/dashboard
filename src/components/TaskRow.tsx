@@ -172,7 +172,9 @@ export default function TaskRow({
           checked={selected}
           aria-label={selected ? 'Deselect task' : 'Select task'}
           onCheckedChange={() => onToggleSelected?.(task.id)}
-          className="rounded-sm"
+          // Extend the existing ::before hit area to >=44pt on touch (UX-02 /
+          // §13 "all interactive elements"); visual box stays 16px.
+          className={cn('rounded-sm', isTouch && 'before:size-11')}
         />
       )}
       <Checkbox
@@ -181,6 +183,7 @@ export default function TaskRow({
         onCheckedChange={(next) => {
           if (typeof next === 'boolean') void onComplete(task.id, next)
         }}
+        className={cn(isTouch && 'before:size-11')}
       />
       {canDrag && (
         <button
@@ -212,7 +215,9 @@ export default function TaskRow({
             aria-label={task.remindAt ? 'Edit reminder' : 'Set reminder'}
             title={task.remindAt ? 'Edit reminder' : 'Set reminder'}
             className={cn(
-              'inline-flex h-6 w-6 items-center justify-center rounded-sm hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'inline-flex items-center justify-center rounded-sm hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              // >=44pt hit target on touch (UX-02); 24px density on pointer.
+              isTouch ? 'h-11 w-11' : 'h-6 w-6',
               task.remindAt
                 ? 'text-[var(--accent-ink)]'
                 : 'text-muted-foreground hover:text-foreground',
@@ -229,7 +234,10 @@ export default function TaskRow({
           <button
             type="button"
             aria-label={`Delete task "${task.title}"`}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              'inline-flex items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              isTouch ? 'h-11 w-11' : 'h-6 w-6',
+            )}
           >
             <Trash2 className="size-3.5" />
           </button>
@@ -324,7 +332,7 @@ function TitleField({
       aria-invalid={invalid || undefined}
       aria-label="Task title"
       className={cn(
-        'min-w-0 rounded-sm bg-background px-2 py-1 text-[13px] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none focus:shadow-[inset_0_0_0_1px_hsl(var(--ring))]',
+        'min-w-0 rounded-sm bg-background px-2 py-1 text-base text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none focus:shadow-[inset_0_0_0_1px_hsl(var(--ring))] sm:text-[13px]',
         invalid &&
           'shadow-[inset_0_0_0_1px_hsl(var(--destructive))] focus:shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
       )}
@@ -403,7 +411,7 @@ function MinutesField({
       aria-invalid={invalid || undefined}
       aria-label="Estimate minutes"
       className={cn(
-        'w-16 rounded-sm bg-background px-2 py-1 text-right font-mono text-[12px] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
+        'w-16 rounded-sm bg-background px-2 py-1 text-right font-mono text-base text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none sm:text-[12px]',
         invalid &&
           'shadow-[inset_0_0_0_1px_hsl(var(--destructive))] focus:shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
       )}

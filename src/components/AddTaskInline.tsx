@@ -120,7 +120,8 @@ export default function AddTaskInline({ onCreate }: AddTaskInlineProps) {
         aria-label="New task title"
         aria-invalid={titleInvalid || undefined}
         className={cn(
-          'h-8 bg-background px-2 py-1 text-[13px]',
+          // text-base (16px) on mobile to prevent iOS zoom-on-focus (UX-03).
+          'h-8 bg-background px-2 py-1 text-base sm:text-[13px]',
           titleInvalid &&
             title.length > 0 &&
             'border-destructive focus-visible:ring-destructive',
@@ -137,7 +138,7 @@ export default function AddTaskInline({ onCreate }: AddTaskInlineProps) {
         aria-label="Estimate minutes"
         aria-invalid={minutesInvalid || undefined}
         className={cn(
-          'h-8 bg-background px-2 py-1 text-right font-mono text-[12px] tabular-nums',
+          'h-8 bg-background px-2 py-1 text-right font-mono text-base tabular-nums sm:text-[12px]',
           minutesInvalid &&
             'border-destructive focus-visible:ring-destructive',
         )}
