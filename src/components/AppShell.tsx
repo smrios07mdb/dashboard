@@ -21,8 +21,11 @@ export default function AppShell({
   topBanner,
   children,
 }: AppShellProps) {
+  // Safe-area top on the shell so BOTH the topBanner (e.g. InstallHint, which
+  // renders above the header) and the header itself clear the notch / Dynamic
+  // Island under `viewport-fit=cover` (UX-04).
   return (
-    <div className="min-h-svh bg-background text-foreground">
+    <div className="min-h-svh bg-background pt-[env(safe-area-inset-top)] text-foreground">
       {topBanner}
       <header className="border-b border-border">
         <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-3 sm:px-7">
@@ -39,7 +42,10 @@ export default function AppShell({
           </div>
         </div>
       </header>
-      <div className="mx-auto max-w-[1280px] px-4 py-6 sm:px-7">
+      {/* Bottom padding on phones clears the fixed bottom nav (min-h-14 bar +
+          its safe-area inset) so no content hides behind it (UX-01). Restored
+          to the normal py-6 at >=sm where the bottom nav is hidden. */}
+      <div className="mx-auto max-w-[1280px] px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:px-7 sm:pb-6">
         {children}
       </div>
     </div>

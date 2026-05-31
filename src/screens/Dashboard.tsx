@@ -145,7 +145,7 @@ function TodayStrip({ openCount, openMinutes }: TodayStripProps) {
               setAvailableMinutes(Number(e.target.value) || 0)
             }
             aria-label="Available minutes"
-            className="w-16 rounded-sm border border-border bg-background px-2 py-1 text-right font-mono text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-16 rounded-sm border border-border bg-background px-2 py-1 text-right font-mono text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-[13px]"
           />
           <span className="font-mono text-[11px] text-muted-foreground">
             min

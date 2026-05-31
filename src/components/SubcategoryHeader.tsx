@@ -230,7 +230,10 @@ export default function SubcategoryHeader({
           e.stopPropagation()
           onDrillDown(subcategory.id)
         }}
-        className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-[16px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn(
+          'inline-flex items-center justify-center rounded-sm text-[16px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          isTouch ? 'h-11 w-11' : 'h-6 w-6',
+        )}
       >
         <span aria-hidden>›</span>
       </button>
@@ -241,7 +244,10 @@ export default function SubcategoryHeader({
             type="button"
             aria-label={`Actions for ${subcategory.name}`}
             onClick={(e) => e.stopPropagation()}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              'inline-flex items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              isTouch ? 'h-11 w-11' : 'h-6 w-6',
+            )}
           >
             <MoreHorizontal className="size-3.5" aria-hidden />
           </button>
