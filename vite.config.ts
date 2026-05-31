@@ -32,6 +32,56 @@ function versionJsonPlugin(): PluginOption {
   }
 }
 
+/**
+ * Inject a Content-Security-Policy <meta> into index.html AT BUILD TIME only
+ * (SRV-01). GitHub Pages serves static files and can't set response headers, so
+ * a meta CSP is the only available mechanism. `apply: 'build'` means it does NOT
+ * constrain `npm run dev` — the Vite dev server injects inline HMR scripts and a
+ * ws://localhost socket that `script-src 'self'` / this `connect-src` would
+ * otherwise block. Validate against the PRODUCTION build (`npm run build &&
+ * npm run preview`) and the deployed GH Pages URL.
+ *
+ * connect-src MUST list `wss://*.supabase.co`: Supabase Realtime
+ * (src/db/realtime.ts) opens a WebSocket, and a CSP `https:` source does NOT
+ * authorize a `wss:` socket (the scheme-upgrade allowance is ws->wss / http->
+ * https, not https->wss; only same-origin `'self'` implies its own ws/wss). Omit
+ * it and cross-device live sync silently breaks.
+ *
+ * style-src keeps `'unsafe-inline'` for recharts' inline style attributes
+ * (ARCHITECTURE §12 Insights); revisit once the deployed console confirms zero
+ * style-src violations. `frame-ancestors` is inert in a <meta> CSP (header-only
+ * per spec) but kept to document intent; real clickjacking defense would need a
+ * response header GH Pages can't set.
+ */
+function cspMetaPlugin(): PluginOption {
+  const csp = [
+    "default-src 'self'",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com https://dashboard-caldav-proxy.vercel.app",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "frame-ancestors 'none'",
+  ].join('; ')
+  return {
+    name: 'inject-csp-meta',
+    apply: 'build',
+    transformIndexHtml() {
+      return [
+        {
+          tag: 'meta',
+          attrs: { 'http-equiv': 'Content-Security-Policy', content: csp },
+          injectTo: 'head-prepend',
+        },
+      ]
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   base: '/dashboard/',
@@ -97,6 +147,7 @@ export default defineConfig({
       },
     }),
     versionJsonPlugin(),
+    cspMetaPlugin(),
   ],
   resolve: {
     alias: {
