@@ -299,6 +299,12 @@ function AiKeySection() {
       </div>
 
       <p className="mt-3 max-w-md text-[12px] leading-relaxed text-muted-foreground">
+        “What’s next?” triage sends your incomplete task titles, their category
+        and subcategory, time estimate, due date, and priority to Anthropic —
+        never your notes.
+      </p>
+
+      <p className="mt-2 max-w-md text-[12px] leading-relaxed text-muted-foreground">
         Your key is stored in your Supabase data, accessible only by you (RLS).
         Calls are made directly from your browser. See{' '}
         <span className="font-mono">docs/security.md</span>.

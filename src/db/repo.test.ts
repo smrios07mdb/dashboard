@@ -32,6 +32,7 @@ import {
   routineLogToRow,
   settingsFromRow,
   settingsToRow,
+  toCachedSettings,
   subcategoryFromRow,
   subcategoryToRow,
   taskFromRow,
@@ -337,6 +338,58 @@ describe('repo (online)', () => {
     fromMock.mockReturnValue(makeChain({ data: null, error: null }))
     const out = await repo.settings.get('u-1')
     expect(out).toBeNull()
+  })
+})
+
+// ============================================================
+// PRIV-02: the two online-only secrets (aiApiKey, caldavAppleId) must never
+// persist in the Dexie cache at rest — only travel in the live return value.
+// ============================================================
+
+describe('settings cache omits secrets at rest (PRIV-02)', () => {
+  const rowWithSecrets = {
+    user_id: 'u-1',
+    ai_api_key: 'sk-ant-SECRET',
+    caldav_apple_id: 'me@icloud.com',
+    caldav_calendar_url: 'https://cal.example',
+    caldav_status: 'ok' as const,
+    timezone: 'America/New_York',
+    last_daily_reset: null,
+  }
+
+  it('toCachedSettings drops aiApiKey + caldavAppleId, keeps the rest', () => {
+    const cached = toCachedSettings(settingsFromRow(rowWithSecrets))
+    expect('aiApiKey' in cached).toBe(false)
+    expect('caldavAppleId' in cached).toBe(false)
+    expect(cached.userId).toBe('u-1')
+    expect(cached.caldavCalendarUrl).toBe('https://cal.example')
+    expect(cached.caldavStatus).toBe('ok')
+    expect(cached.timezone).toBe('America/New_York')
+  })
+
+  it('settings.get returns the secrets but caches a record without them', async () => {
+    fromMock.mockReturnValue(makeChain({ data: rowWithSecrets, error: null }))
+    const out = await repo.settings.get('u-1')
+    // Live return still carries the secrets — online callers (ai.ts) need them.
+    expect(out?.aiApiKey).toBe('sk-ant-SECRET')
+    expect(out?.caldavAppleId).toBe('me@icloud.com')
+    // The Dexie mirror must NOT.
+    const cached = await db.settings.get('u-1')
+    expect(cached).toBeTruthy()
+    expect(cached && 'aiApiKey' in cached).toBe(false)
+    expect(cached && 'caldavAppleId' in cached).toBe(false)
+    expect(cached?.timezone).toBe('America/New_York')
+  })
+
+  it('settings.update returns the secrets but caches a record without them (applyServerEcho path)', async () => {
+    fromMock.mockReturnValue(makeChain({ data: rowWithSecrets, error: null }))
+    const out = await repo.settings.update('u-1', {
+      timezone: 'America/New_York',
+    })
+    expect(out.aiApiKey).toBe('sk-ant-SECRET')
+    const cached = await db.settings.get('u-1')
+    expect(cached && 'aiApiKey' in cached).toBe(false)
+    expect(cached && 'caldavAppleId' in cached).toBe(false)
   })
 })
 

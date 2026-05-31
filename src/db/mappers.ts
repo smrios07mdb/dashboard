@@ -219,6 +219,29 @@ export function settingsFromRow(row: SettingsRow): Settings {
   }
 }
 
+/**
+ * The two online-only secrets must never persist in the Dexie cache at rest
+ * (chunk 18, PRIV-02): `aiApiKey` is only used to call api.anthropic.com and
+ * `caldavAppleId` only for proxy/CalDAV ops — both require the network, so the
+ * live Supabase fetch supplies them and the cache mirror omits them entirely
+ * (mirroring how the encrypted CalDAV password is never in the `Settings` type
+ * or cache at all). Apply at EVERY `db.settings` cache-write site; the live
+ * return value of `settingsFromRow` is left intact for online callers.
+ *
+ * Distinct from export's `CREDENTIAL_SETTINGS_KEYS` redaction (lib/export.ts):
+ * that list targets credentials in the user-initiated export FILE. This targets
+ * online-only fields in the silent, indefinitely-persisted at-rest cache. The
+ * Apple ID is online-only (stripped here) but, as identifying-not-secret config
+ * that's inert without the server-only encrypted password, it's intentionally
+ * retained in exports (which already carry task notes in plaintext by design).
+ */
+export function toCachedSettings(settings: Settings): Settings {
+  const cached = { ...settings }
+  delete (cached as Partial<Settings>).aiApiKey
+  delete (cached as Partial<Settings>).caldavAppleId
+  return cached as Settings
+}
+
 export function settingsToRow(
   value: Partial<Settings> & { userId?: string },
 ): Partial<SettingsRow> {

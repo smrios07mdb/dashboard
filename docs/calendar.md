@@ -89,6 +89,22 @@ To recover:
 `caldav_status` to `unconfigured` (the busy strip then renders nothing — no
 nagging). You can reconnect anytime by testing and saving again.
 
+## What "Block time" writes to your calendar
+
+Creating an event from the **Block time** sheet writes a `VEVENT` to your
+selected iCloud calendar via the proxy. The fields written are:
+
+- **Title** — always: the task's title (used as the event title).
+- **Start / end** — always: the slot you picked.
+- **Description** — only if you tick **"Include notes in calendar event"** (off
+  by default). When on, the task's notes become the event description.
+
+Because the event lands in iCloud, it syncs to every device signed into that
+Apple ID and to anyone you share that calendar with. That's why notes are
+**opt-in**: title-only is the default so free-text notes don't leave the device
+unless you choose to include them. (The "What's next?" AI triage likewise never
+sends notes — see `docs/security.md`.)
+
 ## Privacy
 
 - The app-specific password is sent to the proxy only over HTTPS and stored

@@ -54,6 +54,12 @@ describe('Settings — AI key', () => {
     )
   })
 
+  it('discloses what triage sends to Anthropic — titles, not notes (PRIV-04)', async () => {
+    render(<Settings />)
+    expect(await screen.findByText(/task titles/i)).toBeInTheDocument()
+    expect(screen.getByText(/never your notes/i)).toBeInTheDocument()
+  })
+
   it('saves a new key via repo.settings.update', async () => {
     const user = userEvent.setup()
     render(<Settings />)

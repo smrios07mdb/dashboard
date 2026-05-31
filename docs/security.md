@@ -61,3 +61,37 @@ Anthropic from the browser:
 
 This is explicitly **out of scope for chunk 11** (see the chunk prompt's
 "Do NOT" list) — documented here, not built.
+
+## Local data at rest (chunk 18 — PRIV-01 / PRIV-02)
+
+The app keeps a per-device Dexie/IndexedDB cache mirror of your Supabase data so
+it works offline (ARCHITECTURE.md §6).
+
+**Before chunk 18**, two things leaked into that on-device cache that shouldn't
+have persisted there:
+
+- The Anthropic API key (`ai_api_key`) and the Apple ID (`caldav_apple_id`) were
+  mirrored into the `settings` cache on every settings read — so they sat in
+  cleartext in IndexedDB, not just in network traffic.
+- Sign-out cleared only the Supabase session; it never wiped the cache, so a
+  previous user's task titles, notes, routine history, and that cached settings
+  row remained readable on a shared/borrowed device (or via DevTools) until the
+  next manual wipe.
+
+**Chunk 18 closes both:**
+
+- `aiApiKey` and `caldavAppleId` are **never written to the Dexie cache**
+  (`toCachedSettings` strips them at every cache-write site). They're only used
+  online — the AI call hits `api.anthropic.com` and CalDAV ops hit the proxy —
+  so they're read from the live Supabase fetch and never persisted locally,
+  exactly as the encrypted CalDAV password already was.
+- A single app-wide `SIGNED_OUT` listener **wipes the cache mirror on sign-out**
+  (`clearLocalDataOnSignOut`), including on token expiry and sign-out from
+  another tab/device — not just the account-menu button. The offline outbox is
+  deliberately preserved (un-synced edits must still drain) and you're warned if
+  writes are still queued.
+
+Residual: while an offline write to the settings row is queued, its payload
+(which may include a just-entered key) lives in the outbox until it drains — by
+design, since the write can't sync without it. This is transient and clears on
+the next successful drain.
