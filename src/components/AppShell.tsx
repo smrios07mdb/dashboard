@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import AccountMenu from './AccountMenu'
+import { HupoMark } from './HupoMark'
 
 type AppShellProps = {
   /**
@@ -29,12 +30,15 @@ export default function AppShell({
       {topBanner}
       <header className="border-b border-border">
         <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-3 sm:px-7">
-          <div
-            className="inline-flex items-baseline gap-[2px] text-[18px] font-semibold text-foreground"
-            style={{ letterSpacing: '-0.02em' }}
-          >
-            <span>hupomnemata</span>
-            <span style={{ color: 'var(--jewel-jade)' }}>.</span>
+          {/* Brand lockup (brand/README "App header"): the HupoMark — whose
+              emerald point is the wordmark's period — beside the serif
+              "hupomnemata" wordmark. The mark carries the point, so the wordmark
+              drops its trailing dot (no double point). Point tracks live --work. */}
+          <div className="inline-flex items-center gap-2">
+            <HupoMark size={22} />
+            <span className="font-display text-[19px] font-semibold lowercase tracking-[-0.02em] text-ink">
+              hupomnemata
+            </span>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
             {headerEnd}

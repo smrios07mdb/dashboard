@@ -1,104 +1,74 @@
-import { Filter, Sun, Tag, User, type LucideIcon } from 'lucide-react'
-import { NavLink } from 'react-router-dom'
+import type { ReactNode } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 
-import { cn } from '@/lib/utils'
+import { Filter, Sun, Tag, User } from '@/components/icons'
+import { BottomTabs, TopTabs, type NavItem } from '@/components/ui/nav-tabs'
 
 /*
- * Primary navigation — URL-driven via NavLink (deliberately not shadcn
- * <Tabs>, which uses internal local state). Active styling comes from
- * NavLink's `isActive` render prop; accessibility is handled by NavLink
- * stamping `aria-current="page"` on the active link.
+ * Primary navigation — composes the Chunk-23 `TopTabs` / `BottomTabs` primitives
+ * wired to react-router (the primitives are presentational).
  *
- * Responsive (ARCHITECTURE §13): a fixed bottom tab bar under 640px
- * (`sm:hidden`, thumb-reachable, safe-area padded) and the top tabs at
- * `>=sm` (`hidden sm:flex`). Both render the same routes; CSS shows exactly
- * one per breakpoint, so only one is in the a11y tree at a time. Bottom-bar
- * labels + icons follow design/src/app.jsx `BottomTabs` / `tabIcons` — note
- * the dashboard tab reads "Tasks" in the bottom bar per that design.
+ * Active id derives from the pathname: exact `/` for Dashboard (replicating the
+ * old `NavLink end`), own-path for the others. Drill-down routes
+ * (`/category/:id`, `/subcategory/:id`) are NOT in the tab set → no active tab
+ * (`value=''`). The primitives stamp `aria-current="page"` on the active item.
+ *
+ * Responsive (ARCHITECTURE §13): `TopTabs` at >=sm (`hidden sm:flex`), fixed
+ * `BottomTabs` below 640px (`sm:hidden`) — exactly one in the a11y tree per
+ * breakpoint. Bottom-bar dashboard label is "Tasks" per design/src/app.jsx.
  */
 
 type Tab = {
   to: string
   label: string
   mobileLabel: string
-  Icon: LucideIcon
-  end: boolean
+  icon: ReactNode
 }
 
 const TABS: readonly Tab[] = [
-  { to: '/', label: 'Dashboard', mobileLabel: 'Tasks', Icon: Tag, end: true },
-  { to: '/routines', label: 'Routines', mobileLabel: 'Routines', Icon: Sun, end: false },
-  { to: '/insights', label: 'Insights', mobileLabel: 'Insights', Icon: Filter, end: false },
-  { to: '/settings', label: 'Settings', mobileLabel: 'Settings', Icon: User, end: false },
+  { to: '/', label: 'Dashboard', mobileLabel: 'Tasks', icon: <Tag size={20} /> },
+  { to: '/routines', label: 'Routines', mobileLabel: 'Routines', icon: <Sun size={20} /> },
+  { to: '/insights', label: 'Insights', mobileLabel: 'Insights', icon: <Filter size={20} /> },
+  { to: '/settings', label: 'Settings', mobileLabel: 'Settings', icon: <User size={20} /> },
 ]
 
+/** Exact `/` for Dashboard; own-path for the rest; `''` on drill-down routes. */
+function activeId(pathname: string): string {
+  if (pathname === '/') return '/'
+  const match = TABS.find((t) => t.to !== '/' && pathname.startsWith(t.to))
+  return match ? match.to : ''
+}
+
 export default function Tabs() {
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+  const value = activeId(pathname)
+
+  const topItems: NavItem[] = TABS.map((t) => ({ id: t.to, label: t.label }))
+  const bottomItems: NavItem[] = TABS.map((t) => ({
+    id: t.to,
+    label: t.mobileLabel,
+    icon: t.icon,
+  }))
+
   return (
     <>
       {/* Desktop / tablet: top tabs (hidden on phones). */}
-      <nav
-        aria-label="Primary"
-        data-testid="primary-nav-top"
-        className="-mt-2 mb-2 hidden gap-1 overflow-x-auto border-b border-border sm:flex"
-      >
-        {TABS.map((tab) => (
-          <NavLink
-            key={tab.to}
-            to={tab.to}
-            end={tab.end}
-            className={({ isActive }) =>
-              cn(
-                'relative inline-flex min-h-11 items-center px-3 text-[13px] font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                isActive
-                  ? 'text-foreground'
-                  : 'text-muted-foreground hover:text-secondary-foreground',
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                <span>{tab.label}</span>
-                <span
-                  aria-hidden
-                  className={cn(
-                    'pointer-events-none absolute inset-x-2 bottom-[-1px] h-[2px] rounded-sm transition-colors',
-                    isActive ? 'bg-foreground' : 'bg-transparent',
-                  )}
-                />
-              </>
-            )}
-          </NavLink>
-        ))}
-      </nav>
-
+      <TopTabs
+        ariaLabel="Primary"
+        items={topItems}
+        value={value}
+        onChange={(id) => navigate(id)}
+        className="-mt-2 mb-2 hidden overflow-x-auto sm:flex"
+      />
       {/* Phones: fixed bottom tab bar (hidden at >=sm). */}
-      <nav
-        aria-label="Primary"
-        data-testid="primary-nav-bottom"
-        className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background pb-[env(safe-area-inset-bottom)] sm:hidden"
-      >
-        {TABS.map((tab) => {
-          const { Icon } = tab
-          return (
-            <NavLink
-              key={tab.to}
-              to={tab.to}
-              end={tab.end}
-              className={({ isActive }) =>
-                cn(
-                  'flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[11px] font-medium transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                  isActive ? 'text-foreground' : 'text-muted-foreground',
-                )
-              }
-            >
-              <Icon className="size-5" aria-hidden />
-              <span>{tab.mobileLabel}</span>
-            </NavLink>
-          )
-        })}
-      </nav>
+      <BottomTabs
+        ariaLabel="Primary"
+        items={bottomItems}
+        value={value}
+        onChange={(id) => navigate(id)}
+        className="sm:hidden"
+      />
     </>
   )
 }

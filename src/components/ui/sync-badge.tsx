@@ -23,38 +23,44 @@ const STATES: Record<SyncState, { dot: string; label: string; sub: string }> = {
   },
 }
 
-export interface SyncBadgeProps {
+export interface SyncBadgeProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   state?: SyncState
-  onClick?: () => void
-  className?: string
 }
 
-export function SyncBadge({ state = 'synced', onClick, className }: SyncBadgeProps) {
-  const it = STATES[state] ?? STATES.synced
-  const pulsing = state === 'syncing'
-  const dotStyle: React.CSSProperties = pulsing
-    ? {
-        background: it.dot,
-        // CSS var consumed by the `sync-pulse` keyframe for a same-color ripple.
-        ['--sync-dot' as string]: `color-mix(in srgb, ${it.dot} 45%, transparent)`,
-        animation: 'sync-pulse 1.4s infinite',
-      }
-    : { background: it.dot }
+/**
+ * forwardRef + prop spread so it can be a Radix `PopoverTrigger asChild` (Slot
+ * injects onClick / aria-expanded / ref) — see SyncIndicator (Chunk 24).
+ */
+export const SyncBadge = React.forwardRef<HTMLButtonElement, SyncBadgeProps>(
+  function SyncBadge({ state = 'synced', className, ...rest }, ref) {
+    const it = STATES[state] ?? STATES.synced
+    const pulsing = state === 'syncing'
+    const dotStyle: React.CSSProperties = pulsing
+      ? {
+          background: it.dot,
+          // CSS var consumed by the `sync-pulse` keyframe for a same-color ripple.
+          ['--sync-dot' as string]: `color-mix(in srgb, ${it.dot} 45%, transparent)`,
+          animation: 'sync-pulse 1.4s infinite',
+        }
+      : { background: it.dot }
 
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={it.sub}
-      aria-label={`Sync status: ${it.label}`}
-      className={cn(
-        'inline-flex items-center gap-2 rounded-full border border-line bg-surface py-[5px] pl-2 pr-2.5 text-[12px] text-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        !onClick && 'cursor-default',
-        className,
-      )}
-    >
-      <span aria-hidden className="size-[7px] rounded-full" style={dotStyle} />
-      <span>{it.label}</span>
-    </button>
-  )
-}
+    return (
+      <button
+        ref={ref}
+        type="button"
+        className={cn(
+          'inline-flex items-center gap-2 rounded-full border border-line bg-surface py-[5px] pl-2 pr-2.5 text-[12px] text-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          !rest.onClick && 'cursor-default',
+          className,
+        )}
+        {...rest}
+        title={it.sub}
+        aria-label={`Sync status: ${it.label}`}
+      >
+        <span aria-hidden className="size-[7px] rounded-full" style={dotStyle} />
+        <span>{it.label}</span>
+      </button>
+    )
+  },
+)

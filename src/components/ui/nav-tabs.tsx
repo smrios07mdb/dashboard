@@ -19,12 +19,14 @@ export interface NavTabsProps {
   value: string
   onChange: (id: string) => void
   className?: string
+  /** Accessible name for the <nav> landmark (e.g. "Primary"). */
+  ariaLabel?: string
 }
 
 /** Desktop top-nav row: active = ink/600 + 2px `--accent` underline. */
-export function TopTabs({ items, value, onChange, className }: NavTabsProps) {
+export function TopTabs({ items, value, onChange, className, ariaLabel }: NavTabsProps) {
   return (
-    <nav className={cn('flex gap-0.5 border-b border-line', className)}>
+    <nav aria-label={ariaLabel} className={cn('flex gap-0.5 border-b border-line', className)}>
       {items.map((it) => {
         const active = it.id === value
         return (
@@ -57,9 +59,10 @@ export function TopTabs({ items, value, onChange, className }: NavTabsProps) {
 }
 
 /** Mobile bottom nav (<640px form of TopTabs). Active = ink/600 + `--accent` cap. */
-export function BottomTabs({ items, value, onChange, className }: NavTabsProps) {
+export function BottomTabs({ items, value, onChange, className, ariaLabel }: NavTabsProps) {
   return (
     <nav
+      aria-label={ariaLabel}
       className={cn(
         'fixed inset-x-0 bottom-0 z-40 grid border-t border-line bg-[color-mix(in_srgb,var(--surface)_90%,transparent)] backdrop-blur-md',
         className,
