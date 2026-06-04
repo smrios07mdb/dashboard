@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Toaster } from 'sonner'
 
+import ApplyAccent from '@/components/ApplyAccent'
 import InAppReminders from '@/components/InAppReminders'
 import ProtectedLayout from '@/components/ProtectedLayout'
 import RealtimeBridge from '@/components/RealtimeBridge'
@@ -20,11 +21,28 @@ import '@/lib/network'
 // chunk and doesn't bloat the initial bundle / Lighthouse Perf (chunk-16 R7).
 const Insights = lazy(() => import('@/screens/Insights'))
 
+// Throwaway design-token check page (redesign chunk 21). DEV-only: the ternary
+// is statically false in prod, so Vite drops the dynamic import and never emits
+// the chunk. Route is also `import.meta.env.DEV`-gated below.
+const TokenCheck = import.meta.env.DEV
+  ? lazy(() => import('@/screens/TokenCheck'))
+  : null
+
 export default function App() {
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <Routes>
         <Route path="/auth/callback" element={<AuthCallback />} />
+        {import.meta.env.DEV && TokenCheck && (
+          <Route
+            path="/dev/tokens"
+            element={
+              <Suspense fallback={null}>
+                <TokenCheck />
+              </Suspense>
+            }
+          />
+        )}
         <Route element={<ProtectedLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="category/:categoryId" element={<CategoryView />} />
@@ -52,7 +70,8 @@ export default function App() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-      <Toaster theme="dark" position="top-center" richColors closeButton />
+      <Toaster theme="light" position="top-center" richColors closeButton />
+      <ApplyAccent />
       <UpdatePrompt />
       <RealtimeBridge />
       <InAppReminders />

@@ -14,10 +14,16 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        // Default sans + the design's explicit type roles. Stacks (with
+        // fallbacks) live in the CSS vars so a pairing tweak can swap them.
+        sans: ['var(--font-ui)'],
+        ui: ['var(--font-ui)'],
+        display: ['var(--font-display)'],
+        serif: ['var(--font-serif)'],
+        mono: ['var(--font-mono)'],
       },
       colors: {
+        /* ---- shadcn slots (HSL triplets → opacity-modifier aware) ---- */
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
@@ -51,11 +57,54 @@ export default {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+
+        /* ---- design raw tokens (hex / rgba via var) ---- */
+        bg: 'var(--bg)',
+        'bg-alt': 'var(--bg-alt)',
+        surface: 'var(--surface)',
+        'surface-2': 'var(--surface-2)',
+        ink: 'var(--ink)',
+        'ink-2': 'var(--ink-2)',
+        'ink-3': 'var(--ink-3)',
+        'ink-4': 'var(--ink-4)',
+        line: 'var(--line)',
+        'line-strong': 'var(--line-strong)',
+        work: {
+          DEFAULT: 'var(--work)',
+          soft: 'var(--work-soft)',
+        },
+        personal: {
+          DEFAULT: 'var(--personal)',
+          soft: 'var(--personal-soft)',
+        },
+        'accent-soft': 'var(--accent-soft)',
+        'accent-ink': 'var(--accent-ink)',
+        'destructive-soft': 'var(--destructive-soft)',
+        good: 'var(--good)',
+        warn: 'var(--warn)',
+        offline: 'var(--offline)',
+        jewel: {
+          sapphire: 'var(--jewel-sapphire)',
+          amethyst: 'var(--jewel-amethyst)',
+          coral: 'var(--jewel-coral)',
+          citron: 'var(--jewel-citron)',
+          jade: 'var(--jewel-jade)',
+          rose: 'var(--jewel-rose)',
+          teal: 'var(--jewel-teal)',
+          gold: 'var(--jewel-gold)',
+        },
       },
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        sm: 'var(--radius-sm)',
+        DEFAULT: 'var(--radius)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+      },
+      boxShadow: {
+        sm: 'var(--shadow-sm)',
+        DEFAULT: 'var(--shadow-md)',
+        md: 'var(--shadow-md)',
+        lg: 'var(--shadow-lg)',
       },
       letterSpacing: {
         label: '0.16em',

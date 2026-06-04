@@ -3,88 +3,325 @@
 @tailwind utilities;
 
 /*
- * Obsidian palette — design tokens from design/index.html.
+ * ============================================================================
+ * Hupomnemata — DAYLIGHT theme (redesign chunk 21).
+ * ============================================================================
  *
- * Mapping notes:
- *   --bg          → --background
- *   --ink         → --foreground
- *   --ink-3       → --muted-foreground
- *   --line        → --border / --input  (solid approximation of the rgba alpha)
- *   --bg-alt      → --secondary / --muted
- *   --surface     → --card / --popover
- *   --ink-2       → --secondary-foreground
- *   design --accent (focal "ice")  → --primary  AND  --accent
- *     (both shadcn slots point at ice; menu hover bg is overridden where needed)
+ * Token source of truth: hupomnemata_handoff/app/index.html `:root` + theme
+ * blocks, ported verbatim. Daylight is the default theme.
  *
- * Design-specific tokens with no shadcn equivalent (--work, --personal,
- * --jewel-*, --surface-2, --ink-4, --accent-soft, alpha lines, etc.) are
- * declared as raw values below.
+ * Two coexisting token conventions live in this file:
+ *
+ *  1. shadcn slots (`--background`, `--foreground`, `--primary`, `--accent`,
+ *     `--destructive`, `--ring`, …) are SPACE-SEPARATED HSL TRIPLETS, because
+ *     existing components consume them both as `hsl(var(--x))` and with Tailwind
+ *     opacity modifiers (`bg-primary/90`, `ring-[hsl(var(--ring)/0.15)]`). They
+ *     are mapped to the Daylight palette so shadcn-driven chrome renders light.
+ *     (HSL values computed from the design hexes shown in the trailing comment.)
+ *
+ *  2. Design raw tokens (`--bg`, `--ink*`, `--surface*`, `--work*`, `--jewel-*`,
+ *     `--spark-*`, `--accent-soft`, `--accent-ink`, radii/shadows/fonts/density)
+ *     are the design's literal hex / rgba / px values, ported 1:1 from index.html
+ *     and consumed as bare `var(--x)`.
+ *
+ * NOTE on the `--accent` / `--destructive` name clash: the design names these as
+ * hex, but this codebase needs them as HSL triplets (convention 1). So pine
+ * (#1f5142) lives in `--accent`/`--ring`/`--primary` as HSL, and the design's
+ * `--accent-soft` / `--accent-ink` washes stay raw. `ApplyAccent` (src/lib/theme)
+ * overrides `--accent` at runtime — also as an HSL triplet, never hex.
+ * ============================================================================
  */
 
 @layer base {
   :root {
-    /* shadcn slots — HSL space-separated for opacity-variant support */
-    --background: 225 17% 5%;            /* #0a0b0e */
-    --foreground: 230 19% 94%;           /* #ecedf2 */
+    /* ---- shadcn slots — Daylight (HSL triplets) ---- */
+    --background: 280 16% 96%;            /* --bg        #f6f4f7 */
+    --foreground: 260 13% 14%;            /* --ink       #221f28 */
 
-    --card: 224 22% 10%;                 /* #14171f */
-    --card-foreground: 230 19% 94%;
+    --card: 0 0% 100%;                    /* --surface   #ffffff */
+    --card-foreground: 260 13% 14%;       /* --ink       #221f28 */
 
-    --popover: 224 22% 10%;              /* #14171f */
-    --popover-foreground: 230 19% 94%;
+    --popover: 0 0% 100%;                 /* --surface   #ffffff */
+    --popover-foreground: 260 13% 14%;    /* --ink       #221f28 */
 
-    --primary: 217 31% 84%;              /* #c8d2e2 ice — focal action */
-    --primary-foreground: 225 17% 5%;
+    --primary: 162 45% 22%;               /* --accent pine #1f5142 — focal action */
+    --primary-foreground: 280 16% 96%;    /* #f6f4f7 */
 
-    --secondary: 227 21% 8%;             /* #11131a bg-alt */
-    --secondary-foreground: 225 7% 68%;  /* #a8abb4 ink-2 */
+    --secondary: 264 14% 93%;             /* --bg-alt    #eceaef */
+    --secondary-foreground: 258 6% 40%;   /* --ink-2     #635f6c */
 
-    --muted: 227 21% 8%;
-    /* ink-3, nudged lighter (chunk-16 a11y): ≥4.5:1 on cards (#14171f) for
-       small muted text. 50% (#797c86) measured 4.3:1; 54% clears AA. */
-    --muted-foreground: 227 5% 54%;
+    --muted: 264 14% 93%;                 /* --bg-alt    #eceaef */
+    /* --muted-foreground mapped to --ink-2 (not --ink-3) so the ~103 existing
+       `text-muted-foreground` usages clear AA on the new light surfaces;
+       per-screen re-skins assign --ink-2 / --ink-3 deliberately by context. */
+    --muted-foreground: 258 6% 40%;       /* --ink-2     #635f6c */
 
-    --accent: 217 31% 84%;               /* ice — design's --accent slot */
-    --accent-foreground: 225 17% 5%;
+    --accent: 162 45% 22%;                /* pine #1f5142 — matches hsl(var(--accent)) consumers (Login) */
+    --accent-foreground: 280 16% 96%;     /* #f6f4f7 */
 
-    --destructive: 0 100% 72%;           /* #ff6f6f */
-    --destructive-foreground: 225 17% 5%;
+    --destructive: 10 60% 45%;            /* #b8462e */
+    --destructive-foreground: 280 16% 96%;/* #f6f4f7 */
 
-    --border: 225 8% 10%;                /* solid approximation of rgba(255,255,255,.055) */
-    --input: 225 8% 10%;
-    --ring: 217 31% 84%;                 /* ice */
+    --border: 240 3% 92%;                 /* --line solid approx (rgba(38,32,46,.09) over #fff = #ebebec) */
+    --input: 260 4% 86%;                  /* --line-strong solid approx (.16 over #fff = #dcdbde) */
+    --ring: 162 45% 22%;                  /* pine #1f5142 — focus ring = focal */
 
-    --radius: 5px;                       /* design's --radius */
+    /* ---- Design raw tokens — Daylight (verbatim from index.html) ---- */
 
-    /* Design-specific tokens (raw values) */
-    --surface-2: #1a1e28;
-    --ink-4: #36383f;
-    --line: rgba(255, 255, 255, 0.055);
-    --line-strong: rgba(255, 255, 255, 0.10);
-    --accent-soft: rgba(200, 210, 226, 0.10);
-    --accent-ink: #e8edf5;
-    --destructive-soft: rgba(255, 111, 111, 0.14);
+    /* Surfaces */
+    --bg:           #f6f4f7;
+    --bg-alt:       #eceaef;
+    --surface:      #ffffff;
+    --surface-2:    #f8f6fa;
+    --line:         rgba(38, 32, 46, 0.09);
+    --line-strong:  rgba(38, 32, 46, 0.16);
 
-    --work: #4cc8a3;
-    --work-soft: rgba(76, 200, 163, 0.13);
-    --personal: #ff7d6b;
-    --personal-soft: rgba(255, 125, 107, 0.13);
-    --warn: #e5b86a;
-    --good: #4cc8a3;
-    --offline: #5e616b;
+    /* Ink scale */
+    --ink:    #221f28;
+    --ink-2:  #635f6c;
+    --ink-3:  #948f9e;
+    --ink-4:  #c7c2d0;
 
-    --jewel-sapphire: #5b8bff;
-    --jewel-amethyst: #a78bfa;
-    --jewel-coral: #ff7d6b;
-    --jewel-citron: #d4d168;
-    --jewel-jade: #4cc8a3;
-    --jewel-rose: #ef5da8;
-    --jewel-teal: #5ec5d6;
-    --jewel-gold: #e5b86a;
+    /* Focal accent (overridden at runtime by ApplyAccent; forest default). The
+       focal color itself is the `--accent` HSL slot above; these are its washes. */
+    --accent-soft: rgba(31, 81, 66, 0.10);
+    --accent-ink:  #1f5142;
 
-    --font-ui: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
-    --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+    /* Status */
+    --destructive-soft: rgba(184, 70, 46, 0.13);
+    --warn:    #d98a1c;
+    --good:    #11a06e;
+    --offline: #b0a593;
+
+    /* Jewel palette — vivid, bold, made to pop on cream */
+    --jewel-sapphire: #2f6bf0;
+    --jewel-amethyst: #7a4ff5;
+    --jewel-coral:    #f2552f;
+    --jewel-citron:   #c8a017;
+    --jewel-jade:     #11a06e;
+    --jewel-rose:     #e83f93;
+    --jewel-teal:     #14a6bd;
+    --jewel-gold:     #e0982a;
+
+    /* Category palette — base. The default `data-catpalette="emerald"` block
+       below overrides Work/Personal to #059669 / #f43f5e (load-bearing identity). */
+    --work:          #11a06e;
+    --work-soft:     rgba(17, 160, 110, 0.15);
+    --personal:      #f2552f;
+    --personal-soft: rgba(242, 85, 47, 0.15);
+
+    /* "What's next?" spark gradient — base (the default data-spark="purple" block
+       below switches it to purple). */
+    --spark-grad: linear-gradient(135deg, #bef264 0%, #a3e635 45%, #65d10e 100%);
+    --spark-glow: rgba(132, 204, 22, 0.50);
+    --spark-ink:  #1a2e05;
+
+    /* Radii */
+    --radius-sm: 4px;
+    --radius:    7px;
+    --radius-md: 11px;
+    --radius-lg: 16px;
+
+    /* Elevation (neutral, soft) */
+    --shadow-sm: 0 1px 2px rgba(30, 26, 40, 0.06);
+    --shadow-md: 0 2px 5px rgba(30, 26, 40, 0.05), 0 14px 30px -12px rgba(30, 26, 40, 0.16);
+    --shadow-lg: 0 30px 70px -16px rgba(26, 22, 36, 0.26);
+
+    /* Type stack */
+    --font-ui:      'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-display: 'Newsreader', Georgia, 'Times New Roman', serif;
+    --font-serif:   'Newsreader', Georgia, serif;
+    --font-mono:    'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+    /* Density (comfortable default) */
+    --row-h:   36px;
+    --row-pad: 9px 12px;
+    --sec-gap: 18px;
   }
+
+  /* ==========================================================================
+   * Alternate aesthetics — SCAFFOLD ONLY (out of scope to wire / refine this
+   * chunk). These blocks override the design raw tokens; they intentionally do
+   * NOT remap the shadcn HSL slots, so they are inert at the Daylight default
+   * (data-aesthetic="daylight"). Full theming (incl. shadcn-slot dark values)
+   * is the post-series dark/alt-theme fast-follow.
+   * ========================================================================== */
+
+  /* MEADOW — cool sage paper, green-forward */
+  [data-aesthetic='meadow'] {
+    --bg: #eef2e7;
+    --bg-alt: #e2e9d7;
+    --surface: #fbfdf7;
+    --surface-2: #f1f5e9;
+    --line: rgba(40, 56, 34, 0.11);
+    --line-strong: rgba(40, 56, 34, 0.18);
+    --ink: #232a20;
+    --ink-2: #58614f;
+    --ink-3: #899279;
+    --ink-4: #bcc4ab;
+    /* Per-aesthetic focal accent — HSL triplet (not hex) per this file's
+       convention. NB: `ApplyAccent` writes `--accent` as an inline style on
+       <html>, which outranks these block rules, so today this is a static
+       fallback; a future aesthetic-aware accent default would consume it. */
+    --accent: 152 43% 30%;        /* #2c6e4f */
+    --accent-soft: rgba(44, 110, 79, 0.11);
+    --accent-ink: #2c6e4f;
+    --work: #2f7d59;
+    --work-soft: rgba(47, 125, 89, 0.14);
+    --personal: #c2552f;
+    --personal-soft: rgba(194, 85, 47, 0.14);
+    --good: #2f7d59;
+    --offline: #a9af98;
+  }
+
+  /* BLUSH — soft warm peach & rose */
+  [data-aesthetic='blush'] {
+    --bg: #fbf0ec;
+    --bg-alt: #f6e4dd;
+    --surface: #fffcfb;
+    --surface-2: #fdf2ee;
+    --line: rgba(96, 52, 46, 0.10);
+    --line-strong: rgba(96, 52, 46, 0.17);
+    --ink: #3a2a27;
+    --ink-2: #7c645f;
+    --ink-3: #ad938c;
+    --ink-4: #d8bcb4;
+    --accent: 346 42% 50%;        /* #b54a63 */
+    --accent-soft: rgba(181, 74, 99, 0.10);
+    --accent-ink: #b54a63;
+    --work: #3f9b86;
+    --work-soft: rgba(63, 155, 134, 0.14);
+    --personal: #d8557e;
+    --personal-soft: rgba(216, 85, 126, 0.14);
+    --good: #3f9b86;
+    --offline: #c0a59f;
+  }
+
+  /* PORCELAIN — clean cool white, vivid accents */
+  [data-aesthetic='porcelain'] {
+    --bg: #f2f4f7;
+    --bg-alt: #e8ebf1;
+    --surface: #ffffff;
+    --surface-2: #f6f7fb;
+    --line: rgba(30, 38, 54, 0.09);
+    --line-strong: rgba(30, 38, 54, 0.16);
+    --ink: #1c2128;
+    --ink-2: #586173;
+    --ink-3: #8d96a8;
+    --ink-4: #bcc3d2;
+    --accent: 161 70% 28%;        /* #15795a */
+    --accent-soft: rgba(21, 121, 90, 0.10);
+    --accent-ink: #15795a;
+    --work: #149a6a;
+    --work-soft: rgba(20, 154, 106, 0.13);
+    --personal: #f0603f;
+    --personal-soft: rgba(240, 96, 63, 0.13);
+    --good: #149a6a;
+    --offline: #aab2c2;
+    --shadow-md: 0 2px 5px rgba(20, 30, 60, 0.05), 0 14px 30px -12px rgba(20, 30, 60, 0.14);
+  }
+
+  /* ESPRESSO — warm dark (behind the optional dark toggle; raw tokens only) */
+  [data-mode='dark'] {
+    --bg: #18130d;
+    --bg-alt: #211a12;
+    --surface: #231b13;
+    --surface-2: #2c2319;
+    --line: rgba(255, 244, 222, 0.07);
+    --line-strong: rgba(255, 244, 222, 0.13);
+    --ink: #f1e9db;
+    --ink-2: #b6a994;
+    --ink-3: #8a7e6c;
+    --ink-4: #4d4232;
+    --accent: 159 52% 55%;        /* #4fc79c */
+    --accent-soft: rgba(79, 199, 156, 0.13);
+    --accent-ink: #bfe9d8;
+    --work: #4fc79c;
+    --work-soft: rgba(79, 199, 156, 0.14);
+    --personal: #ff8a68;
+    --personal-soft: rgba(255, 138, 104, 0.14);
+    --jewel-citron: #d8c267;
+    --jewel-gold: #e3b667;
+    --good: #4fc79c;
+    --offline: #6a6052;
+    --shadow-md: 0 2px 5px rgba(0, 0, 0, 0.3), 0 14px 30px -12px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 30px 70px -16px rgba(0, 0, 0, 0.6);
+  }
+
+  /* CATEGORY PALETTE — gorgeous Work/Personal pairings (wins over aesthetic) */
+  [data-catpalette='indigo'] {
+    --work: #4f46e5;
+    --work-soft: rgba(79, 70, 229, 0.14);
+    --personal: #f43f5e;
+    --personal-soft: rgba(244, 63, 94, 0.14);
+  }
+  [data-catpalette='azure'] {
+    --work: #2563eb;
+    --work-soft: rgba(37, 99, 235, 0.14);
+    --personal: #f97316;
+    --personal-soft: rgba(249, 115, 22, 0.14);
+  }
+  [data-catpalette='violet'] {
+    --work: #7c3aed;
+    --work-soft: rgba(124, 58, 237, 0.14);
+    --personal: #ec4899;
+    --personal-soft: rgba(236, 72, 153, 0.14);
+  }
+  [data-catpalette='emerald'] {
+    /* DEFAULT — Work emerald / Personal rose (load-bearing identity) */
+    --work: #059669;
+    --work-soft: rgba(5, 150, 105, 0.14);
+    --personal: #f43f5e;
+    --personal-soft: rgba(244, 63, 94, 0.14);
+  }
+
+  /* "What's next?" spark presets (data-spark; default purple) */
+  [data-spark='purple'] {
+    --spark-grad: linear-gradient(135deg, #b249f5 0%, #8b3df0 50%, #6d28d9 100%);
+    --spark-glow: rgba(139, 61, 240, 0.55);
+    --spark-ink: #fff;
+  }
+  [data-spark='lime'] {
+    --spark-grad: linear-gradient(135deg, #d4f87a 0%, #a3e635 45%, #65d10e 100%);
+    --spark-glow: rgba(132, 204, 22, 0.55);
+    --spark-ink: #1a2e05;
+  }
+  [data-spark='aurora'] {
+    --spark-grad: linear-gradient(135deg, #7c3aed 0%, #e0218a 50%, #ff7a18 100%);
+    --spark-glow: rgba(224, 33, 138, 0.50);
+    --spark-ink: #fff;
+  }
+  [data-spark='electric'] {
+    --spark-grad: linear-gradient(135deg, #4f46e5 0%, #9b30e0 50%, #fb2576 100%);
+    --spark-glow: rgba(155, 48, 224, 0.52);
+    --spark-ink: #fff;
+  }
+  [data-spark='sunset'] {
+    --spark-grad: linear-gradient(135deg, #ff2d78 0%, #ff5a5f 45%, #ffb020 100%);
+    --spark-glow: rgba(255, 90, 95, 0.52);
+    --spark-ink: #fff;
+  }
+  [data-spark='ocean'] {
+    --spark-grad: linear-gradient(135deg, #2563eb 0%, #06b6d4 48%, #7c3aed 100%);
+    --spark-glow: rgba(6, 182, 212, 0.52);
+    --spark-ink: #fff;
+  }
+
+  /* density = compact */
+  [data-density='compact'] {
+    --row-h: 30px;
+    --row-pad: 5px 10px;
+    --sec-gap: 12px;
+  }
+
+  /* type-pairing — default serif display; sans makes everything Inter */
+  [data-pairing='sans'] {
+    --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  [data-pairing='serif'] {
+    --font-display: 'Newsreader', Georgia, serif;
+  }
+  /* [data-pairing='mono'] — numbers/labels lean mono in components; no token change */
 }
 
 @layer base {
@@ -93,49 +330,96 @@
   }
   html {
     font-family: var(--font-ui);
-    font-feature-settings: 'cv11', 'ss01';
+    font-feature-settings: 'ss01', 'cv11';
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    color-scheme: dark;
+    color-scheme: light;
   }
   body {
     @apply bg-background text-foreground;
+    position: relative;
+  }
+  /* Warm, barely-there glow wash — keeps the canvas alive without distracting.
+     Fixed + decorative, behind content (#root sits at z-index:1). */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(70vw 56vh at 2% -16%, color-mix(in srgb, var(--jewel-amethyst) 20%, transparent), transparent 58%),
+      radial-gradient(66vw 58vh at 116% 4%, color-mix(in srgb, var(--jewel-rose) 17%, transparent), transparent 54%),
+      radial-gradient(56vw 50vh at 50% 122%, color-mix(in srgb, var(--jewel-sapphire) 14%, transparent), transparent 56%);
+    opacity: 0.6;
+  }
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+
+  /*
+   * Global keyboard focus ring (carried from chunk 16, R10): 2px ring-token
+   * outline with 2px offset, always visible. Component utilities that opt into
+   * `focus-visible:ring-2 focus-visible:ring-ring` (and set `outline-none`)
+   * still win; this is the fallback so nothing is left without an indicator.
+   * `--ring` is now pine — matching the design's `:focus-visible { outline: 2px
+   * solid var(--accent) }`.
+   */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 3px;
   }
 }
 
 @layer utilities {
   /*
-   * Plex Mono structural label — used wherever the prototype writes
-   * 10px / 500 / .16em uppercase muted text (form labels, kickers,
-   * section dividers). Treat as a design primitive.
+   * The design's "tiny utility tokens" (index.html). These are primitives the
+   * redesign screen chunks lean on heavily — port them now as part of the
+   * foundation.
    */
+  .mono {
+    font-family: var(--font-mono);
+    font-feature-settings: 'tnum', 'zero';
+    letter-spacing: -0.02em;
+    font-weight: 500;
+  }
+  /* Any numeric figure — mono family + tabular figures (size/weight per context). */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .display {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+  .serif {
+    font-family: var(--font-serif);
+    letter-spacing: -0.005em;
+  }
+  /* Editorial title: the focal serif, used for page titles & wordmark. */
+  .title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+    line-height: 1.04;
+  }
+  .title em {
+    font-style: italic;
+    font-weight: 500;
+  }
+  /* Plex Mono structural label — kickers, "TODAY", section dividers. A primitive. */
   .label {
     font-family: var(--font-mono);
     font-size: 10px;
     font-weight: 500;
     letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: hsl(var(--muted-foreground));
+    color: var(--ink-3);
     white-space: nowrap;
-  }
-}
-
-/*
- * A11y polish (chunk 16, R10).
- *
- * Global keyboard focus ring: 2px ring-token (`--ring` = ice) outline with a
- * 2px offset, always visible. Lives in @layer base so component utilities
- * (`focus-visible:ring-2 focus-visible:ring-ring`, which set `outline-none`)
- * still win where they opt in — this is the fallback so NOTHING is left without
- * a visible focus indicator. The prompt's literal `#3a5a40` predates the
- * Obsidian dark palette; the app's focal/ring token is ice, matching every
- * existing component's ring.
- */
-@layer base {
-  :focus-visible {
-    outline: 2px solid hsl(var(--ring));
-    outline-offset: 2px;
   }
 }
 
