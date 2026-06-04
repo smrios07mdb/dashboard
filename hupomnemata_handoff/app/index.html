@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Hupomnemata — Personal Productivity Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500;1,6..72,600&family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    /* DAYLIGHT — clean bright canvas, vivid emerald & coral. The default. */
+    --bg:           #f6f4f7;
+    --bg-alt:       #eceaef;
+    --surface:      #ffffff;
+    --surface-2:    #f8f6fa;
+    --line:         rgba(38,32,46,.09);
+    --line-strong:  rgba(38,32,46,.16);
+    --ink:          #221f28;
+    --ink-2:        #635f6c;
+    --ink-3:        #948f9e;
+    --ink-4:        #c7c2d0;
+    --accent:       #1f5142;       /* deep pine — focal (overridden by ApplyAccent) */
+    --accent-soft:  rgba(31,81,66,.10);
+    --accent-ink:   #1f5142;
+    --destructive:  #b8462e;
+    --destructive-soft: rgba(184,70,46,.13);
+
+    /* Jewel-tone palette — vivid, bold, made to pop on cream. */
+    --jewel-sapphire: #2f6bf0;
+    --jewel-amethyst: #7a4ff5;
+    --jewel-coral:    #f2552f;
+    --jewel-citron:   #c8a017;
+    --jewel-jade:     #11a06e;
+    --jewel-rose:     #e83f93;
+    --jewel-teal:     #14a6bd;
+    --jewel-gold:     #e0982a;
+
+    --work:         #11a06e;        /* vivid emerald */
+    --work-soft:    rgba(17,160,110,.15);
+    --personal:     #f2552f;        /* vivid coral */
+    --personal-soft:rgba(242,85,47,.15);
+    --warn:         #d98a1c;
+    --good:         #11a06e;
+    --offline:      #b0a593;
+
+    /* "What's next?" spark gradient — bright & stunning (data-spark switches it) */
+    --spark-grad: linear-gradient(135deg, #bef264 0%, #a3e635 45%, #65d10e 100%);
+    --spark-glow: rgba(132,204,22,.50);
+    --spark-ink:  #1a2e05;
+
+    --radius-sm: 4px;
+    --radius:    7px;
+    --radius-md: 11px;
+    --radius-lg: 16px;
+
+    /* soft, neutral elevation */
+    --shadow-sm: 0 1px 2px rgba(30,26,40,.06);
+    --shadow-md: 0 2px 5px rgba(30,26,40,.05), 0 14px 30px -12px rgba(30,26,40,.16);
+    --shadow-lg: 0 30px 70px -16px rgba(26,22,36,.26);
+
+    --font-ui:      'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-display: 'Newsreader', Georgia, 'Times New Roman', serif;
+    --font-serif:   'Newsreader', Georgia, serif;
+    --font-mono:    'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+
+    /* density */
+    --row-h:   36px;
+    --row-pad: 9px 12px;
+    --sec-gap: 18px;
+  }
+
+  /* MEADOW — cool sage paper, green-forward */
+  [data-aesthetic="meadow"]{
+    --bg:           #eef2e7;
+    --bg-alt:       #e2e9d7;
+    --surface:      #fbfdf7;
+    --surface-2:    #f1f5e9;
+    --line:         rgba(40,56,34,.11);
+    --line-strong:  rgba(40,56,34,.18);
+    --ink:          #232a20;
+    --ink-2:        #58614f;
+    --ink-3:        #899279;
+    --ink-4:        #bcc4ab;
+    --accent:       #2c6e4f;
+    --accent-soft:  rgba(44,110,79,.11);
+    --accent-ink:   #2c6e4f;
+    --work:         #2f7d59;
+    --work-soft:    rgba(47,125,89,.14);
+    --personal:     #c2552f;
+    --personal-soft:rgba(194,85,47,.14);
+    --good:         #2f7d59;
+    --offline:      #a9af98;
+  }
+
+  /* BLUSH — soft warm peach & rose */
+  [data-aesthetic="blush"]{
+    --bg:           #fbf0ec;
+    --bg-alt:       #f6e4dd;
+    --surface:      #fffcfb;
+    --surface-2:    #fdf2ee;
+    --line:         rgba(96,52,46,.10);
+    --line-strong:  rgba(96,52,46,.17);
+    --ink:          #3a2a27;
+    --ink-2:        #7c645f;
+    --ink-3:        #ad938c;
+    --ink-4:        #d8bcb4;
+    --accent:       #b54a63;
+    --accent-soft:  rgba(181,74,99,.10);
+    --accent-ink:   #b54a63;
+    --work:         #3f9b86;
+    --work-soft:    rgba(63,155,134,.14);
+    --personal:     #d8557e;
+    --personal-soft:rgba(216,85,126,.14);
+    --good:         #3f9b86;
+    --offline:      #c0a59f;
+  }
+
+  /* PORCELAIN — clean cool white, vivid accents */
+  [data-aesthetic="porcelain"]{
+    --bg:           #f2f4f7;
+    --bg-alt:       #e8ebf1;
+    --surface:      #ffffff;
+    --surface-2:    #f6f7fb;
+    --line:         rgba(30,38,54,.09);
+    --line-strong:  rgba(30,38,54,.16);
+    --ink:          #1c2128;
+    --ink-2:        #586173;
+    --ink-3:        #8d96a8;
+    --ink-4:        #bcc3d2;
+    --accent:       #15795a;
+    --accent-soft:  rgba(21,121,90,.10);
+    --accent-ink:   #15795a;
+    --work:         #149a6a;
+    --work-soft:    rgba(20,154,106,.13);
+    --personal:     #f0603f;
+    --personal-soft:rgba(240,96,63,.13);
+    --good:         #149a6a;
+    --offline:      #aab2c2;
+    --shadow-md: 0 2px 5px rgba(20,30,60,.05), 0 14px 30px -12px rgba(20,30,60,.14);
+  }
+
+  /* "What's next?" spark presets */
+  [data-spark="purple"]   { --spark-grad: linear-gradient(135deg, #b249f5 0%, #8b3df0 50%, #6d28d9 100%); --spark-glow: rgba(139,61,240,.55); --spark-ink: #fff; }
+  [data-spark="lime"]     { --spark-grad: linear-gradient(135deg, #d4f87a 0%, #a3e635 45%, #65d10e 100%); --spark-glow: rgba(132,204,22,.55); --spark-ink: #1a2e05; }
+  [data-spark="aurora"]   { --spark-grad: linear-gradient(135deg, #7c3aed 0%, #e0218a 50%, #ff7a18 100%); --spark-glow: rgba(224,33,138,.50); --spark-ink: #fff; }
+  [data-spark="electric"] { --spark-grad: linear-gradient(135deg, #4f46e5 0%, #9b30e0 50%, #fb2576 100%); --spark-glow: rgba(155,48,224,.52); --spark-ink: #fff; }
+  [data-spark="sunset"]   { --spark-grad: linear-gradient(135deg, #ff2d78 0%, #ff5a5f 45%, #ffb020 100%); --spark-glow: rgba(255,90,95,.52); --spark-ink: #fff; }
+  [data-spark="ocean"]    { --spark-grad: linear-gradient(135deg, #2563eb 0%, #06b6d4 48%, #7c3aed 100%); --spark-glow: rgba(6,182,212,.52); --spark-ink: #fff; }
+
+  /* density = compact */
+  [data-density="compact"]{
+    --row-h:   30px;
+    --row-pad: 5px 10px;
+    --sec-gap: 12px;
+  }
+
+  /* type-pairing — default is editorial serif display; sans makes everything Inter */
+  [data-pairing="sans"]{
+    --font-display: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  [data-pairing="serif"]{
+    --font-display: 'Newsreader', Georgia, serif;
+  }
+  [data-pairing="mono"]{
+    /* numbers/labels use --font-mono in components */
+  }
+
+  /* ESPRESSO — warm dark, available behind the toggle (user doesn't need it) */
+  [data-mode="dark"]{
+    --bg:           #18130d;
+    --bg-alt:       #211a12;
+    --surface:      #231b13;
+    --surface-2:    #2c2319;
+    --line:         rgba(255,244,222,.07);
+    --line-strong:  rgba(255,244,222,.13);
+    --ink:          #f1e9db;
+    --ink-2:        #b6a994;
+    --ink-3:        #8a7e6c;
+    --ink-4:        #4d4232;
+    --accent:       #4fc79c;
+    --accent-soft:  rgba(79,199,156,.13);
+    --accent-ink:   #bfe9d8;
+    --work:         #4fc79c;
+    --work-soft:    rgba(79,199,156,.14);
+    --personal:     #ff8a68;
+    --personal-soft:rgba(255,138,104,.14);
+    --jewel-citron: #d8c267;
+    --jewel-gold:   #e3b667;
+    --good:         #4fc79c;
+    --offline:      #6a6052;
+    --shadow-md: 0 2px 5px rgba(0,0,0,.3), 0 14px 30px -12px rgba(0,0,0,.5);
+    --shadow-lg: 0 30px 70px -16px rgba(0,0,0,.6);
+  }
+
+  /* CATEGORY PALETTE — gorgeous Work/Personal pairings (wins over aesthetic) */
+  [data-catpalette="indigo"]{
+    --work:#4f46e5; --work-soft:rgba(79,70,229,.14);
+    --personal:#f43f5e; --personal-soft:rgba(244,63,94,.14);
+  }
+  [data-catpalette="azure"]{
+    --work:#2563eb; --work-soft:rgba(37,99,235,.14);
+    --personal:#f97316; --personal-soft:rgba(249,115,22,.14);
+  }
+  [data-catpalette="violet"]{
+    --work:#7c3aed; --work-soft:rgba(124,58,237,.14);
+    --personal:#ec4899; --personal-soft:rgba(236,72,153,.14);
+  }
+  [data-catpalette="emerald"]{
+    --work:#059669; --work-soft:rgba(5,150,105,.14);
+    --personal:#f43f5e; --personal-soft:rgba(244,63,94,.14);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);}
+  body{font-family:var(--font-ui);font-size:14px;line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    font-feature-settings:"ss01","cv11";
+    text-rendering:optimizeLegibility;
+    position:relative;}
+  /* warm, barely-there glow wash — keeps the cream alive without distracting */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(70vw 56vh at 2% -16%, color-mix(in srgb, var(--jewel-amethyst) 20%, transparent), transparent 58%),
+      radial-gradient(66vw 58vh at 116% 4%, color-mix(in srgb, var(--jewel-rose) 17%, transparent), transparent 54%),
+      radial-gradient(56vw 50vh at 50% 122%, color-mix(in srgb, var(--jewel-sapphire) 14%, transparent), transparent 56%);
+    opacity:.6;}
+  #root{position:relative;z-index:1;}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  input,textarea,select{font:inherit;color:inherit}
+  ::selection{background:var(--accent-soft);color:var(--ink)}
+
+  /* tiny utility tokens */
+  .mono{font-family:var(--font-mono);font-feature-settings:"tnum","zero";letter-spacing:-.02em;font-weight:500}
+  .num{font-variant-numeric:tabular-nums}
+  .display{font-family:var(--font-display);letter-spacing:-.015em}
+  .serif{font-family:var(--font-serif);letter-spacing:-.005em}
+  /* editorial title: the focal serif, used for page titles & wordmark */
+  .title{font-family:var(--font-serif);font-weight:500;letter-spacing:-.012em;color:var(--ink);line-height:1.04}
+  .title em{font-style:italic;font-weight:500}
+  .label{font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-family:var(--font-mono);white-space:nowrap}
+  .hairline{border:0;border-top:1px solid var(--line);margin:0}
+
+  /* focus ring */
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+
+  /* page container */
+  .page{min-height:100vh;background:var(--bg);}
+  .shell{max-width:1280px;margin:0 auto;padding:0 28px;}
+  @media (max-width: 900px){ .shell{padding:0 20px;} }
+  @media (max-width: 640px){ .shell{padding:0 16px;} }
+
+  /* fade-in for screen transitions */
+  @keyframes fadein{from{opacity:.001}to{opacity:1}}
+  .screen{opacity:1}
+
+  /* scrollbar tidy */
+  .lst{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+  .lst::-webkit-scrollbar{width:8px;height:8px}
+  .lst::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}
+
+  /* sheets */
+  .sheet-veil{position:fixed;inset:0;background:rgba(40,28,14,.30);z-index:60;
+    animation:fadein .15s ease-out forwards;backdrop-filter:blur(3px);}
+  .sheet{position:fixed;right:0;top:0;bottom:0;width:min(440px, 92vw);
+    background:var(--surface);border-left:1px solid var(--line);z-index:61;
+    display:flex;flex-direction:column;
+    box-shadow:-1px 0 0 var(--line), var(--shadow-lg);
+    animation:slidein .22s cubic-bezier(.2,.7,.2,1) forwards;}
+  @keyframes slidein{from{transform:translateX(20px);opacity:.001}to{transform:none;opacity:1}}
+  @media (max-width: 640px){
+    .sheet{left:0;right:0;width:100%;top:auto;height:88vh;border-left:0;border-top:1px solid var(--line);
+      border-top-left-radius:18px;border-top-right-radius:18px;animation:slideup .22s cubic-bezier(.2,.7,.2,1) forwards;}
+    @keyframes slideup{from{transform:translateY(40px);opacity:.001}to{transform:none;opacity:1}}
+  }
+
+  /* dialog */
+  .dlg-veil{position:fixed;inset:0;background:rgba(40,28,14,.38);z-index:70;backdrop-filter:blur(3px);
+    display:flex;align-items:center;justify-content:center;padding:24px;animation:fadein .14s ease-out forwards}
+  .dlg{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);
+    max-width:440px;width:100%;padding:22px;box-shadow:var(--shadow-lg);}
+
+  /* toast */
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;
+    background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;
+    font-size:13px;box-shadow:var(--shadow-lg);animation:fadein .18s ease-out forwards}
+
+  /* prevent overscroll bounce when sheet open */
+  body.no-scroll{overflow:hidden}
+</style>
+
+<!-- Speaker notes not used here -->
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="src/icons.jsx"></script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="src/data.jsx"></script>
+<script type="text/babel" src="src/gamify.jsx"></script>
+<script type="text/babel" src="src/screens/login.jsx"></script>
+<script type="text/babel" src="src/sheets/sheets.jsx"></script>
+<script type="text/babel" src="src/screens/dashboard.jsx"></script>
+<script type="text/babel" src="src/screens/category.jsx"></script>
+<script type="text/babel" src="src/screens/subcategory.jsx"></script>
+<script type="text/babel" src="src/screens/routines.jsx"></script>
+<script type="text/babel" src="src/screens/insights.jsx"></script>
+<script type="text/babel" src="src/screens/settings.jsx"></script>
+<script type="text/babel" src="src/app.jsx"></script>
+
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "aesthetic": "daylight",
+  "accent": "forest",
+  "density": "comfortable",
+  "pairing": "mono",
+  "mockData": "light",
+  "device": "desktop",
+  "mode": "light",
+  "celebrate": "full",
+  "colorPop": "vibrant",
+  "hero": "on",
+  "spark": "purple",
+  "catPalette": "emerald"
+}/*EDITMODE-END*/;
+
+window.__TWEAK_DEFAULTS = TWEAK_DEFAULTS;
+ReactDOM.createRoot(document.getElementById('root')).render(<window.App />);
+</script>
+</body>
+</html>

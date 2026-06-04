@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hupomnemata — Logo · Quiet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --bg:#f6f4f7; --bg-alt:#eceaef; --surface:#ffffff; --surface-2:#f8f6fa;
+    --line:rgba(38,32,46,.09); --line-strong:rgba(38,32,46,.16);
+    --ink:#221f28; --ink-2:#635f6c; --ink-3:#948f9e; --ink-4:#c7c2d0;
+    --accent:#1f5142; --work:#11a06e; --personal:#f2552f;
+    --radius-sm:4px; --radius:7px; --radius-md:11px; --radius-lg:16px;
+    --font-ui:'Inter',ui-sans-serif,system-ui,sans-serif;
+    --font-serif:'Newsreader',Georgia,serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:var(--font-ui);color:var(--ink);background:var(--bg);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    font-feature-settings:"ss01","cv11";}
+  .label{font-family:var(--font-mono);font-size:10px;font-weight:500;
+    letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+  .serif{font-family:var(--font-serif)}
+  .wordmark{font-family:var(--font-serif);font-weight:500;letter-spacing:-.025em;
+    color:var(--ink);display:inline-flex;align-items:baseline;line-height:1}
+  .wordmark .pt{color:var(--work);font-weight:500}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="marks.jsx"></script>
+
+<script type="text/babel">
+const E = '#11a06e', PINE = '#1f5142', CORAL = '#f2552f', INK = '#221f28';
+
+function Wordmark({ size = 28, dark = false, short = false }) {
+  return (
+    <span className="wordmark" style={{ fontSize: size, color: dark ? '#ecedf2' : 'var(--ink)' }}>
+      <span>{short ? 'hupo' : 'hupomnemata'}</span>
+      <span className="pt" style={{ marginLeft: 1 }}>.</span>
+    </span>
+  );
+}
+
+function Pad({ children, bg = 'var(--surface)', center = true, pad = 0, col = false }) {
+  return (
+    <div style={{ width:'100%', height:'100%', background:bg, padding:pad,
+      display:'flex', flexDirection: col ? 'column' : 'row',
+      alignItems:'center', justifyContent: center ? 'center' : 'flex-start' }}>
+      {children}
+    </div>
+  );
+}
+
+/* iOS-style app tile */
+function Tile({ dark, size = 104, mark = 56 }) {
+  return (
+    <div style={{
+      width:size, height:size, borderRadius:size*0.225,
+      background: dark ? INK : 'var(--surface)',
+      border: dark ? '1px solid rgba(255,255,255,.07)' : '1px solid var(--line)',
+      boxShadow: dark ? '0 10px 26px -12px rgba(20,18,28,.6)' : '0 8px 22px -12px rgba(30,26,40,.34)',
+      display:'grid', placeItems:'center' }}>
+      <QuietH size={mark} ink={dark ? '#eceaef' : INK} point={E} />
+    </div>
+  );
+}
+
+/* ── canvas ───────────────────────────────────────────────── */
+function App(){
+  return (
+    <DesignCanvas>
+
+      {/* INTRO */}
+      <DCSection id="intro" title="Hupomnemata — Quiet" subtitle="The chosen mark: a humanist monoline lowercase h with the emerald point — the period of “hupomnemata.” made into a symbol. Pure geometry, no font dependency.">
+        <DCArtboard id="canonical" label="The mark" width={300} height={300}>
+          <Pad><QuietH size={168} ink={INK} point={E} /></Pad>
+        </DCArtboard>
+        <DCArtboard id="canonical-dark" label="On ink" width={300} height={300}>
+          <Pad bg={INK}><QuietH size={168} ink="#eceaef" point={E} /></Pad>
+        </DCArtboard>
+        <DCArtboard id="story" label="Why" width={360} height={300}>
+          <Pad center={false} pad="34px 36px">
+            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              <Wordmark size={30} />
+              <p style={{ margin:0, fontSize:13.5, lineHeight:1.7, color:'var(--ink-2)' }}>
+                One stroke for the stem, one for the shoulder, rounded soft at every
+                terminal — unhurried, humane. The <span style={{ color:E, fontWeight:700 }}>point</span> trails
+                the letter exactly as it trails the wordmark. The brand even says it aloud:
+                <span className="label" style={{ display:'block', marginTop:10, color:'var(--ink-3)' }}>PERSONAL · QUIET · YOURS</span>
+              </p>
+            </div>
+          </Pad>
+        </DCArtboard>
+      </DCSection>
+
+      {/* CONSTRUCTION */}
+      <DCSection id="build" title="Construction & clearspace" subtitle="Drawn on a 100-unit grid; stroke weight 11. Keep clear space of one stem-width (≈ the dot diameter) on every side.">
+        <DCArtboard id="grid" label="Geometry" width={300} height={300}>
+          <Pad>
+            <svg width="220" height="220" viewBox="0 0 100 100" style={{ display:'block' }}>
+              {/* grid */}
+              {[10,20,30,40,50,60,70,80,90].map(v=>(
+                <g key={v} stroke="rgba(38,32,46,.07)" strokeWidth="0.5">
+                  <line x1={v} y1="6" x2={v} y2="94" /><line x1="6" y1={v} x2="94" y2={v} />
+                </g>
+              ))}
+              {/* baselines */}
+              <line x1="6" y1="21" x2="94" y2="21" stroke={E} strokeWidth="0.5" opacity="0.5" strokeDasharray="2 2"/>
+              <line x1="6" y1="36.5" x2="94" y2="36.5" stroke={E} strokeWidth="0.5" opacity="0.5" strokeDasharray="2 2"/>
+              <line x1="6" y1="79" x2="94" y2="79" stroke={E} strokeWidth="0.5" opacity="0.5" strokeDasharray="2 2"/>
+              <g fill="none" stroke={INK} strokeWidth="11" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M24 21 L24 79" />
+                <path d="M24 53 Q24 36.5 42 36.5 Q60 36.5 60 53 L60 79" />
+              </g>
+              <circle cx="76" cy="74.5" r="5.6" fill={E} />
+            </svg>
+          </Pad>
+        </DCArtboard>
+        <DCArtboard id="clear" label="Clearspace" width={300} height={300}>
+          <Pad>
+            <div style={{ position:'relative', padding:28, border:'1px dashed var(--line-strong)' }}>
+              <div style={{ position:'absolute', inset:0, padding:14 }}>
+                <div style={{ width:'100%', height:'100%', border:'1px dashed var(--ink-4)' }}></div>
+              </div>
+              <QuietH size={120} ink={INK} point={E} />
+            </div>
+          </Pad>
+        </DCArtboard>
+        <DCArtboard id="minsize" label="Minimum size" width={300} height={300}>
+          <Pad col={true}>
+            <div style={{ display:'flex', alignItems:'flex-end', gap:30 }}>
+              {[48,32,24,16].map(px=>(
+                <div key={px} style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+                  <div style={{ height:48, display:'grid', placeItems:'center' }}>
+                    <QuietH size={px} ink={INK} point={E} />
+                  </div>
+                  <span className="label" style={{ fontSize:9 }}>{px}px</span>
+                </div>
+              ))}
+            </div>
+            <p style={{ marginTop:22, fontSize:12, color:'var(--ink-3)', maxWidth:230, textAlign:'center', lineHeight:1.5 }}>
+              Holds to 16&nbsp;px — favicon floor. Below that, drop the point.
+            </p>
+          </Pad>
+        </DCArtboard>
+      </DCSection>
+
+      {/* COLOURWAYS */}
+      <DCSection id="colour" title="The point — colourways" subtitle="The letter is always ink (or paper on dark). Only the point carries colour. Emerald is default; pine and coral are reserved accents; mono for one-colour contexts.">
+        {[['Emerald · default',E],['Pine',PINE],['Coral',CORAL],['Mono',INK]].map(([n,c])=>(
+          <DCArtboard key={n} id={'cw-'+n} label={n} width={220} height={240}>
+            <Pad bg="var(--surface-2)"><QuietH size={112} ink={INK} point={c} /></Pad>
+          </DCArtboard>
+        ))}
+      </DCSection>
+
+      {/* APP ICON */}
+      <DCSection id="appicon" title="App icon" subtitle="Home-screen tile, light and dark. Mark sits at ~54% of the tile; iOS corner radius.">
+        <DCArtboard id="tile-light" label="Light" width={240} height={260}>
+          <Pad bg="var(--bg-alt)"><Tile dark={false} /></Pad>
+        </DCArtboard>
+        <DCArtboard id="tile-dark" label="Dark" width={240} height={260}>
+          <Pad bg="var(--bg-alt)"><Tile dark={true} /></Pad>
+        </DCArtboard>
+        <DCArtboard id="tile-home" label="On a home screen" width={300} height={260}>
+          <Pad bg="linear-gradient(160deg,#cdbfe0,#b6c7d8)">
+            <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:9 }}>
+              <Tile dark={false} size={74} mark={40} />
+              <span style={{ fontFamily:'var(--font-ui)', fontSize:12, color:'#2c2738', fontWeight:500 }}>Hupomnemata</span>
+            </div>
+          </Pad>
+        </DCArtboard>
+      </DCSection>
+
+      {/* LOCKUPS */}
+      <DCSection id="lockup" title="Wordmark lockups" subtitle="Mark + the existing serif wordmark. Use the horizontal lockup as the primary; the short header form inside the app bar.">
+        <DCArtboard id="lk-h" label="Horizontal · primary" width={420} height={200}>
+          <Pad center={false} pad="0 40px">
+            <div style={{ display:'flex', alignItems:'center', gap:18 }}>
+              <QuietH size={48} ink={INK} point={E} />
+              <span style={{ width:1, height:36, background:'var(--line-strong)' }}></span>
+              <Wordmark size={33} />
+            </div>
+          </Pad>
+        </DCArtboard>
+        <DCArtboard id="lk-stack" label="Stacked" width={320} height={260}>
+          <Pad col={true}>
+            <QuietH size={60} ink={INK} point={E} />
+            <div style={{ marginTop:18 }}><Wordmark size={28} /></div>
+            <div className="label" style={{ marginTop:12, fontSize:9, letterSpacing:'.22em' }}>PERSONAL · QUIET · YOURS</div>
+          </Pad>
+        </DCArtboard>
+        <DCArtboard id="lk-header" label="App header · short" width={300} height={200}>
+          <Pad>
+            <div style={{ width:'100%', display:'flex', alignItems:'center', gap:11,
+              padding:'14px 18px', background:'var(--surface)', border:'1px solid var(--line)', borderRadius:'var(--radius-md)' }}>
+              <QuietH size={26} ink={INK} point={E} />
+              <Wordmark size={20} short={true} />
+              <span style={{ flex:1 }}></span>
+              <span style={{ width:26, height:26, borderRadius:'50%', background:'var(--bg-alt)' }}></span>
+            </div>
+          </Pad>
+        </DCArtboard>
+        <DCArtboard id="lk-dark" label="On ink" width={420} height={200}>
+          <Pad center={false} pad="0 40px" bg={INK}>
+            <div style={{ display:'flex', alignItems:'center', gap:18 }}>
+              <QuietH size={48} ink="#eceaef" point={E} />
+              <span style={{ width:1, height:36, background:'rgba(255,255,255,.16)' }}></span>
+              <Wordmark size={33} dark={true} />
+            </div>
+          </Pad>
+        </DCArtboard>
+      </DCSection>
+
+    </DesignCanvas>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
