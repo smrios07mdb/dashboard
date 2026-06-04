@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
+import { VitePWA, type ManifestOptions } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
 
 /**
@@ -100,41 +100,29 @@ export default defineConfig({
       injectRegister: 'auto',
       includeAssets: ['favicon.svg', 'icons/icon.svg'],
       manifest: {
-        name: 'Dashboard',
-        short_name: 'Dashboard',
-        description: 'Personal productivity dashboard',
-        // Obsidian palette tokens resolved from src/index.css.
-        // --accent (ice) for chrome tint; --background for splash.
-        theme_color: '#c8d2e2',
-        background_color: '#0a0b0e',
+        name: 'Hupomnemata',
+        short_name: 'Hupomnemata',
+        description: 'Hupomnemata — a calm, personal task manager',
+        // Daylight palette (src/index.css): --bg #f6f4f7 for both the chrome
+        // tint and the splash background.
+        theme_color: '#f6f4f7',
+        background_color: '#f6f4f7',
         display: 'standalone',
         start_url: '/dashboard/',
         scope: '/dashboard/',
+        // Brand home-screen tiles (hupomnemata_handoff/brand/README.md). Relative
+        // src → resolved against the manifest URL (/dashboard/...), base-safe.
+        // The `media` dark-mode icon field is a non-standard manifest extension
+        // (ignored where unsupported); cast so tsc accepts it.
         icons: [
+          { src: 'app-icon-light-512.png', sizes: '512x512', type: 'image/png' },
           {
-            src: 'icons/icon-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: 'icons/icon-512.png',
+            src: 'app-icon-dark-512.png',
             sizes: '512x512',
             type: 'image/png',
-            purpose: 'any',
+            media: '(prefers-color-scheme: dark)',
           },
-          {
-            src: 'icons/icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
-          {
-            src: 'icons/apple-touch-icon.png',
-            sizes: '180x180',
-            type: 'image/png',
-          },
-        ],
+        ] as ManifestOptions['icons'],
       },
       injectManifest: {
         // Precache the app shell + bundled @fontsource woff2 files — the same

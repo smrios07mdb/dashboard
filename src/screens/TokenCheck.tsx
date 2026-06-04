@@ -6,6 +6,7 @@
  *
  * Visit at /dev/tokens (dev server only).
  */
+import { HupoMark } from '@/components/HupoMark'
 
 function Swatch({
   name,
@@ -190,6 +191,26 @@ export default function TokenCheck() {
             <div className="flex flex-col items-center gap-2">
               <div className="size-16 rounded-lg bg-work" />
               <div className="label">lg · 16px</div>
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Logomark (HupoMark)">
+          <div className="flex flex-wrap items-end gap-8 rounded-md bg-surface p-6 shadow">
+            {[48, 24, 16, 12].map((s) => (
+              <div key={s} className="flex flex-col items-center gap-2">
+                <HupoMark size={s} />
+                <div className="label">
+                  {s}px{s < 16 ? ' · no point' : ''}
+                </div>
+              </div>
+            ))}
+            {/* dark surface — glyph must be light, point still --work */}
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex size-16 items-center justify-center rounded-md bg-ink">
+                <HupoMark size={32} glyph="#eceaef" />
+              </div>
+              <div className="label">on dark</div>
             </div>
           </div>
         </Section>

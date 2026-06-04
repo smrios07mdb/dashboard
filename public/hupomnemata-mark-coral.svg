@@ -3,5 +3,5 @@
     <path d="M24 21 L24 79"></path>
     <path d="M24 53 Q24 36.5 42 36.5 Q60 36.5 60 53 L60 79"></path>
   </g>
-  <circle cx="76" cy="74.5" r="5.6" fill="#11a06e"></circle>
+  <circle cx="76" cy="74.5" r="5.6" fill="#f2552f"></circle>
 </svg>
