@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Navigate, useParams, useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useParams, useNavigate } from 'react-router-dom'
 import {
   DndContext,
   PointerSensor,
@@ -99,6 +99,13 @@ function useCategoryViewData() {
 export default function CategoryView() {
   const { categoryId } = useParams<{ categoryId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  // First-run flow (chunk 20 — UX-05): the Dashboard empty-state card routes
+  // here with `{ addSubcategory: true }` so the inline "Add subcategory" input
+  // opens focused and the user can create their first list immediately.
+  const autoOpenAddSub =
+    (location.state as { addSubcategory?: boolean } | null)?.addSubcategory ===
+    true
   const { user } = useSession()
   const userId = user?.id ?? null
   const isTouch = useIsTouchDevice()
@@ -586,6 +593,7 @@ export default function CategoryView() {
           </DndContext>
         )}
         <AddSubcategoryInline
+          autoOpen={autoOpenAddSub}
           onCreate={({ name }) =>
             onCreateSubcategory({ categoryId: categoryId!, name })
           }

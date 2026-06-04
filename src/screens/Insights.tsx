@@ -11,6 +11,7 @@ import {
 
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
+import { chartLabel } from '@/lib/chartLabel'
 import {
   aggregateForChart,
   applyOtherGrouping,
@@ -57,6 +58,59 @@ function pill(active: boolean): string {
       ? 'bg-card font-semibold text-foreground shadow-[0_1px_0_var(--line)]'
       : 'font-medium text-muted-foreground hover:text-foreground'
   }`
+}
+
+/*
+ * Per-series legend markers (chunk 20 — UX-07). The brand series colors are
+ * green shades (Work) and warm-neutral shades (Personal) that can be hard to
+ * tell apart for colorblind users, so each series also carries a distinct
+ * *shape*, keyed to its stacking index. The chart shows at most 8 series — up
+ * to 8 raw, or top-7 + "Other" once there are more than 8 (applyOtherGrouping)
+ * — matching the 8 shapes here; the `% MARKER_SHAPES.length` guard keeps any
+ * overflow non-fatal.
+ */
+const MARKER_SHAPES = [
+  (c: string) => <rect x="2" y="2" width="8" height="8" rx="1.5" fill={c} />,
+  (c: string) => <circle cx="6" cy="6" r="4.5" fill={c} />,
+  (c: string) => <polygon points="6,1.5 10.5,10 1.5,10" fill={c} />,
+  (c: string) => <polygon points="6,1 11,6 6,11 1,6" fill={c} />,
+  (c: string) => (
+    <rect
+      x="2.4"
+      y="2.4"
+      width="7.2"
+      height="7.2"
+      rx="0.8"
+      fill="none"
+      stroke={c}
+      strokeWidth="1.6"
+    />
+  ),
+  (c: string) => (
+    <circle cx="6" cy="6" r="4" fill="none" stroke={c} strokeWidth="1.8" />
+  ),
+  (c: string) => <polygon points="1.5,2 10.5,2 6,10.5" fill={c} />,
+  (c: string) => (
+    <g stroke={c} strokeWidth="2.2" strokeLinecap="round">
+      <line x1="6" y1="2" x2="6" y2="10" />
+      <line x1="2" y1="6" x2="10" y2="6" />
+    </g>
+  ),
+]
+
+function SeriesMarker({ index, color }: { index: number; color: string }) {
+  const draw = MARKER_SHAPES[index % MARKER_SHAPES.length]
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 12 12"
+      aria-hidden
+      className="shrink-0"
+    >
+      {draw(color)}
+    </svg>
+  )
 }
 
 export default function Insights() {
@@ -200,89 +254,101 @@ export default function Insights() {
           </div>
         ) : (
           <>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart
-                data={chartData}
-                margin={{ top: 8, right: 8, bottom: 0, left: -12 }}
-              >
-                <CartesianGrid
-                  vertical={false}
-                  stroke="var(--line)"
-                  strokeDasharray="2 4"
-                />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
-                  axisLine={{ stroke: 'var(--line)' }}
-                  tickLine={false}
-                  interval="preserveStartEnd"
-                  minTickGap={20}
-                />
-                <YAxis
-                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v: number) => `${v}m`}
-                  width={48}
-                />
-                <Tooltip
-                  cursor={{ fill: 'var(--accent-soft)' }}
-                  content={({ active, label }) => {
-                    if (!active || typeof label !== 'string') return null
-                    const day = ungroupedByLabel.get(label)
-                    if (!day) return null
-                    const rows = Object.entries(day.minutes)
-                      .filter(([, v]) => v > 0)
-                      .sort((a, b) => b[1] - a[1])
-                    if (rows.length === 0) return null
-                    return (
-                      <div className="rounded-md border border-border bg-popover px-3 py-2 text-[12px] shadow-lg">
-                        <div className="mb-1 font-medium text-foreground">
-                          {label}
-                        </div>
-                        {rows.map(([key, v]) => (
-                          <div
-                            key={key}
-                            className="flex items-center gap-2 text-secondary-foreground"
-                          >
-                            <span
-                              className="inline-block h-2 w-2 rounded-[2px]"
-                              style={{ background: subMeta.get(key)?.color }}
-                            />
-                            <span className="mr-3">
-                              {subMeta.get(key)?.name ?? key}
-                            </span>
-                            <span className="ml-auto font-mono">{v}m</span>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  }}
-                />
-                {bars.series.map((s) => (
-                  <Bar
-                    key={s.key}
-                    dataKey={s.key}
-                    stackId="minutes"
-                    fill={s.color}
-                    name={s.name}
-                    isAnimationActive={false}
+            {/*
+             * role="img" + a built-from-state label gives screen readers the
+             * gist of the otherwise-opaque recharts SVG (chunk 20 — UX-07).
+             * The legend below stays OUTSIDE this wrapper so its text + shape
+             * cues remain in the a11y tree; the data table carries the numbers.
+             * accessibilityLayer={false} disables recharts' own focusable
+             * role="application" SVG layer (default on) so a tabbable surface
+             * doesn't nest inside — and contradict — this role="img" subtree.
+             */}
+            <div
+              role="img"
+              aria-label={chartLabel({ range, categoryFilter: catFilter })}
+            >
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  accessibilityLayer={false}
+                  data={chartData}
+                  margin={{ top: 8, right: 8, bottom: 0, left: -12 }}
+                >
+                  <CartesianGrid
+                    vertical={false}
+                    stroke="var(--line)"
+                    strokeDasharray="2 4"
                   />
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    axisLine={{ stroke: 'var(--line)' }}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                    minTickGap={20}
+                  />
+                  <YAxis
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v: number) => `${v}m`}
+                    width={48}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'var(--accent-soft)' }}
+                    content={({ active, label }) => {
+                      if (!active || typeof label !== 'string') return null
+                      const day = ungroupedByLabel.get(label)
+                      if (!day) return null
+                      const rows = Object.entries(day.minutes)
+                        .filter(([, v]) => v > 0)
+                        .sort((a, b) => b[1] - a[1])
+                      if (rows.length === 0) return null
+                      return (
+                        <div className="rounded-md border border-border bg-popover px-3 py-2 text-[12px] shadow-lg">
+                          <div className="mb-1 font-medium text-foreground">
+                            {label}
+                          </div>
+                          {rows.map(([key, v]) => (
+                            <div
+                              key={key}
+                              className="flex items-center gap-2 text-secondary-foreground"
+                            >
+                              <span
+                                className="inline-block h-2 w-2 rounded-[2px]"
+                                style={{ background: subMeta.get(key)?.color }}
+                              />
+                              <span className="mr-3">
+                                {subMeta.get(key)?.name ?? key}
+                              </span>
+                              <span className="ml-auto font-mono">{v}m</span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    }}
+                  />
+                  {bars.series.map((s) => (
+                    <Bar
+                      key={s.key}
+                      dataKey={s.key}
+                      stackId="minutes"
+                      fill={s.color}
+                      name={s.name}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
 
-            {/* Legend */}
+            {/* Legend — shape + text per series so color isn't the only cue. */}
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-border pt-4">
-              {bars.series.map((s) => (
+              {bars.series.map((s, i) => (
                 <span
                   key={s.key}
                   className="inline-flex items-center gap-1.5 text-[12px] text-secondary-foreground"
                 >
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-[2px]"
-                    style={{ background: s.color }}
-                  />
+                  <SeriesMarker index={i} color={s.color} />
                   {s.name}
                 </span>
               ))}

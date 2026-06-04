@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { useSyncStore } from '@/db/syncStore'
 import type { SyncState } from '@/db/types'
+import { syncLabel } from '@/lib/syncLabel'
 import { useUIStore } from '@/state/uiStore'
 
 /**
@@ -84,19 +85,36 @@ export default function SyncIndicator() {
 
   const meta = STATE_META[state]
 
+  // Polite SR announcement of every sync-state transition (chunk 20 — UX-06).
+  // The visual label is `hidden sm:inline`, so an SR user — and anyone below
+  // the sm breakpoint — would otherwise hear nothing. Kept in an sr-only node
+  // (so it reaches the a11y tree even when the visual label is hidden) and
+  // polite, so it never stomps ReconnectBanner's connectivity alert
+  // (role="alert", left untouched).
+  const liveRegion = (
+    <span className="sr-only" aria-live="polite" aria-atomic="true">
+      {syncLabel(state)}
+    </span>
+  )
+
   // Failed bucket: the indicator is a direct link into Settings → Sync issues
   // rather than a popover, so a single click takes the user to the recovery UI.
   if (state === 'sync_issues') {
     return (
-      <button
-        type="button"
-        aria-label="Sync issues — open Settings to resolve"
-        onClick={() => navigate('/settings')}
-        className={TRIGGER_CLASS}
-      >
-        <StateGlyph state={state} />
-        <span className={`hidden sm:inline ${meta.tone}`}>{meta.label}</span>
-      </button>
+      <>
+        {liveRegion}
+        <button
+          type="button"
+          aria-label="Sync issues — open Settings to resolve"
+          onClick={() => navigate('/settings')}
+          className={TRIGGER_CLASS}
+        >
+          <StateGlyph state={state} />
+          <span aria-hidden className={`hidden sm:inline ${meta.tone}`}>
+            {meta.label}
+          </span>
+        </button>
+      </>
     )
   }
 
@@ -113,37 +131,42 @@ export default function SyncIndicator() {
   }
 
   return (
-    <Popover>
-      <PopoverTrigger
-        aria-label={`Sync status: ${meta.label}`}
-        className={TRIGGER_CLASS}
-      >
-        <StateGlyph state={state} />
-        <span className={`hidden sm:inline ${meta.tone}`}>{meta.label}</span>
-      </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} className="w-64 text-[13px]">
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <StateGlyph state={state} />
-            <span className="font-medium text-foreground">{meta.label}</span>
-          </div>
-          <div className="space-y-1">
-            <div className="label">Last sync</div>
-            <div className="font-mono text-[12px] text-secondary-foreground">
-              {formatLastSync(lastSyncAt)}
+    <>
+      {liveRegion}
+      <Popover>
+        <PopoverTrigger
+          aria-label={`Sync status: ${meta.label}`}
+          className={TRIGGER_CLASS}
+        >
+          <StateGlyph state={state} />
+          <span aria-hidden className={`hidden sm:inline ${meta.tone}`}>
+            {meta.label}
+          </span>
+        </PopoverTrigger>
+        <PopoverContent align="end" sideOffset={6} className="w-64 text-[13px]">
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <StateGlyph state={state} />
+              <span className="font-medium text-foreground">{meta.label}</span>
             </div>
+            <div className="space-y-1">
+              <div className="label">Last sync</div>
+              <div className="font-mono text-[12px] text-secondary-foreground">
+                {formatLastSync(lastSyncAt)}
+              </div>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full"
+              onClick={forceResync}
+              disabled={resyncing}
+            >
+              {resyncing ? 'Resyncing…' : 'Force resync'}
+            </Button>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="w-full"
-            onClick={forceResync}
-            disabled={resyncing}
-          >
-            {resyncing ? 'Resyncing…' : 'Force resync'}
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </>
   )
 }

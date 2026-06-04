@@ -2,13 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
+import AllClearBanner from '@/components/AllClearBanner'
 import BusyStrip from '@/components/BusyStrip'
 import CategoryColumn from '@/components/CategoryColumn'
+import EmptyStateCard from '@/components/EmptyStateCard'
 import WhatsNextSheet from '@/components/WhatsNextSheet'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
 import { today as clockToday } from '@/lib/clock'
+import { selectDashboardState } from '@/lib/dashboardState'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -547,6 +550,19 @@ export default function Dashboard() {
     [navigate],
   )
 
+  // First-run CTA (chunk 20 — UX-05, Option 3): route into the chosen category
+  // with the inline "Add subcategory" input auto-opened. A brand-new account has
+  // no subcategory to hold a task, so the first step is creating a list — not
+  // dropping the user onto empty columns with no add affordance.
+  const onPickCategory = useCallback(
+    (categoryId: string) => {
+      navigate(`/category/${categoryId}`, {
+        state: { addSubcategory: true },
+      })
+    },
+    [navigate],
+  )
+
   const liveSubcategories = useMemo(
     () => data.subcategories.filter((s) => !s.archivedAt),
     [data.subcategories],
@@ -558,10 +574,28 @@ export default function Dashboard() {
     )
   }
 
+  const dashboardState = selectDashboardState(data.subcategories, data.tasks)
+
+  // First-run: a dashed-border CTA card replaces the columns (DESIGN_NOTES §3).
+  if (dashboardState === 'first-run') {
+    return (
+      <div>
+        <BusyStrip />
+        <TodayStrip openCount={openCount} openMinutes={openMinutes} />
+        <EmptyStateCard
+          categories={data.categories}
+          onPickCategory={onPickCategory}
+        />
+      </div>
+    )
+  }
+
   return (
     <div>
       <BusyStrip />
       <TodayStrip openCount={openCount} openMinutes={openMinutes} />
+      {/* All-clear: jade banner above the still-visible columns. */}
+      {dashboardState === 'all-clear' && <AllClearBanner />}
       <div className="grid gap-6 sm:grid-cols-2 sm:gap-8">
         {data.categories.map((cat) => (
           <CategoryColumn
