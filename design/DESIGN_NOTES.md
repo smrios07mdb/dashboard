@@ -130,6 +130,8 @@ becomes a VEVENT.
 | Subcategory section | `tasks.length === 0` | "No tasks here." text |
 | Insights chart | `totalMinutes === 0` | Centered card "No time logged yet" |
 
+First-run is detected by zero non-archived subcategories (a new account seeds none, and a task requires a subcategory); the first-run card replaces the grid, and its per-category CTAs route to `/category/:id` with the Add-subcategory input focused. All-clear shows whenever there are zero outstanding (incomplete) tasks — no completed-count floor.
+
 ---
 
 ## 4. Connectivity States
