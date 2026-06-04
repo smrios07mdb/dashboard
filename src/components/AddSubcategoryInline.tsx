@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Plus } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -23,15 +23,31 @@ export type AddSubcategoryInlineProps = {
    * false leaves the populated input alone so the user can retry.
    */
   onCreate: (input: { name: string }) => Promise<boolean>
+  /**
+   * Start open with the input focused. Used by the first-run flow (chunk 20 —
+   * UX-05): the Dashboard's empty-state card routes here with
+   * `{ addSubcategory: true }` so the user lands directly on "create your
+   * first list". Defaults to the existing closed/click-to-open behavior.
+   */
+  autoOpen?: boolean
 }
 
 export default function AddSubcategoryInline({
   onCreate,
+  autoOpen = false,
 }: AddSubcategoryInlineProps) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(autoOpen)
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
+
+  // Auto-opened (first-run): focus the field on mount, mirroring the
+  // click-to-open path's queueMicrotask focus.
+  useEffect(() => {
+    if (autoOpen) {
+      queueMicrotask(() => inputRef.current?.focus())
+    }
+  }, [autoOpen])
 
   const trimmed = name.trim()
   const invalid = trimmed.length === 0

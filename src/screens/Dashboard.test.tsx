@@ -28,6 +28,49 @@ function renderDashboard() {
   )
 }
 
+// ---------- compact fixtures (chunk 20 empty-state tests) ----------
+
+function mkCat(id: string, name: 'Work' | 'Personal') {
+  return { id, name, userId: 'u1' }
+}
+
+function mkSub(
+  id: string,
+  categoryId: string,
+  opts: { archivedAt?: string | null } = {},
+) {
+  return {
+    id,
+    name: id,
+    categoryId,
+    sortOrder: 0,
+    userId: 'u1',
+    archivedAt: opts.archivedAt ?? null,
+  }
+}
+
+function mkTask(
+  id: string,
+  subcategoryId: string,
+  opts: { completedAt?: string | null } = {},
+) {
+  return {
+    id,
+    userId: 'u1',
+    subcategoryId,
+    title: id,
+    notes: null,
+    estimateMinutes: 30,
+    dueAt: null,
+    remindAt: null,
+    notified: false,
+    priority: null,
+    completedAt: opts.completedAt ?? null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
 describe('Dashboard', () => {
   beforeEach(() => {
     categoriesList.mockReset()
@@ -148,11 +191,18 @@ describe('Dashboard', () => {
   })
 
   it('renders the "+ Add subcategory" affordance for each category column', async () => {
+    // chunk 20: a board with at least one live subcategory is no longer
+    // first-run, so the columns (and their per-column add affordance)
+    // render. A fully empty board now shows the first-run card instead —
+    // covered by the dedicated first-run test below.
     categoriesList.mockResolvedValue([
-      { id: 'cat-work', name: 'Work', userId: 'u1' },
-      { id: 'cat-personal', name: 'Personal', userId: 'u1' },
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
     ])
-    subcategoriesList.mockResolvedValue([])
+    subcategoriesList.mockResolvedValue([
+      mkSub('sw1', 'cat-work'),
+      mkSub('sp1', 'cat-personal'),
+    ])
     tasksList.mockResolvedValue([])
 
     const { findAllByText } = renderDashboard()
@@ -160,6 +210,59 @@ describe('Dashboard', () => {
     const buttons = await findAllByText('Add subcategory')
     // One per category column.
     expect(buttons.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('shows the first-run card (and no columns) when there are no live subcategories', async () => {
+    // Brand-new account: Work/Personal categories seeded, zero subcategories.
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([])
+    tasksList.mockResolvedValue([])
+
+    const { findByText, queryByText } = renderDashboard()
+
+    // The first-run dashed-border CTA card, with one button per seeded category.
+    expect(await findByText('Set up your first list')).toBeTruthy()
+    expect(queryByText('New list in Work')).toBeTruthy()
+    expect(queryByText('New list in Personal')).toBeTruthy()
+    // No columns → no per-column "Add subcategory" affordance, no all-clear banner.
+    expect(queryByText('Add subcategory')).toBeNull()
+    expect(queryByText(/All clear/i)).toBeNull()
+  })
+
+  it('shows the all-clear banner above the columns when tasks exist but none are outstanding', async () => {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([
+      mkTask('t-done', 'sw1', { completedAt: '2026-01-03T00:00:00.000Z' }),
+    ])
+
+    const { findByText, container, queryByText } = renderDashboard()
+
+    expect(await findByText(/All clear/i)).toBeTruthy()
+    // Columns still render (subcategory visible); first-run card absent.
+    expect(container.textContent).toContain('sw1')
+    expect(queryByText('Set up your first list')).toBeNull()
+  })
+
+  it('shows the normal dashboard (no banner, no card) when an outstanding task exists', async () => {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([mkTask('Open task', 'sw1', { completedAt: null })])
+
+    const { findByText, queryByText } = renderDashboard()
+
+    expect(await findByText('Open task')).toBeTruthy()
+    expect(queryByText(/All clear/i)).toBeNull()
+    expect(queryByText('Set up your first list')).toBeNull()
   })
 
   it('renders chevrons on every category and subcategory header', async () => {
