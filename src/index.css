@@ -423,6 +423,20 @@
   }
 }
 
+/* SyncBadge "syncing" dot ripple. The element sets `--sync-dot` to a tinted
+   copy of its own color; disabled by the reduced-motion block below. */
+@keyframes sync-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--sync-dot);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 /* Respect reduced-motion: kill transitions/animations for users who ask. */
 @media (prefers-reduced-motion: reduce) {
   *,

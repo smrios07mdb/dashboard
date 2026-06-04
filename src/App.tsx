@@ -28,6 +28,11 @@ const TokenCheck = import.meta.env.DEV
   ? lazy(() => import('@/screens/TokenCheck'))
   : null
 
+// Throwaway primitives showcase (redesign chunk 23). Same DEV-only DCE pattern.
+const Primitives = import.meta.env.DEV
+  ? lazy(() => import('@/screens/Primitives'))
+  : null
+
 export default function App() {
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
@@ -39,6 +44,16 @@ export default function App() {
             element={
               <Suspense fallback={null}>
                 <TokenCheck />
+              </Suspense>
+            }
+          />
+        )}
+        {import.meta.env.DEV && Primitives && (
+          <Route
+            path="/dev/primitives"
+            element={
+              <Suspense fallback={null}>
+                <Primitives />
               </Suspense>
             }
           />
