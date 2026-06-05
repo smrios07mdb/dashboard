@@ -361,7 +361,7 @@ export default function DailyHero({
         </div>
       </div>
 
-      {/* category progress bars */}
+      {/* category progress bars — ordered by the categories prop to match the dashboard columns */}
       <div
         style={{
           display: 'flex',
@@ -373,8 +373,14 @@ export default function DailyHero({
           flexWrap: 'wrap',
         }}
       >
-        <CatBar name="Work" {...work} color="var(--work)" />
-        <CatBar name="Personal" {...personal} color="var(--personal)" />
+        {categories.map((cat) => (
+          <CatBar
+            key={cat.id}
+            name={cat.name}
+            {...(cat.name === 'Work' ? work : personal)}
+            color={cat.name === 'Work' ? 'var(--work)' : 'var(--personal)'}
+          />
+        ))}
       </div>
     </div>
   )
