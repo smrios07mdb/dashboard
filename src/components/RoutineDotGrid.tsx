@@ -1,9 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, type CSSProperties } from 'react'
 
 import { dateKeyDaysAgo } from '@/lib/clock'
 import type { RoutineItem, RoutineLog } from '@/db/types'
 import { DOT_GRID_DAYS, requiredItemsByDay } from '@/lib/streak'
-import { cn } from '@/lib/utils'
 
 /**
  * 14-day dot grid going back from today (oldest on the left, today on
@@ -29,6 +28,40 @@ import { cn } from '@/lib/utils'
 const DOW_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const
 
 type DotState = 'faded' | 'empty' | 'partial' | 'full'
+
+/**
+ * Per-state dot style (matches the prototype `DayGrid`). The accent math
+ * (`color-mix`, a tinted drop-shadow) can't be expressed as Tailwind utilities,
+ * so the stateful paint lives inline while the size/shape stays in className.
+ */
+function dotStyle(
+  state: DotState,
+  accent: string,
+  isToday: boolean,
+): CSSProperties {
+  const today: CSSProperties = isToday
+    ? { outline: '2px solid var(--ink)', outlineOffset: 2 }
+    : {}
+  switch (state) {
+    case 'full':
+      return {
+        ...today,
+        background: accent,
+        boxShadow: `0 2px 8px -2px ${accent}`,
+        border: 'none',
+      }
+    case 'partial':
+      return {
+        ...today,
+        background: `color-mix(in srgb, ${accent} 28%, transparent)`,
+        border: '1px solid var(--line)',
+      }
+    case 'empty':
+      return { ...today, background: 'var(--bg-alt)', border: '1px solid var(--line)' }
+    case 'faded':
+      return { ...today, background: 'transparent', border: '1px dashed var(--line)' }
+  }
+}
 
 type Cell = {
   dateKey: string
@@ -100,6 +133,9 @@ export default function RoutineDotGrid({
     })
   }, [routine, items, logs, todayKey, timezone])
 
+  const accent =
+    routine === 'morning' ? 'var(--jewel-gold)' : 'var(--jewel-amethyst)'
+
   return (
     <div
       role="list"
@@ -116,25 +152,10 @@ export default function RoutineDotGrid({
         >
           <span
             aria-hidden
-            className={cn(
-              'h-5 w-5 rounded-full transition-colors',
-              c.state === 'faded' &&
-                'border border-dashed border-border bg-transparent',
-              c.state === 'empty' && 'border border-border bg-secondary/40',
-              c.state === 'partial' &&
-                (routine === 'morning'
-                  ? 'border border-border bg-[hsl(40_70%_60%/0.25)]'
-                  : 'border border-border bg-[hsl(260_75%_75%/0.25)]'),
-              c.state === 'full' &&
-                (routine === 'morning'
-                  ? 'bg-[hsl(40_70%_60%)]'
-                  : 'bg-[hsl(260_75%_75%)]'),
-              c.isToday && 'ring-2 ring-offset-2 ring-foreground ring-offset-background',
-            )}
+            className="h-5 w-5 rounded-full transition-colors"
+            style={dotStyle(c.state, accent, c.isToday)}
           />
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {c.dow}
-          </span>
+          <span className="num text-[10px] text-ink-4">{c.dow}</span>
         </div>
       ))}
     </div>

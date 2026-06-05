@@ -270,21 +270,21 @@ export default function Routines() {
   )
 
   if (loading) {
-    return <div className="text-[13px] text-muted-foreground">Loading…</div>
+    return <div className="text-[13px] text-ink-3">Loading…</div>
   }
 
   return (
     <div>
-      <header className="mb-6 flex flex-wrap items-baseline gap-3">
+      <header className="mb-[22px] flex flex-wrap items-baseline gap-[14px]">
         <h1
-          className="m-0 text-[28px] font-semibold text-foreground"
+          className="m-0 font-display text-[40px] font-medium text-ink"
           style={{ letterSpacing: '-0.02em' }}
         >
           Routines
         </h1>
         <span className="label">Daily rituals · streaks</span>
       </header>
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-[22px] md:grid-cols-2">
         <RoutinePanel
           routine="morning"
           items={data.items}

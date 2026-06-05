@@ -16,6 +16,7 @@ import { CSS } from '@dnd-kit/utilities'
 import {
   ArrowDown,
   ArrowUp,
+  Check,
   GripVertical,
   MoonStar,
   Plus,
@@ -136,25 +137,25 @@ export default function RoutinePanel({
   }
 
   const Icon = routine === 'morning' ? Sun : MoonStar
-  const accentRing =
-    routine === 'morning'
-      ? 'bg-[hsl(40_70%_60%/0.15)] text-[hsl(40_70%_72%)]'
-      : 'bg-[hsl(260_75%_75%/0.15)] text-[hsl(260_70%_82%)]'
+  // Routine accent — gold (Morning) / amethyst (Night). `accentSoft` is the
+  // 15%-tinted fill used by the icon badge and the "all done" banner; the
+  // streak chip derives its own soft fill from the same jewel.
+  const accent =
+    routine === 'morning' ? 'var(--jewel-gold)' : 'var(--jewel-amethyst)'
+  const accentSoft = `color-mix(in srgb, ${accent} 15%, transparent)`
 
   return (
-    <section className="rounded-md border border-border bg-card p-5">
-      <header className="mb-5 flex flex-wrap items-center gap-3">
+    <section className="rounded-md border border-line bg-surface p-[22px] shadow-md">
+      <header className="mb-[18px] flex flex-wrap items-center gap-3">
         <span
           aria-hidden
-          className={cn(
-            'inline-flex h-8 w-8 items-center justify-center rounded-full',
-            accentRing,
-          )}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+          style={{ background: accentSoft, color: accent }}
         >
           <Icon className="size-4" />
         </span>
         <h2
-          className="m-0 text-[20px] font-medium text-foreground"
+          className="m-0 font-display text-[22px] font-medium text-ink"
           style={{ letterSpacing: '-0.01em' }}
         >
           {routine === 'morning' ? 'Morning' : 'Night'}
@@ -203,26 +204,23 @@ export default function RoutinePanel({
           ))
         )}
         {live.length === 0 && (
-          <div className="py-6 text-center text-[13px] italic text-muted-foreground">
+          <div className="py-6 text-center text-[13px] italic text-ink-3">
             No items yet. {editing ? '' : 'Click "Edit list" to add some.'}
           </div>
         )}
         {editing && <AddItemRow routine={routine} onCreate={onCreate} />}
         {!editing && allDoneToday && (
           <div
-            className={cn(
-              'mt-4 flex items-center gap-2 rounded-md px-3 py-2 text-[13px]',
-              routine === 'morning'
-                ? 'bg-[hsl(40_70%_60%/0.13)] text-[hsl(40_70%_82%)]'
-                : 'bg-[hsl(260_75%_75%/0.13)] text-[hsl(260_70%_88%)]',
-            )}
+            className="mt-4 flex items-center gap-2 rounded px-3.5 py-2.5 text-[13px] font-medium"
+            style={{ background: accentSoft, color: accent }}
           >
+            <Check className="size-3.5" aria-hidden />
             All done for today.
           </div>
         )}
       </div>
 
-      <div className="mt-6 border-t border-border pt-4">
+      <div className="mt-6 border-t border-line pt-4">
         <div className="label mb-3">Last 14 days</div>
         <RoutineDotGrid
           routine={routine}
@@ -250,7 +248,7 @@ function CheckRow({
   return (
     <label
       className={cn(
-        'flex cursor-pointer items-center gap-3 border-t border-border px-1 py-2.5 first:border-t-0 transition-colors hover:bg-secondary/40',
+        'flex cursor-pointer items-center gap-3 border-t border-line px-1 py-2.5 first:border-t-0 transition-colors hover:bg-bg-alt',
       )}
     >
       <Checkbox
@@ -264,8 +262,8 @@ function CheckRow({
         className={cn(
           'flex-1 text-[14px]',
           checked
-            ? 'text-muted-foreground line-through decoration-muted-foreground'
-            : 'text-foreground',
+            ? 'text-ink-3 line-through decoration-ink-3'
+            : 'text-ink',
         )}
       >
         {item.label}
@@ -318,14 +316,14 @@ function EditRow({
   }
 
   return (
-    <div className="grid items-center gap-2 border-t border-border px-1 py-2 first:border-t-0 [grid-template-columns:auto_1fr_auto_auto]">
+    <div className="grid items-center gap-2 border-t border-line px-1 py-2 first:border-t-0 [grid-template-columns:auto_1fr_auto_auto]">
       {!isTouch ? (
         <button
           type="button"
           aria-label={`Drag to reorder ${item.label}`}
           {...(dragHandleProps?.attributes ?? {})}
           {...(dragHandleProps?.listeners ?? {})}
-          className="inline-flex h-7 w-5 cursor-grab items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-7 w-5 cursor-grab items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-ink active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <GripVertical className="size-3.5" aria-hidden />
         </button>
@@ -353,7 +351,7 @@ function EditRow({
           aria-invalid={invalid || undefined}
           aria-label="Routine item label"
           className={cn(
-            'min-w-0 rounded-sm bg-background px-2 py-1 text-[14px] text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
+            'min-w-0 rounded-sm bg-bg-alt px-2 py-1 text-[14px] text-ink shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
             invalid &&
               'shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
           )}
@@ -362,7 +360,7 @@ function EditRow({
         <button
           type="button"
           onClick={() => setDraft(item.label)}
-          className="min-w-0 truncate text-left text-[14px] text-foreground hover:text-accent-foreground"
+          className="min-w-0 truncate text-left text-[14px] text-ink hover:text-ink-2"
           title={item.label}
         >
           {item.label}
@@ -375,7 +373,7 @@ function EditRow({
             <button
               type="button"
               aria-label={`Actions for ${item.label}`}
-              className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <MoreHorizontal className="size-3.5" aria-hidden />
             </button>
@@ -406,7 +404,7 @@ function EditRow({
           <button
             type="button"
             aria-label={`Remove ${item.label}`}
-            className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-6 w-6 items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="size-3.5" aria-hidden />
           </button>
@@ -499,7 +497,7 @@ function AddItemRow({
         aria-label={`New ${routine} item`}
         aria-invalid={invalid && draft.length > 0 ? true : undefined}
         className={cn(
-          'h-9 bg-background text-[14px]',
+          'h-9 bg-bg-alt text-[14px]',
           invalid &&
             draft.length > 0 &&
             'border-destructive focus-visible:ring-destructive',
