@@ -15,12 +15,14 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { repo } from '@/db/repo'
+import { SettingsRow, SettingsSection } from '@/screens/Settings'
 import { useSession } from '@/lib/auth'
 import { loadSampleData, wipeMyData } from '@/lib/sample-data'
 
 /**
  * Developer tools panel — "Load sample data", "Wipe my data", and
- * "Reset routine logs".
+ * "Reset routine logs". Daylight re-skin (chunk 30): same actions, wrapped in
+ * the shared SettingsSection / SettingsRow vocabulary.
  *
  * Extracted from Settings.tsx in the Revisions chunk-6 pass so it can
  * be loaded lazily. The gating (`import.meta.env.DEV || ?dev=1`) lives
@@ -83,68 +85,70 @@ export default function DeveloperSection() {
   }
 
   return (
-    <section className="mt-10 border-t border-border pt-8">
-      <div className="label mb-2">Developer</div>
-      <h2
-        className="mb-3 text-[20px] font-medium text-foreground"
-        style={{ letterSpacing: '-0.01em' }}
-      >
-        Developer tools
-      </h2>
-      <p className="mb-5 text-[13px] text-muted-foreground">
-        Visible when{' '}
-        <span className="font-mono">import.meta.env.DEV</span> is true, or
-        when the URL carries <span className="font-mono">?dev=1</span>.
+    <SettingsSection kicker="06" title="Developer">
+      <p className="mb-1 text-[12px] leading-relaxed text-ink-3">
+        Visible when <span className="mono">import.meta.env.DEV</span> is true,
+        or when the URL carries <span className="mono">?dev=1</span>.
       </p>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <SettingsRow
+        title="Sample data"
+        hint="Seeds this account with example tasks, subcategories, and routines."
+      >
         <Button onClick={onLoad} disabled={loading || !userId}>
           {loading ? 'Loading…' : 'Load sample data'}
         </Button>
+      </SettingsRow>
 
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="destructive" disabled={wiping || !userId}>
-              {wiping ? 'Wiping…' : 'Wipe my data'}
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Wipe my data?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Removes all your tasks, archives subcategories and
-                routine items, clears any push subscriptions, and resets
-                Settings to defaults. Categories (Work, Personal) and
-                your timezone are kept. This affects your real Supabase
-                data — there&rsquo;s no undo.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={onWipe}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Wipe everything
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+      <SettingsRow
+        title="Reset"
+        hint="Destructive — these act on your real Supabase data. There’s no undo."
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" disabled={wiping || !userId}>
+                {wiping ? 'Wiping…' : 'Wipe my data'}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Wipe my data?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Removes all your tasks, archives subcategories and
+                  routine items, clears any push subscriptions, and resets
+                  Settings to defaults. Categories (Work, Personal) and
+                  your timezone are kept. This affects your real Supabase
+                  data — there&rsquo;s no undo.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={onWipe}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Wipe everything
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
-        <DeleteConfirm
-          trigger={
-            <Button variant="outline" disabled={isResetting || !userId}>
-              {isResetting ? 'Resetting…' : 'Reset routine logs'}
-            </Button>
-          }
-          title="Clear all routine completion history?"
-          description={
-            'This deletes every routine log for your account. Routine items, tasks, subcategories, and settings are not affected. Streak calculations and the 14-day dot grid will reset to empty. Developer/testing utility — "Wipe my data" is the broader reset.'
-          }
-          confirmLabel="Reset routine logs"
-          onConfirm={handleResetRoutineLogs}
-        />
-      </div>
-    </section>
+          <DeleteConfirm
+            trigger={
+              <Button variant="outline" disabled={isResetting || !userId}>
+                {isResetting ? 'Resetting…' : 'Reset routine logs'}
+              </Button>
+            }
+            title="Clear all routine completion history?"
+            description={
+              'This deletes every routine log for your account. Routine items, tasks, subcategories, and settings are not affected. Streak calculations and the 14-day dot grid will reset to empty. Developer/testing utility — "Wipe my data" is the broader reset.'
+            }
+            confirmLabel="Reset routine logs"
+            onConfirm={handleResetRoutineLogs}
+          />
+        </div>
+      </SettingsRow>
+    </SettingsSection>
   )
 }

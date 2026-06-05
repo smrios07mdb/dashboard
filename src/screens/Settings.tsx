@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
-import { Bell, Download, Eye, EyeOff, Link2, Trash2, Upload } from 'lucide-react'
+import { Bell, Download, Eye, EyeOff, Info, Link2, Trash2, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 
 import About from '@/components/About'
@@ -38,6 +38,7 @@ import {
   previewCounts,
   validateImport,
 } from '@/lib/import'
+import { supabase } from '@/lib/supabase'
 import { useUIStore } from '@/state/uiStore'
 import {
   CalendarError,
@@ -59,21 +60,99 @@ import {
 import { recoverSignedOut } from '@/lib/session'
 
 /**
- * Settings screen.
+ * Settings screen — Daylight re-skin (chunk 30). Every section's logic is the
+ * shipped wiring (AI key, Apple Calendar credential flow + recovery, push,
+ * export/import with typed REPLACE/CACHE confirmations, sync-issue recovery,
+ * About, the gated Developer tools). This pass only restyles the markup and
+ * tokens, drops the never-built dark/Appearance toggle (Decision A), and adds
+ * the new Account section.
  *
- * Chunk 11 adds the first real section: the Anthropic API key used by
- * the "What's next?" triage (ARCHITECTURE.md §10). The key lives in
- * `settings.ai_api_key`, readable only by its owner via RLS, and is sent
- * straight from the browser — the exposure tradeoff is documented in
- * docs/security.md.
- *
- * The Developer section stays gated + lazy-loaded so production users
- * never download its code (Revisions chunk-6). Calendar, notifications,
- * and data export/import land in later chunks.
+ * The two layout primitives below (SettingsSection / SettingsRow) mirror the
+ * prototype's vocabulary and are exported so About / DeveloperSection share
+ * them rather than duplicating the grid.
  */
 const DeveloperSection = lazy(() => import('@/components/DeveloperSection'))
 
 const SAVE_ERROR = 'Could not save — retry'
+
+/**
+ * Numbered section block: a `.label` kicker, then a serif h2. `tone="danger"`
+ * paints the kicker + title with the Daylight danger token (used by the
+ * conditional Sync-issues recovery surface).
+ */
+export function SettingsSection({
+  kicker,
+  title,
+  children,
+  tone = 'default',
+  id,
+}: {
+  kicker: React.ReactNode
+  title: string
+  children: React.ReactNode
+  tone?: 'default' | 'danger'
+  id?: string
+}) {
+  const danger = tone === 'danger'
+  return (
+    <section id={id} className="mb-9">
+      <header className="mb-1.5">
+        <span
+          className="label"
+          style={danger ? { color: 'var(--destructive)' } : undefined}
+        >
+          {kicker}
+        </span>
+        <h2
+          className="mt-1.5 font-display text-[22px] font-medium"
+          style={{
+            letterSpacing: '-0.01em',
+            color: danger ? 'var(--destructive)' : 'var(--ink)',
+          }}
+        >
+          {title}
+        </h2>
+      </header>
+      {children}
+    </section>
+  )
+}
+
+/**
+ * Two-column row: title/hint on the left, control on the right, hairline
+ * divider below. `align="center"` vertically centres the columns (used for
+ * single-control rows like Email / Status).
+ */
+export function SettingsRow({
+  title,
+  hint,
+  children,
+  align = 'top',
+}: {
+  title: React.ReactNode
+  hint?: React.ReactNode
+  children: React.ReactNode
+  align?: 'top' | 'center'
+}) {
+  return (
+    <div
+      className={`grid gap-7 border-b border-line py-5 ${
+        align === 'center' ? 'items-center' : 'items-start'
+      }`}
+      style={{ gridTemplateColumns: 'minmax(180px, 220px) 1fr' }}
+    >
+      <div>
+        <div className="text-[14px] font-medium text-ink">{title}</div>
+        {hint && (
+          <div className="mt-1 text-[12px] leading-relaxed text-ink-3">
+            {hint}
+          </div>
+        )}
+      </div>
+      <div>{children}</div>
+    </div>
+  )
+}
 
 function formatAge(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime()
@@ -137,15 +216,8 @@ function SyncIssuesSection() {
   }
 
   return (
-    <section id="sync-issues" className="mt-8 border-t border-border pt-6">
-      <div className="label mb-1">Sync</div>
-      <h2
-        className="mb-3 text-[18px] font-semibold text-destructive"
-        style={{ letterSpacing: '-0.01em' }}
-      >
-        Sync issues
-      </h2>
-      <p className="mb-4 max-w-md text-[12px] leading-relaxed text-muted-foreground">
+    <SettingsSection id="sync-issues" kicker="Sync" title="Sync issues" tone="danger">
+      <p className="mb-4 max-w-xl text-[12px] leading-relaxed text-ink-3">
         These changes couldn&apos;t be saved to the server after several
         attempts. Retry them, or discard to drop the change on this device.
       </p>
@@ -154,16 +226,14 @@ function SyncIssuesSection() {
         {rows.map((r) => (
           <li
             key={r.id}
-            className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2"
+            className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface px-3 py-2"
           >
             <div className="min-w-0">
-              <div className="text-[13px] text-foreground">
+              <div className="text-[13px] text-ink">
                 <span className="font-medium capitalize">{r.op}</span>{' '}
-                <span className="font-mono text-[12px] text-secondary-foreground">
-                  {r.table}
-                </span>
+                <span className="num text-[12px] text-ink-2">{r.table}</span>
               </div>
-              <div className="truncate text-[11px] text-muted-foreground">
+              <div className="truncate text-[11px] text-ink-3">
                 {r.lastError ?? 'Unknown error'} · {r.attempts} attempts ·{' '}
                 {formatAge(r.createdAt)}
               </div>
@@ -211,7 +281,44 @@ function SyncIssuesSection() {
           Discard all
         </Button>
       </div>
-    </section>
+    </SettingsSection>
+  )
+}
+
+/**
+ * Account (chunk 30, new). Email + sign out. Sign-out reuses the app's existing
+ * Supabase call (the same one the header AccountMenu uses); the `<Protected>`
+ * guard redirects to Login on the auth-state change, so we don't route manually
+ * (Decision G).
+ */
+function AccountSection() {
+  const { user } = useSession()
+  const email = user?.email ?? ''
+
+  async function signOut() {
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      toast.error(error.message || 'Could not sign out. Try again.')
+    }
+  }
+
+  return (
+    <SettingsSection kicker="01" title="Account">
+      <SettingsRow title="Email" align="center">
+        <div className="flex items-center gap-3">
+          <span className="num text-[14px] text-ink">{email}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={signOut}
+          >
+            Sign out
+          </Button>
+        </div>
+      </SettingsRow>
+    </SettingsSection>
   )
 }
 
@@ -258,58 +365,55 @@ function AiKeySection() {
   }
 
   return (
-    <section className="mt-8 border-t border-border pt-6">
-      <div className="label mb-1">AI assist</div>
-      <h2
-        className="mb-3 text-[18px] font-semibold text-foreground"
-        style={{ letterSpacing: '-0.01em' }}
+    <SettingsSection kicker="03" title="AI assist">
+      <SettingsRow
+        title="Anthropic API key"
+        hint={
+          <>
+            Stored in your Supabase data, accessible only by you (RLS). Calls are
+            made directly from your browser. See{' '}
+            <span className="mono">docs/security.md</span>.
+          </>
+        }
       >
-        Anthropic API key
-      </h2>
+        <div className="flex max-w-md items-center gap-2">
+          <Input
+            type={show ? 'text' : 'password'}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-ant-…"
+            aria-label="Anthropic API key"
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setShow((s) => !s)}
+            aria-label={show ? 'Hide API key' : 'Show API key'}
+            title={show ? 'Hide' : 'Show'}
+          >
+            {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </Button>
+        </div>
 
-      <div className="flex max-w-md items-center gap-2">
-        <Input
-          type={show ? 'text' : 'password'}
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-ant-…"
-          aria-label="Anthropic API key"
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={() => setShow((s) => !s)}
-          aria-label={show ? 'Hide API key' : 'Show API key'}
-          title={show ? 'Hide' : 'Show'}
-        >
-          {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-        </Button>
-      </div>
+        <div className="mt-3 flex items-center gap-3">
+          <Button onClick={save} disabled={saving || !userId}>
+            {saving ? 'Saving…' : 'Save key'}
+          </Button>
+          <span className="num text-[11px] text-ink-3">
+            Uses claude-haiku-4-5
+          </span>
+        </div>
 
-      <div className="mt-3 flex items-center gap-3">
-        <Button onClick={save} disabled={saving || !userId}>
-          {saving ? 'Saving…' : 'Save key'}
-        </Button>
-        <span className="font-mono text-[11px] text-muted-foreground">
-          Uses claude-haiku-4-5
-        </span>
-      </div>
-
-      <p className="mt-3 max-w-md text-[12px] leading-relaxed text-muted-foreground">
-        “What’s next?” triage sends your incomplete task titles, their category
-        and subcategory, time estimate, due date, and priority to Anthropic —
-        never your notes.
-      </p>
-
-      <p className="mt-2 max-w-md text-[12px] leading-relaxed text-muted-foreground">
-        Your key is stored in your Supabase data, accessible only by you (RLS).
-        Calls are made directly from your browser. See{' '}
-        <span className="font-mono">docs/security.md</span>.
-      </p>
-    </section>
+        <p className="mt-3 max-w-md text-[12px] leading-relaxed text-ink-3">
+          “What’s next?” triage sends your incomplete task titles, their category
+          and subcategory, time estimate, due date, and priority to Anthropic —
+          never your notes.
+        </p>
+      </SettingsRow>
+    </SettingsSection>
   )
 }
 
@@ -479,67 +583,79 @@ function CalendarSection() {
   const isConnected = caldavStatus === 'ok' || caldavStatus === 'auth_failed'
 
   return (
-    <section className="mt-8 border-t border-border pt-6">
-      <div className="label mb-1">Apple Calendar</div>
-      <h2
-        className="mb-3 text-[18px] font-semibold text-foreground"
-        style={{ letterSpacing: '-0.01em' }}
+    <SettingsSection kicker="02" title="Apple Calendar">
+      <SettingsRow title="Status" align="center">
+        <div className="flex flex-wrap items-center gap-3">
+          <StatusBadge status={caldavStatus} testing={testing} />
+          <span className="text-[12px] leading-relaxed text-ink-3">
+            CalDAV via our serverless proxy. The app-specific password is
+            encrypted at rest.
+          </span>
+        </div>
+      </SettingsRow>
+
+      <SettingsRow title="Apple ID" hint="Your iCloud email.">
+        <Input
+          id="caldav-apple-id"
+          type="email"
+          value={appleId}
+          onChange={(e) => setAppleId(e.target.value)}
+          placeholder="you@icloud.com"
+          aria-label="Apple ID"
+          autoComplete="off"
+          spellCheck={false}
+          className="max-w-md"
+        />
+      </SettingsRow>
+
+      <SettingsRow
+        title="App-specific password"
+        hint={
+          <>
+            Generate one at{' '}
+            <a
+              href="https://appleid.apple.com"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2"
+              style={{ color: 'var(--accent)' }}
+            >
+              appleid.apple.com
+            </a>{' '}
+            → Sign-In and Security → App-Specific Passwords. Encrypted by the
+            proxy and never stored in this app. See{' '}
+            <span className="mono">docs/calendar.md</span>.
+          </>
+        }
       >
-        Calendar connection
-      </h2>
-
-      <div className="mb-4">
-        <StatusBadge status={caldavStatus} testing={testing} />
-      </div>
-
-      <div className="max-w-md space-y-4">
-        <div>
-          <label htmlFor="caldav-apple-id" className="label mb-1 block">
-            Apple ID
-          </label>
+        <div className="flex max-w-md items-center gap-2">
           <Input
-            id="caldav-apple-id"
-            type="email"
-            value={appleId}
-            onChange={(e) => setAppleId(e.target.value)}
-            placeholder="you@icloud.com"
+            id="caldav-app-password"
+            type={showPass ? 'text' : 'password'}
+            value={appPassword}
+            onChange={(e) => setAppPassword(e.target.value)}
+            placeholder="xxxx-xxxx-xxxx-xxxx"
+            aria-label="App-specific password"
             autoComplete="off"
             spellCheck={false}
           />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowPass((s) => !s)}
+            aria-label={showPass ? 'Hide password' : 'Show password'}
+            title={showPass ? 'Hide' : 'Show'}
+          >
+            {showPass ? (
+              <EyeOff className="size-4" />
+            ) : (
+              <Eye className="size-4" />
+            )}
+          </Button>
         </div>
 
-        <div>
-          <label htmlFor="caldav-app-password" className="label mb-1 block">
-            App-specific password
-          </label>
-          <div className="flex items-center gap-2">
-            <Input
-              id="caldav-app-password"
-              type={showPass ? 'text' : 'password'}
-              value={appPassword}
-              onChange={(e) => setAppPassword(e.target.value)}
-              placeholder="xxxx-xxxx-xxxx-xxxx"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowPass((s) => !s)}
-              aria-label={showPass ? 'Hide password' : 'Show password'}
-              title={showPass ? 'Hide' : 'Show'}
-            >
-              {showPass ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="secondary"
@@ -555,7 +671,7 @@ function CalendarSection() {
               value={calendarUrl}
               onChange={(e) => setCalendarUrl(e.target.value)}
               aria-label="Calendar"
-              className="h-9 rounded-md border border-border bg-background px-2 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-9 rounded-md border border-line bg-surface px-2 text-[13px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {calendars.map((c) => (
                 <option key={c.url} value={c.url}>
@@ -575,35 +691,22 @@ function CalendarSection() {
         </div>
 
         {isConnected && (
-          <DeleteConfirm
-            trigger={
-              <Button type="button" variant="outline" size="sm">
-                Disconnect
-              </Button>
-            }
-            title="Disconnect Apple Calendar?"
-            description="This removes the stored credentials from this app. You can reconnect anytime by testing and saving again."
-            confirmLabel="Disconnect"
-            onConfirm={disconnect}
-          />
+          <div className="mt-2.5">
+            <DeleteConfirm
+              trigger={
+                <Button type="button" variant="outline" size="sm">
+                  Disconnect
+                </Button>
+              }
+              title="Disconnect Apple Calendar?"
+              description="This removes the stored credentials from this app. You can reconnect anytime by testing and saving again."
+              confirmLabel="Disconnect"
+              onConfirm={disconnect}
+            />
+          </div>
         )}
-      </div>
-
-      <p className="mt-4 max-w-md text-[12px] leading-relaxed text-muted-foreground">
-        Generate an app-specific password at{' '}
-        <a
-          href="https://appleid.apple.com"
-          target="_blank"
-          rel="noreferrer"
-          className="underline underline-offset-2"
-        >
-          appleid.apple.com
-        </a>{' '}
-        → Sign-In and Security → App-Specific Passwords. Your password is
-        encrypted by the proxy and never stored in this app. See{' '}
-        <span className="font-mono">docs/calendar.md</span>.
-      </p>
-    </section>
+      </SettingsRow>
+    </SettingsSection>
   )
 }
 
@@ -693,57 +796,57 @@ function NotificationsSection() {
   }
 
   return (
-    <section className="mt-8 border-t border-border pt-6">
-      <div className="label mb-1">Notifications</div>
-      <h2
-        className="mb-3 text-[18px] font-semibold text-foreground"
-        style={{ letterSpacing: '-0.01em' }}
+    <SettingsSection kicker="04" title="Notifications">
+      <SettingsRow
+        title="Web push"
+        hint="Reminders fire when a task comes due, even if the app isn't open."
       >
-        Reminder notifications
-      </h2>
+        <div className="mb-3">
+          <NotificationStatusBadge
+            supported={supported}
+            permission={permission}
+            subscribed={subscribed}
+          />
+        </div>
 
-      <div className="mb-4">
-        <NotificationStatusBadge
-          supported={supported}
-          permission={permission}
-          subscribed={subscribed}
-        />
-      </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {supported && permission !== 'denied' && !subscribed && (
+            <Button type="button" onClick={enable} disabled={busy}>
+              <Bell className="size-4" />
+              {busy ? 'Enabling…' : 'Enable notifications'}
+            </Button>
+          )}
+          {supported && subscribed && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={disable}
+              disabled={busy}
+            >
+              {busy ? 'Disabling…' : 'Disable notifications'}
+            </Button>
+          )}
+        </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {supported && permission !== 'denied' && !subscribed && (
-          <Button type="button" onClick={enable} disabled={busy}>
-            <Bell className="size-4" />
-            {busy ? 'Enabling…' : 'Enable notifications'}
-          </Button>
+        {permission === 'denied' && (
+          <p className="mt-3 max-w-md text-[12px] leading-relaxed text-ink-3">
+            Notifications are blocked for this site. Re-enable them in your
+            browser or system settings, then reload.
+          </p>
         )}
-        {supported && subscribed && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={disable}
-            disabled={busy}
-          >
-            {busy ? 'Disabling…' : 'Disable notifications'}
-          </Button>
-        )}
-      </div>
 
-      {permission === 'denied' && (
-        <p className="mt-3 max-w-md text-[12px] leading-relaxed text-muted-foreground">
-          Notifications are blocked for this site. Re-enable them in your
-          browser or system settings, then reload.
-        </p>
-      )}
-
-      <p className="mt-4 max-w-md text-[12px] leading-relaxed text-muted-foreground">
-        On iPhone and iPad, Web Push requires the app to be installed to the
-        Home Screen (iOS 16.4+). Without an installed PWA and granted
-        permission, reminders only appear in-app while a tab is open. See{' '}
-        <span className="font-mono">docs/notifications.md</span>.
-      </p>
-    </section>
+        <div className="mt-3 flex max-w-md items-start gap-2.5 rounded-md border border-line bg-bg-alt px-3.5 py-3">
+          <Info className="mt-0.5 size-4 shrink-0 text-ink-3" />
+          <p className="text-[12px] leading-relaxed text-ink-2">
+            On iPhone and iPad, Web Push requires the app to be installed to the
+            Home Screen (iOS 16.4+). Without an installed PWA and granted
+            permission, reminders only appear in-app while a tab is open. See{' '}
+            <span className="mono">docs/notifications.md</span>.
+          </p>
+        </div>
+      </SettingsRow>
+    </SettingsSection>
   )
 }
 
@@ -849,25 +952,21 @@ function DataSection() {
   }
 
   return (
-    <section className="mt-8 border-t border-border pt-6">
-      <div className="label mb-1">Data</div>
-      <h2
-        className="mb-3 text-[18px] font-semibold text-foreground"
-        style={{ letterSpacing: '-0.01em' }}
+    <SettingsSection kicker="05" title="Data">
+      <SettingsRow
+        title="Export"
+        hint="Pulls your data from the server as a single JSON file. The encrypted calendar password is never included."
       >
-        Export &amp; import
-      </h2>
-      <p className="mb-4 max-w-md text-[12px] leading-relaxed text-muted-foreground">
-        Export pulls your data from the server as JSON (the encrypted calendar
-        password is never included). Import can merge into, or fully replace,
-        your current data.
-      </p>
-
-      <div className="flex flex-wrap items-center gap-2">
         <Button onClick={onExport} disabled={busy || !userId}>
           <Download className="size-4" />
           Export all data
         </Button>
+      </SettingsRow>
+
+      <SettingsRow
+        title="Import"
+        hint="Merge into, or fully replace, your current data."
+      >
         <Button
           variant="secondary"
           onClick={() => fileInputRef.current?.click()}
@@ -885,16 +984,20 @@ function DataSection() {
           tabIndex={-1}
           onChange={onFileSelected}
         />
-      </div>
+      </SettingsRow>
 
-      <div className="mt-6">
-        <div className="label mb-1">Local cache</div>
-        <p className="mb-3 max-w-md text-[12px] leading-relaxed text-muted-foreground">
-          Safe: clears only this device&rsquo;s cached copy. Your data on the
-          server is untouched and re-downloads on next load; un-synced offline
-          edits are kept. This is <strong>not</strong> &ldquo;Wipe my
-          data&rdquo; (Developer tools), which deletes from the server.
-        </p>
+      <SettingsRow
+        title="Local cache"
+        hint={
+          <>
+            Safe: clears only this device&rsquo;s cached copy. Your data on the
+            server is untouched and re-downloads on next load; un-synced offline
+            edits are kept. This is <strong className="text-ink-2">not</strong>{' '}
+            &ldquo;Wipe my data&rdquo; (Developer tools), which deletes from the
+            server.
+          </>
+        }
+      >
         <Button
           variant="outline"
           size="sm"
@@ -907,7 +1010,7 @@ function DataSection() {
           <Trash2 className="size-4" />
           Wipe local cache
         </Button>
-      </div>
+      </SettingsRow>
 
       {/* Import dialog */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
@@ -920,18 +1023,18 @@ function DataSection() {
           </DialogHeader>
 
           {counts && (
-            <ul className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-[12px] text-secondary-foreground">
+            <ul className="rounded-md border border-line bg-bg-alt px-3 py-2 text-[12px] text-ink-2">
               {Object.entries(counts).map(([table, n]) => (
                 <li key={table} className="flex justify-between">
-                  <span className="font-mono">{table}</span>
-                  <span>{n}</span>
+                  <span className="mono">{table}</span>
+                  <span className="num">{n}</span>
                 </li>
               ))}
             </ul>
           )}
 
           <div
-            className="flex gap-2"
+            className="inline-flex rounded-full border border-line bg-bg-alt p-0.5"
             role="group"
             aria-label="Import mode"
           >
@@ -941,10 +1044,10 @@ function DataSection() {
                 type="button"
                 aria-pressed={mode === m}
                 onClick={() => setMode(m)}
-                className={`flex-1 rounded-md border px-3 py-2 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                className={`rounded-full px-4 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                   mode === m
-                    ? 'border-primary bg-secondary font-semibold text-foreground'
-                    : 'border-border text-muted-foreground hover:text-foreground'
+                    ? 'bg-surface font-semibold text-ink shadow-[0_1px_0_var(--line)]'
+                    : 'font-medium text-ink-3 hover:text-ink'
                 }`}
               >
                 {m === 'merge' ? 'Merge' : 'Replace all'}
@@ -952,7 +1055,7 @@ function DataSection() {
             ))}
           </div>
 
-          <p className="text-[12px] leading-relaxed text-muted-foreground">
+          <p className="text-[12px] leading-relaxed text-ink-3">
             {mode === 'merge'
               ? 'Adds new rows and overwrites matching ones (by id). Nothing is deleted.'
               : 'Deletes all your current data, then loads the file. Your Apple Calendar connection is preserved; you’ll re-enable notifications on this device (push subscriptions aren’t part of an export).'}
@@ -1035,11 +1138,12 @@ function DataSection() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </section>
+    </SettingsSection>
   )
 }
 
 export default function Settings() {
+  const { user } = useSession()
   const isDevSurface =
     import.meta.env.DEV ||
     (typeof window !== 'undefined' &&
@@ -1047,26 +1151,30 @@ export default function Settings() {
 
   return (
     <div>
-      <div className="label mb-2">Settings</div>
-      <h1
-        className="mb-3 text-[28px] font-semibold"
-        style={{ letterSpacing: '-0.02em' }}
-      >
-        Settings
-      </h1>
+      <header className="mb-7">
+        <h1
+          className="m-0 font-display text-[32px] font-medium text-ink"
+          style={{ letterSpacing: '-0.02em' }}
+        >
+          Settings
+        </h1>
+        <span className="label">{user?.email}</span>
+      </header>
 
       <SyncIssuesSection />
-      <AiKeySection />
+      <AccountSection />
       <CalendarSection />
+      <AiKeySection />
       <NotificationsSection />
       <DataSection />
-      <About />
 
       {isDevSurface && (
         <Suspense fallback={null}>
           <DeveloperSection />
         </Suspense>
       )}
+
+      <About />
     </div>
   )
 }

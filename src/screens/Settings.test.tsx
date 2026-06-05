@@ -12,7 +12,11 @@ vi.mock('@/db/repo', () => ({
 }))
 
 vi.mock('@/lib/auth', () => ({
-  useSession: () => ({ user: { id: 'u1' }, session: null, loading: false }),
+  useSession: () => ({
+    user: { id: 'u1', email: 'sam@hupo.app' },
+    session: null,
+    loading: false,
+  }),
 }))
 
 // The Developer section is lazy-loaded behind a dev gate; stub it so the
@@ -100,5 +104,62 @@ describe('Settings — AI key', () => {
     // own "Show password" toggle, so a bare /show/ query would now be ambiguous.
     await user.click(screen.getByRole('button', { name: /show api key/i }))
     expect(input).toHaveAttribute('type', 'text')
+  })
+})
+
+/**
+ * Chunk 30 — Daylight re-skin guard. Behavioral only (text/roles, not colors):
+ * the new Account section is present and wired; the dropped dark/Appearance
+ * toggle never returns (Decision A); and every real section still renders its
+ * serif SettingsSection heading.
+ */
+describe('Settings — re-skin (chunk 30)', () => {
+  beforeEach(() => {
+    settingsGetMock.mockResolvedValue({
+      userId: 'u1',
+      aiApiKey: null,
+      caldavAppleId: null,
+      caldavCalendarUrl: null,
+      caldavStatus: 'unconfigured',
+      timezone: 'America/New_York',
+      lastDailyReset: null,
+    })
+    settingsUpdateMock.mockResolvedValue(undefined)
+  })
+  afterEach(() => vi.clearAllMocks())
+
+  it('renders the Account section with the email and a Sign out button', async () => {
+    render(<Settings />)
+    // Let the async settings loads settle before asserting.
+    expect(
+      await screen.findByRole('button', { name: /sign out/i }),
+    ).toBeInTheDocument()
+    // Email shows in the header `.label` and again in the Account row.
+    expect(screen.getAllByText('sam@hupo.app').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('has no dark-mode / Appearance control (Decision A regression guard)', async () => {
+    render(<Settings />)
+    await screen.findByRole('button', { name: /sign out/i })
+    expect(screen.queryByText(/appearance/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /^dark$/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^light$/i })).toBeNull()
+  })
+
+  it('renders each real section heading', async () => {
+    render(<Settings />)
+    await screen.findByRole('button', { name: /sign out/i })
+    expect(
+      screen.getByRole('heading', { name: /account/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: /apple calendar/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /ai assist/i })).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: /notifications/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^data$/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /about/i })).toBeInTheDocument()
   })
 })
