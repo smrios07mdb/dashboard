@@ -20,6 +20,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { Subcategory } from '@/db/types'
+import { fmtMin } from '@/lib/cat'
+import { subColor } from '@/lib/gamify'
 import { cn } from '@/lib/utils'
 
 /*
@@ -43,14 +45,6 @@ import { cn } from '@/lib/utils'
  * + `listeners`) come from CategoryColumn's sortable wrapper. On touch
  * devices, the handle is hidden and the menu shows Move up/down instead.
  */
-
-function formatMinutes(mins: number): string {
-  if (!mins) return '0m'
-  if (mins < 60) return `${mins}m`
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  return m ? `${h}h ${m}m` : `${h}h`
-}
 
 export type SubcategoryHeaderProps = {
   subcategory: Subcategory
@@ -107,6 +101,11 @@ export default function SubcategoryHeader({
   const editing = draft !== null
   const trimmed = (draft ?? '').trim()
   const invalid = editing && trimmed.length === 0
+  // Deterministic jewel hue for this subcategory (chunk-27 Decision D:
+  // 'vibrant' hardcoded → subColor directly). The TaskRow rows under this
+  // header derive the same hue from the same id, so the dot and the
+  // completion floaters stay in lockstep without threading a prop.
+  const hue = subColor(subcategory.id)
 
   // Chunk 9: subcategory header is a drop target for task drags within
   // the same DndContext (Dashboard category column or CategoryView).
@@ -155,8 +154,8 @@ export default function SubcategoryHeader({
       className={cn(
         'grid cursor-pointer items-center gap-2 px-3 py-3 transition-colors [grid-template-columns:auto_1fr_auto_auto_auto_auto]',
         isOver
-          ? 'bg-[hsl(var(--ring)/0.15)] ring-1 ring-inset ring-[hsl(var(--ring))]'
-          : 'hover:bg-secondary/40',
+          ? 'bg-accent-soft ring-1 ring-inset ring-[hsl(var(--ring))]'
+          : 'hover:bg-bg-alt/60',
       )}
     >
       {/* Drag handle — desktop only */}
@@ -167,7 +166,7 @@ export default function SubcategoryHeader({
           {...(dragHandleProps?.attributes ?? {})}
           {...(dragHandleProps?.listeners ?? {})}
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex h-6 w-5 cursor-grab items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-6 w-5 cursor-grab items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-ink active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <GripVertical className="size-3.5" aria-hidden />
         </button>
@@ -175,52 +174,61 @@ export default function SubcategoryHeader({
         <span aria-hidden className="inline-block h-6 w-5" />
       )}
 
-      {/* Name or inline-edit input */}
-      {editing ? (
-        <input
-          ref={inputRef}
-          autoFocus
-          type="text"
-          value={draft ?? ''}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              if (!invalid) commit()
-            } else if (e.key === 'Escape') {
-              e.preventDefault()
-              setDraft(null)
-            }
+      {/* Jewel dot + name (or inline-edit input) */}
+      <div className="flex min-w-0 items-center gap-2.5">
+        <span
+          aria-hidden
+          className="size-[9px] shrink-0 rounded-[3px]"
+          style={{
+            background: hue,
+            boxShadow: `0 0 0 3px color-mix(in srgb, ${hue} 14%, transparent)`,
           }}
-          aria-invalid={invalid || undefined}
-          aria-label="Subcategory name"
-          className={cn(
-            'min-w-0 rounded-sm bg-background px-2 py-1 text-[14px] font-medium text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
-            invalid &&
-              'shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
-          )}
         />
-      ) : (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            startEditing()
-          }}
-          className="min-w-0 truncate text-left text-[14px] font-medium text-foreground hover:text-accent-foreground"
-          title={subcategory.name}
-        >
-          {subcategory.name}
-        </button>
-      )}
+        {editing ? (
+          <input
+            ref={inputRef}
+            autoFocus
+            type="text"
+            value={draft ?? ''}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                if (!invalid) commit()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setDraft(null)
+              }
+            }}
+            aria-invalid={invalid || undefined}
+            aria-label="Subcategory name"
+            className={cn(
+              'min-w-0 flex-1 rounded-sm bg-background px-2 py-1 text-[14px] font-medium text-ink shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
+              invalid && 'shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
+            )}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              startEditing()
+            }}
+            className="min-w-0 flex-1 truncate text-left text-[14px] font-medium text-ink hover:text-ink-2"
+            title={subcategory.name}
+          >
+            {subcategory.name}
+          </button>
+        )}
+      </div>
 
-      <span className="font-mono text-[12px] text-muted-foreground tabular-nums">
+      <span className="font-mono text-[12px] tabular-nums text-ink-3">
         {incompleteCount}
       </span>
-      <span className="font-mono text-[12px] text-muted-foreground tabular-nums">
-        {formatMinutes(incompleteMinutes)}
+      <span className="min-w-[50px] text-right font-mono text-[12px] tabular-nums text-ink-3">
+        {fmtMin(incompleteMinutes)}
       </span>
 
       <button
@@ -231,7 +239,7 @@ export default function SubcategoryHeader({
           onDrillDown(subcategory.id)
         }}
         className={cn(
-          'inline-flex items-center justify-center rounded-sm text-[16px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'inline-flex items-center justify-center rounded-sm text-[16px] leading-none text-ink-3 transition-colors hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           isTouch ? 'h-11 w-11' : 'h-6 w-6',
         )}
       >
@@ -245,7 +253,7 @@ export default function SubcategoryHeader({
             aria-label={`Actions for ${subcategory.name}`}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'inline-flex items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'inline-flex items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isTouch ? 'h-11 w-11' : 'h-6 w-6',
             )}
           >

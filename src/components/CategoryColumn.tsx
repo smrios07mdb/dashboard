@@ -16,6 +16,7 @@ import { CSS } from '@dnd-kit/utilities'
 import AddSubcategoryInline from '@/components/AddSubcategoryInline'
 import SubcategorySection from '@/components/SubcategorySection'
 import type { Category, Subcategory, Task } from '@/db/types'
+import { catColor, fmtMin } from '@/lib/cat'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 
 /*
@@ -42,14 +43,6 @@ function isTaskDragId(id: unknown): boolean {
  * incoming list are dropped here as a defensive filter so an in-flight
  * archive doesn't leave orphan rows briefly visible.
  */
-
-function formatMinutes(mins: number): string {
-  if (!mins) return '0m'
-  if (mins < 60) return `${mins}m`
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  return m ? `${h}h ${m}m` : `${h}h`
-}
 
 export type CategoryColumnProps = {
   category: Category
@@ -128,7 +121,7 @@ export default function CategoryColumn({
   const allTasks = subcategories.flatMap((s) => tasksBySub[s.id] ?? [])
   const open = allTasks.filter((t) => !t.completedAt)
   const total = open.reduce((sum, t) => sum + t.estimateMinutes, 0)
-  const accent = category.name === 'Work' ? 'var(--work)' : 'var(--personal)'
+  const accent = catColor(category.name)
 
   // 5px activation distance prevents accidental drags from clicks on
   // the grip handle. Touch sensor stays inert because the handle is
@@ -195,22 +188,37 @@ export default function CategoryColumn({
             onDrillDown('category', category.id)
           }
         }}
-        className="mb-3 grid cursor-pointer items-baseline gap-3 pb-3 [grid-template-columns:4px_1fr_auto_auto_auto]"
+        className="grid cursor-pointer items-center gap-3.5 p-0.5 pb-4 [grid-template-columns:5px_1fr_auto_auto_auto]"
       >
+        {/* Full-bleed accent bar — no card behind the header. */}
         <span
           aria-hidden
-          className="mt-2 h-7 w-[4px] self-stretch rounded-sm"
-          style={{ background: accent }}
+          className="min-h-[30px] w-[5px] self-stretch rounded"
+          style={{ background: accent, boxShadow: `0 2px 8px -2px ${accent}` }}
         />
+        {/* Serif display heading, tinted to the category color. */}
         <h2
-          className="m-0 text-[24px] font-semibold text-foreground"
-          style={{ letterSpacing: '-0.025em' }}
+          className="m-0 font-display text-[31px] font-medium"
+          style={{ letterSpacing: '-0.018em', color: accent }}
         >
           {category.name}
         </h2>
-        <span className="label">{open.length} open</span>
-        <span className="font-mono text-[16px] font-medium text-secondary-foreground tabular-nums">
-          {formatMinutes(total)}
+        {/* "N open" pill — solid category color with a soft colored shadow. */}
+        <span
+          className="num label inline-block rounded-full"
+          style={{
+            background: accent,
+            color: '#fff',
+            fontSize: 10.5,
+            padding: '4px 10px',
+            letterSpacing: '0.1em',
+            boxShadow: `0 5px 14px -5px ${accent}`,
+          }}
+        >
+          {open.length} open
+        </span>
+        <span className="whitespace-nowrap font-display text-[19px] font-medium tabular-nums text-ink-2">
+          {fmtMin(total)}
         </span>
         <button
           type="button"
@@ -219,14 +227,23 @@ export default function CategoryColumn({
             e.stopPropagation()
             onDrillDown('category', category.id)
           }}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[20px] leading-none text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[20px] leading-none text-ink-3 transition-colors hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span aria-hidden>›</span>
         </button>
       </header>
-      <div className="overflow-hidden rounded-md border border-border bg-card">
+      <div
+        className="overflow-hidden rounded-md"
+        style={{
+          backgroundColor: 'var(--surface)',
+          backgroundImage: `linear-gradient(180deg, color-mix(in srgb, ${accent} 11%, transparent), transparent 140px)`,
+          border: '1px solid var(--line)',
+          borderTop: `4px solid ${accent}`,
+          boxShadow: `var(--shadow-md), 0 10px 30px -16px ${accent}`,
+        }}
+      >
         {subcategories.length === 0 ? (
-          <div className="px-4 py-6 text-center text-[13px] text-muted-foreground">
+          <div className="px-4 py-6 text-center text-[13px] text-ink-3">
             No subcategories yet.
           </div>
         ) : (

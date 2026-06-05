@@ -437,6 +437,128 @@
   }
 }
 
+/* ── Chunk 27: task-completion celebration FX ──────────────────────────────
+   Restrained & dignified — a brief row flush, a small "+XP" floater that
+   rises off a completing row, a checkbox pop, and the "On a roll ×N" combo
+   badge. No confetti, ever. Ported from the prototype's gamify.jsx style
+   block; the prototype's raw vars map to Daylight tokens (--font-mono / --ink
+   / --bg / --shadow-lg, and --flush which TaskRow sets to the sub's hue).
+
+   The keyframes are defined unconditionally, but the celebratory animations
+   are *applied* only under `prefers-reduced-motion: no-preference`, and the
+   floater/badge default to opacity:0. So motion-sensitive users get the
+   completion (the row still fades, counts still update) with no flash, float,
+   or pop — a self-contained no-op rather than leaning on the global motion
+   kill below. */
+@keyframes xpFloat {
+  0% {
+    transform: translateY(2px) scale(0.8);
+    opacity: 0;
+  }
+  25% {
+    transform: translateY(-4px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-26px) scale(1);
+    opacity: 0;
+  }
+}
+@keyframes checkPop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.32);
+  }
+  70% {
+    transform: scale(0.92);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes rowFlush {
+  0% {
+    background: var(--flush);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@keyframes comboPop {
+  0% {
+    transform: translate(-50%, 6px) scale(0.85);
+    opacity: 0;
+  }
+  20% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
+  80% {
+    transform: translate(-50%, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -8px) scale(1);
+    opacity: 0;
+  }
+}
+
+/* The "+XP" floater rising off a row when its task completes. opacity:0 by
+   default so it never lingers statically; only xpFloat (gated below) reveals
+   it. Color is set inline to the subcategory hue. */
+.xp-floater {
+  position: absolute;
+  right: 34px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+}
+/* "On a roll ×N" combo badge, fixed near the bottom of the viewport. Hidden
+   by default for the same reduced-motion reason as the floater. */
+.combo-badge {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  z-index: 88;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--bg);
+  font-weight: 700;
+  font-size: 13px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .xp-floater {
+    animation: xpFloat 1s ease-out forwards;
+  }
+  .combo-badge {
+    animation: comboPop 1.5s ease-out forwards;
+  }
+  /* TaskRow toggles .row-flush the instant its task completes and sets
+     --flush to the sub hue at 18%; the flush decays back to transparent. */
+  .row-flush {
+    animation: rowFlush 0.75s ease-out;
+  }
+  /* The completion checkbox pops on the same transition. */
+  .check-pop {
+    animation: checkPop 0.45s ease-out;
+  }
+}
+
 /* Respect reduced-motion: kill transitions/animations for users who ask. */
 @media (prefers-reduced-motion: reduce) {
   *,

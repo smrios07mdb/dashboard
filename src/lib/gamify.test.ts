@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { calcStats, catProgress, taskXP } from './gamify'
+import { calcStats, catProgress, subColor, subTint, taskXP } from './gamify'
 import type { Category, Subcategory, Task } from '@/db/types'
 
 function mkTask(over: Partial<Task> = {}): Task {
@@ -124,5 +124,61 @@ describe('catProgress', () => {
       total: 0,
       ratio: 0,
     })
+  })
+})
+
+describe('subColor', () => {
+  const JEWELS = [
+    'var(--jewel-jade)',
+    'var(--jewel-coral)',
+    'var(--jewel-sapphire)',
+    'var(--jewel-gold)',
+    'var(--jewel-amethyst)',
+    'var(--jewel-teal)',
+    'var(--jewel-rose)',
+    'var(--jewel-citron)',
+  ]
+
+  it('is deterministic — the same id always maps to the same jewel', () => {
+    const id = 'b1c3d4e5-aaaa-bbbb-cccc-1234567890ab'
+    expect(subColor(id)).toBe(subColor(id))
+  })
+
+  it('always returns one of the eight jewel CSS vars', () => {
+    for (const id of ['s', 'work-1', 'personal', 'zzz', 'a', '0', 'long-uuid-style-id-99']) {
+      expect(JEWELS).toContain(subColor(id))
+    }
+  })
+
+  it('matches the prototype rolling hash (golden value locks the algorithm)', () => {
+    // 'h' rolls as (h*31 + charCode) >>> 0; for 's' that is 115, and 115 % 8 === 3
+    expect(subColor('s')).toBe('var(--jewel-gold)')
+  })
+
+  it('keeps the uint32 coercion per-iteration so UUID-length ids spread across jewels', () => {
+    // The `>>> 0` must run EVERY iteration. A single coercion after the loop
+    // overflows Number precision past ~11 chars and collapses every UUID to
+    // jade; per-iteration coercion keeps these distinct. Values are computed
+    // from the prototype's exact algorithm (the UUID-length regression guard).
+    expect(subColor('550e8400-e29b-41d4-a716-446655440000')).toBe('var(--jewel-teal)')
+    expect(subColor('a1b2c3d4-e5f6-7890-abcd-ef1234567890')).toBe('var(--jewel-sapphire)')
+    expect(subColor('0e8d2f10-1c4b-4a9e-9f3a-7b6c5d4e3f2a')).toBe('var(--jewel-amethyst)')
+  })
+
+  it('actually spreads ids across more than one hue (not a constant)', () => {
+    const hues = new Set(['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'].map(subColor))
+    expect(hues.size).toBeGreaterThan(1)
+  })
+})
+
+describe('subTint', () => {
+  it('falls back to the parent category color in calm mode', () => {
+    expect(subTint(mkSub('s1', 'cw'), 'Work', 'calm')).toBe('var(--work)')
+    expect(subTint(mkSub('s2', 'cp'), 'Personal', 'calm')).toBe('var(--personal)')
+  })
+
+  it('uses the deterministic jewel color in vibrant mode', () => {
+    const sub = mkSub('s9', 'cw')
+    expect(subTint(sub, 'Work', 'vibrant')).toBe(subColor(sub.id))
   })
 })

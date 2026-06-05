@@ -8,6 +8,8 @@ import SetReminderPopover from '@/components/SetReminderPopover'
 import TaskMenu from '@/components/TaskMenu'
 import { Checkbox } from '@/components/ui/checkbox'
 import type { Category, Subcategory, Task } from '@/db/types'
+import { fmtMin } from '@/lib/cat'
+import { taskXP } from '@/lib/gamify'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { cn } from '@/lib/utils'
 
@@ -47,14 +49,6 @@ import { cn } from '@/lib/utils'
  */
 
 const MAX_MINUTES = 24 * 60
-
-function formatMinutes(mins: number): string {
-  if (!mins) return '0m'
-  if (mins < 60) return `${mins}m`
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  return m ? `${h}h ${m}m` : `${h}h`
-}
 
 function isValidMinutesString(s: string): boolean {
   if (!/^\d+$/.test(s.trim())) return false
@@ -99,6 +93,13 @@ export type TaskRowProps = {
    * useDraggable entirely.
    */
   dragEnabled?: boolean
+  /**
+   * The parent subcategory's jewel hue (a `var(--jewel-…)` string), used for
+   * the completion celebration — the "+XP" floater color and the row-flush
+   * tint. Defaults to the Work color for rows rendered outside a colored
+   * section (e.g. SubcategoryView, which doesn't pass one).
+   */
+  hue?: string
 }
 
 export default function TaskRow({
@@ -116,11 +117,43 @@ export default function TaskRow({
   selected = false,
   onToggleSelected,
   dragEnabled = true,
+  hue,
 }: TaskRowProps) {
   const isTouch = useIsTouchDevice()
   const canDrag = dragEnabled && !isTouch
   const completed = !!task.completedAt
   const [reminderOpen, setReminderOpen] = useState(false)
+
+  // Completion celebration (chunk 27). The "+XP" floater color and the
+  // row-flush tint both use the subcategory hue; default to Work when none.
+  const flush = hue ?? 'var(--work)'
+  const [cheer, setCheer] = useState<{ xp: number } | null>(null)
+  const mounted = useRef(false)
+  const wasDone = useRef(completed)
+  // Keep the latest task readable inside the [completed]-keyed effect without
+  // adding `task` to its deps — that would let an unrelated task edit within
+  // the 950ms window cancel the cheer timer and freeze the row mid-flush. The
+  // sync runs in its own effect (never during render) and, by declaration
+  // order, before the transition effect — so the ref is fresh when read.
+  const taskRef = useRef(task)
+  useEffect(() => {
+    taskRef.current = task
+  })
+  useEffect(() => {
+    const prev = wasDone.current
+    wasDone.current = completed
+    // Don't fire on first render (a task that mounts already completed, or the
+    // initial paint) — only on a genuine not-done → done transition.
+    if (!mounted.current) {
+      mounted.current = true
+      return
+    }
+    if (completed && !prev) {
+      setCheer({ xp: taskXP(taskRef.current) })
+      const timer = setTimeout(() => setCheer(null), 950)
+      return () => clearTimeout(timer)
+    }
+  }, [completed])
 
   const {
     attributes,
@@ -151,22 +184,37 @@ export default function TaskRow({
     .filter(Boolean)
     .join(' ')
 
-  const style: React.CSSProperties = {
+  const style = {
     transform: CSS.Translate.toString(transform),
     opacity: isDragging ? 0.5 : undefined,
     gridTemplateColumns,
-  }
+    // Priority-1 rows carry a 3px destructive left edge; every row reserves
+    // the 3px (transparent otherwise) so toggling priority/completion never
+    // shifts the row's content sideways.
+    borderLeft: `3px solid ${
+      task.priority === 1 && !completed ? 'hsl(var(--destructive))' : 'transparent'
+    }`,
+    '--flush': `color-mix(in srgb, ${flush} 18%, transparent)`,
+  } as React.CSSProperties
 
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={cn(
-        'grid items-center gap-3 border-t border-border px-3 py-2 transition-colors hover:bg-secondary/40',
-        completed && 'opacity-50',
-        selected && 'bg-secondary/50',
+        'relative grid items-center gap-3 border-t border-line px-3 py-2 transition-[background-color,opacity] hover:bg-bg-alt/60',
+        // Held at full opacity while the cheer plays so the flush + floater
+        // are visible, then fades as the linger drops it into "completed".
+        completed && !cheer && 'opacity-50',
+        selected && 'bg-bg-alt/70',
+        cheer && 'row-flush',
       )}
     >
+      {cheer && (
+        <span className="xp-floater" style={{ color: flush }}>
+          +{cheer.xp}
+        </span>
+      )}
       {selectable && (
         <Checkbox
           checked={selected}
@@ -183,7 +231,7 @@ export default function TaskRow({
         onCheckedChange={(next) => {
           if (typeof next === 'boolean') void onComplete(task.id, next)
         }}
-        className={cn(isTouch && 'before:size-11')}
+        className={cn(isTouch && 'before:size-11', cheer && 'check-pop')}
       />
       {canDrag && (
         <button
@@ -192,7 +240,7 @@ export default function TaskRow({
           {...attributes}
           {...listeners}
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex h-6 w-3.5 cursor-grab items-center justify-center rounded-sm text-muted-foreground/60 hover:bg-secondary hover:text-foreground active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-6 w-3.5 cursor-grab items-center justify-center rounded-sm text-ink-3/70 hover:bg-bg-alt hover:text-ink active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <GripVertical className="size-3" aria-hidden />
         </button>
@@ -215,12 +263,12 @@ export default function TaskRow({
             aria-label={task.remindAt ? 'Edit reminder' : 'Set reminder'}
             title={task.remindAt ? 'Edit reminder' : 'Set reminder'}
             className={cn(
-              'inline-flex items-center justify-center rounded-sm hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'inline-flex items-center justify-center rounded-sm hover:bg-bg-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               // >=44pt hit target on touch (UX-02); 24px density on pointer.
               isTouch ? 'h-11 w-11' : 'h-6 w-6',
               task.remindAt
                 ? 'text-[var(--accent-ink)]'
-                : 'text-muted-foreground hover:text-foreground',
+                : 'text-ink-3 hover:text-ink',
             )}
           >
             <Bell className="size-3.5" />
@@ -235,7 +283,7 @@ export default function TaskRow({
             type="button"
             aria-label={`Delete task "${task.title}"`}
             className={cn(
-              'inline-flex items-center justify-center rounded-sm text-muted-foreground hover:bg-secondary hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'inline-flex items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isTouch ? 'h-11 w-11' : 'h-6 w-6',
             )}
           >
@@ -302,8 +350,8 @@ function TitleField({
         type="button"
         onClick={() => setDraft(task.title)}
         className={cn(
-          'min-w-0 truncate text-left text-[13px] leading-tight text-foreground hover:text-accent-foreground',
-          completed && 'line-through decoration-muted-foreground',
+          'min-w-0 truncate text-left text-[13px] leading-tight text-ink hover:text-ink-2',
+          completed && 'line-through decoration-ink-3',
         )}
         title={task.title}
       >
@@ -332,7 +380,7 @@ function TitleField({
       aria-invalid={invalid || undefined}
       aria-label="Task title"
       className={cn(
-        'min-w-0 rounded-sm bg-background px-2 py-1 text-base text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none focus:shadow-[inset_0_0_0_1px_hsl(var(--ring))] sm:text-[13px]',
+        'min-w-0 rounded-sm bg-background px-2 py-1 text-base text-ink shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none focus:shadow-[inset_0_0_0_1px_hsl(var(--ring))] sm:text-[13px]',
         invalid &&
           'shadow-[inset_0_0_0_1px_hsl(var(--destructive))] focus:shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
       )}
@@ -380,9 +428,9 @@ function MinutesField({
         type="button"
         onClick={() => setDraft(String(task.estimateMinutes))}
         aria-label="Edit minutes"
-        className="rounded-sm px-1 font-mono text-[12px] text-muted-foreground tabular-nums hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="rounded-sm px-1 font-mono text-[12px] tabular-nums text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
-        {formatMinutes(task.estimateMinutes)}
+        {fmtMin(task.estimateMinutes)}
       </button>
     )
   }
@@ -411,7 +459,7 @@ function MinutesField({
       aria-invalid={invalid || undefined}
       aria-label="Estimate minutes"
       className={cn(
-        'w-16 rounded-sm bg-background px-2 py-1 text-right font-mono text-base text-foreground shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none sm:text-[12px]',
+        'w-16 rounded-sm bg-background px-2 py-1 text-right font-mono text-base text-ink shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none sm:text-[12px]',
         invalid &&
           'shadow-[inset_0_0_0_1px_hsl(var(--destructive))] focus:shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
       )}

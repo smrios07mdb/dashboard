@@ -42,6 +42,47 @@ export function taskXP(t: Task): number {
   return 10 + t.estimateMinutes
 }
 
+/*
+ * Per-subcategory jewel color (redesign chunk 27). Ported verbatim from
+ * `gamify.jsx`: a deterministic rolling hash over the subcategory id picks one
+ * of the eight jewel CSS vars, so a sub keeps the same hue across reloads and
+ * devices without storing anything. Returns a `var(--jewel-…)` string — never a
+ * hex — so it tracks the live Daylight palette. The order/labels match the
+ * prototype's `JEWELS` array exactly; the determinism test golden-values it.
+ */
+const JEWELS = [
+  'var(--jewel-jade)',
+  'var(--jewel-coral)',
+  'var(--jewel-sapphire)',
+  'var(--jewel-gold)',
+  'var(--jewel-amethyst)',
+  'var(--jewel-teal)',
+  'var(--jewel-rose)',
+  'var(--jewel-citron)',
+] as const
+
+/** Deterministic subcategory id → one of the eight jewel CSS vars. */
+export function subColor(id: string): string {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return JEWELS[h % JEWELS.length]
+}
+
+/**
+ * Subcategory tint. `colorPop === 'calm'` falls back to the parent category
+ * color; otherwise the deterministic jewel. The dashboard ships the `'vibrant'`
+ * default (chunk-27 Decision D), so consumers read `subColor(sub.id)` directly;
+ * `subTint` is kept exported for completeness / the dropped Tweaks "calm" mode.
+ */
+export function subTint(
+  sub: Pick<Subcategory, 'id'>,
+  catName: string,
+  colorPop: 'calm' | 'vibrant',
+): string {
+  if (colorPop === 'calm') return catName === 'Work' ? 'var(--work)' : 'var(--personal)'
+  return subColor(sub.id)
+}
+
 /** XP needed to advance one level. */
 const XP_PER_LEVEL = 300
 

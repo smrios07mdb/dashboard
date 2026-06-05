@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 import AddTaskInline from '@/components/AddTaskInline'
 import SubcategoryHeader from '@/components/SubcategoryHeader'
 import TaskRow from '@/components/TaskRow'
 import type { Category, Subcategory, Task } from '@/db/types'
+import { subColor } from '@/lib/gamify'
 import { cn } from '@/lib/utils'
 
 /*
@@ -91,12 +92,62 @@ export default function SubcategorySection({
   onMoveSubcategory,
 }: SubcategorySectionProps) {
   const [showCompleted, setShowCompleted] = useState(false)
+  const hue = subColor(subcategory.id)
   const incomplete = tasks.filter((t) => !t.completedAt)
   const completed = tasks.filter((t) => !!t.completedAt)
   const minutes = incomplete.reduce((sum, t) => sum + t.estimateMinutes, 0)
 
+  // Just-completed "linger": when a task flips to done, hold its id in a Set
+  // for ~1.1s so it stays in the visible list and its rowFlush + "+XP"
+  // floater can play, before it drops into the collapsed "N completed"
+  // bucket. Without this the row leaves the incomplete list instantly and the
+  // celebration never renders. Timers intentionally aren't cleaned up on
+  // re-render — each must fire to release its own id (clearing them on a
+  // later `tasks` change would strand a row in the lingering state).
+  const [linger, setLinger] = useState<Set<string>>(() => new Set())
+  const prevTasks = useRef(tasks)
+  const lingerTimers = useRef<ReturnType<typeof setTimeout>[]>([])
+  useEffect(() => {
+    const prevById = new Map(prevTasks.current.map((t) => [t.id, t]))
+    const newlyDone = tasks.filter(
+      (t) => t.completedAt && prevById.get(t.id) && !prevById.get(t.id)!.completedAt,
+    )
+    prevTasks.current = tasks
+    if (newlyDone.length === 0) return
+    setLinger((s) => {
+      const next = new Set(s)
+      newlyDone.forEach((t) => next.add(t.id))
+      return next
+    })
+    newlyDone.forEach((t) => {
+      const timer = setTimeout(() => {
+        setLinger((s) => {
+          const next = new Set(s)
+          next.delete(t.id)
+          return next
+        })
+      }, 1100)
+      lingerTimers.current.push(timer)
+    })
+  }, [tasks])
+  // Clear only still-pending linger timers on unmount (section collapsed,
+  // reordered, deleted/merged, or navigated away mid-linger). Deliberately
+  // NOT cleared on a `tasks` change — each timer must fire to release its own
+  // id, or a row would be stranded in the lingering state. The array is only
+  // ever pushed to (never reassigned), so the captured reference stays live;
+  // clearing an already-fired timer is a harmless no-op.
+  useEffect(() => {
+    const timers = lingerTimers.current
+    return () => timers.forEach(clearTimeout)
+  }, [])
+
+  // Rows shown in the main list: open tasks + any lingering just-completed
+  // ones. The collapsed bucket excludes lingerers so a row never shows twice.
+  const visibleIncomplete = tasks.filter((t) => !t.completedAt || linger.has(t.id))
+  const bucketCompleted = completed.filter((t) => !linger.has(t.id))
+
   return (
-    <section className="border-t border-border first:border-t-0">
+    <section className="border-t border-line first:border-t-0">
       <SubcategoryHeader
         subcategory={subcategory}
         incompleteCount={incomplete.length}
@@ -116,18 +167,19 @@ export default function SubcategorySection({
       />
       <div>
         {tasks.length === 0 ? (
-          <div className="border-t border-border px-4 py-3 text-[12px] italic text-muted-foreground">
+          <div className="border-t border-line px-4 py-3 text-[12px] italic text-ink-3">
             No tasks here.
           </div>
-        ) : incomplete.length === 0 && completed.length > 0 && !showCompleted ? (
-          <div className="border-t border-border px-4 py-3 text-[12px] italic text-muted-foreground">
+        ) : visibleIncomplete.length === 0 && completed.length > 0 && !showCompleted ? (
+          <div className="border-t border-line px-4 py-3 text-[12px] italic text-ink-3">
             All done. {completed.length} completed.
           </div>
         ) : (
-          incomplete.map((t) => (
+          visibleIncomplete.map((t) => (
             <TaskRow
               key={t.id}
               task={t}
+              hue={hue}
               categories={allCategories}
               subcategories={allSubcategories}
               onComplete={onCompleteTask}
@@ -140,13 +192,13 @@ export default function SubcategorySection({
             />
           ))
         )}
-        {completed.length > 0 && (
+        {bucketCompleted.length > 0 && (
           <>
             <button
               type="button"
               onClick={() => setShowCompleted((s) => !s)}
               aria-expanded={showCompleted}
-              className="label flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-muted-foreground transition-colors hover:bg-secondary/40 hover:text-foreground"
+              className="label flex w-full items-center gap-2 border-t border-line px-3 py-2 text-left text-ink-3 transition-colors hover:bg-bg-alt/60 hover:text-ink"
             >
               <ChevronDown
                 aria-hidden
@@ -155,13 +207,14 @@ export default function SubcategorySection({
                   showCompleted && 'rotate-180',
                 )}
               />
-              {showCompleted ? 'Hide completed' : `${completed.length} completed`}
+              {showCompleted ? 'Hide completed' : `${bucketCompleted.length} completed`}
             </button>
             {showCompleted &&
-              completed.map((t) => (
+              bucketCompleted.map((t) => (
                 <TaskRow
                   key={t.id}
                   task={t}
+                  hue={hue}
                   categories={allCategories}
                   subcategories={allSubcategories}
                   onComplete={onCompleteTask}

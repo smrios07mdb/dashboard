@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Flame } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -151,6 +152,43 @@ export default function Dashboard() {
     [data.tasks, liveSubIds],
   )
 
+  // "On a roll ×N" combo (chunk 27). A render-diff over the live tasks: when
+  // exactly one task flips to done (open −1, done +1) within ~9s of the last
+  // such flip, the combo climbs; at ×2+ a brief badge shows, auto-dismissing
+  // after 1.5s. No confetti, ever. Snapshots live in refs so the detection
+  // never triggers a re-render itself — only the ×2+ badge does.
+  const comboSnap = useRef<{ open: number; done: number } | null>(null)
+  const lastCompletionAt = useRef(0)
+  const comboCount = useRef(0)
+  // `onCompleteTask` bumps `localCompletions` on a local (user) completion;
+  // the effect only credits the roll when it advanced since its last pass.
+  // The snapshot diff alone can't tell a user click from a realtime / Force-
+  // resync replacement of `data.tasks` (both shift done/open), so without this
+  // a remote completion would prime the window and mis-fire the next click.
+  const localCompletions = useRef(0)
+  const seenCompletions = useRef(0)
+  const [comboMsg, setComboMsg] = useState<{ n: number; k: number } | null>(null)
+  useEffect(() => {
+    const open = liveTasks.filter((t) => !t.completedAt).length
+    const done = liveTasks.length - open
+    const prev = comboSnap.current
+    const localHappened = localCompletions.current !== seenCompletions.current
+    seenCompletions.current = localCompletions.current
+    if (localHappened && prev && done === prev.done + 1 && open === prev.open - 1) {
+      const now = Date.now()
+      comboCount.current =
+        now - lastCompletionAt.current < 9000 ? comboCount.current + 1 : 1
+      lastCompletionAt.current = now
+      if (comboCount.current >= 2) {
+        const k = now
+        setComboMsg({ n: comboCount.current, k })
+        // Guard on `k` so a stale timer can't clear a newer badge.
+        setTimeout(() => setComboMsg((m) => (m && m.k === k ? null : m)), 1500)
+      }
+    }
+    comboSnap.current = { open, done }
+  }, [liveTasks])
+
   // ---------- mutation handlers ----------
 
   const upsertTask = useCallback((next: Task) => {
@@ -225,6 +263,9 @@ export default function Dashboard() {
     async (id: string, completed: boolean) => {
       try {
         const updated = await repo.tasks.markComplete(id, completed)
+        // Tag this as a local completion so the "On a roll" combo only counts
+        // the user's own clicks — not realtime/resync echoes.
+        if (completed) localCompletions.current += 1
         upsertTask(updated)
       } catch (e) {
         console.error('Complete task failed', e)
@@ -544,6 +585,12 @@ export default function Dashboard() {
 
   return (
     <div>
+      {comboMsg && (
+        <div className="combo-badge" key={comboMsg.k}>
+          <Flame className="size-[15px] text-warn" aria-hidden />
+          On a roll ×{comboMsg.n}
+        </div>
+      )}
       <BusyStrip />
       <DailyHero
         user={user}
