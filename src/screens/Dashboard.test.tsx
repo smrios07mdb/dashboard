@@ -2,10 +2,20 @@ import { act, render, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { categoriesList, subcategoriesList, tasksList } = vi.hoisted(() => ({
+const {
+  categoriesList,
+  subcategoriesList,
+  tasksList,
+  routineLogsList,
+  routineItemsList,
+  settingsGet,
+} = vi.hoisted(() => ({
   categoriesList: vi.fn(),
   subcategoriesList: vi.fn(),
   tasksList: vi.fn(),
+  routineLogsList: vi.fn(),
+  routineItemsList: vi.fn(),
+  settingsGet: vi.fn(),
 }))
 
 vi.mock('@/db/repo', () => ({
@@ -13,11 +23,17 @@ vi.mock('@/db/repo', () => ({
     categories: { list: categoriesList },
     subcategories: { list: subcategoriesList },
     tasks: { list: tasksList },
+    // The hero's streak is the canonical routines streak — it loads routine
+    // items + logs + settings (timezone), mirroring Routines.tsx's sourcing.
+    routineLogs: { listByRange: routineLogsList },
+    routineItems: { list: routineItemsList },
+    settings: { get: settingsGet },
   },
 }))
 
 import Dashboard from './Dashboard'
 import { useSyncStore } from '@/db/syncStore'
+import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
 import { useUIStore } from '@/state/uiStore'
 
 function renderDashboard() {
@@ -71,11 +87,45 @@ function mkTask(
   }
 }
 
+function mkItem(
+  id: string,
+  routine: 'morning' | 'night',
+  opts: { createdAt?: string; archivedAt?: string | null } = {},
+) {
+  return {
+    id,
+    userId: 'u1',
+    routine,
+    label: id,
+    sortOrder: 0,
+    archivedAt: opts.archivedAt ?? null,
+    // Created well before any test date so the item is "required" every day.
+    createdAt: opts.createdAt ?? '2020-01-01T00:00:00.000Z',
+  }
+}
+
+function mkLog(
+  id: string,
+  routineItemId: string,
+  dateKey: string,
+  completed = true,
+) {
+  return { id, userId: 'u1', routineItemId, dateKey, completed }
+}
+
 describe('Dashboard', () => {
   beforeEach(() => {
     categoriesList.mockReset()
     subcategoriesList.mockReset()
     tasksList.mockReset()
+    routineLogsList.mockReset()
+    routineItemsList.mockReset()
+    settingsGet.mockReset()
+    // The streak inputs are incidental to most cases — default them to empty
+    // so every test renders; cases that care set their own items/logs.
+    routineLogsList.mockResolvedValue([])
+    routineItemsList.mockResolvedValue([])
+    settingsGet.mockResolvedValue(null)
     // Reset stores between tests so refresh-key counts don't bleed across cases.
     useSyncStore.setState({ state: 'synced', lastSyncAt: null })
     useUIStore.setState({ dashboardRefreshKey: 0 })
@@ -97,6 +147,8 @@ describe('Dashboard', () => {
       expect(categoriesList).toHaveBeenCalledTimes(1)
       expect(subcategoriesList).toHaveBeenCalledTimes(1)
       expect(tasksList).toHaveBeenCalledTimes(1)
+      expect(routineLogsList).toHaveBeenCalledTimes(1)
+      expect(routineItemsList).toHaveBeenCalledTimes(1)
     })
 
     // Tick lastSyncAt three times the way the repo's markSyncedNow would.
@@ -114,6 +166,8 @@ describe('Dashboard', () => {
     expect(categoriesList).toHaveBeenCalledTimes(1)
     expect(subcategoriesList).toHaveBeenCalledTimes(1)
     expect(tasksList).toHaveBeenCalledTimes(1)
+    expect(routineLogsList).toHaveBeenCalledTimes(1)
+    expect(routineItemsList).toHaveBeenCalledTimes(1)
   })
 
   it('archived subcategories do not render and their tasks do not contribute to totals', async () => {
@@ -263,6 +317,63 @@ describe('Dashboard', () => {
     expect(await findByText('Open task')).toBeTruthy()
     expect(queryByText(/All clear/i)).toBeNull()
     expect(queryByText('Set up your first list')).toBeNull()
+  })
+
+  it('renders the hero ring %, done readout and spark pill from real data', async () => {
+    // 1 of 4 tasks complete → ring 25%, "1/4 done", Work bar 1/4. This is the
+    // hero equivalent of the retired TodayStrip's open-count summary.
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([
+      mkTask('t1', 'sw1', { completedAt: '2026-01-03T00:00:00.000Z' }),
+      mkTask('t2', 'sw1'),
+      mkTask('t3', 'sw1'),
+      mkTask('t4', 'sw1'),
+    ])
+
+    const { container, findByRole } = renderDashboard()
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('25%')
+    })
+    expect(container.textContent).toContain('1/4 done')
+    // The fused spark pill opens the existing "What's next?" sheet.
+    expect(await findByRole('button', { name: /what.s next/i })).toBeTruthy()
+  })
+
+  it('shows the canonical routines streak (max of morning and night) in the hero chip', async () => {
+    // No session user in tests → the loader falls back to the default tz, so
+    // build the log dateKeys against that same tz for a deterministic streak.
+    const tz = 'America/New_York'
+    const tk = clockToday(tz)
+
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([mkTask('Open task', 'sw1')])
+    routineItemsList.mockResolvedValue([
+      mkItem('m', 'morning'),
+      mkItem('n', 'night'),
+    ])
+    // Morning done today only (morning streak 1); night done yesterday only
+    // (night streak 1) → max = 1. The retired loose "≥1 completed log/day"
+    // calc would have counted both days as 2 — so asserting 1 pins the strict
+    // routines source, not the old loose one.
+    routineLogsList.mockResolvedValue([
+      mkLog('l1', 'm', tk),
+      mkLog('l2', 'n', dateKeyDaysAgo(tk, 1)),
+    ])
+
+    const { findByTitle } = renderDashboard()
+
+    const chip = await findByTitle('Check-in streak')
+    expect(chip).toHaveTextContent('1')
+    expect(chip).not.toHaveTextContent('2')
   })
 
   it('renders chevrons on every category and subcategory header', async () => {

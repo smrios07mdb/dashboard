@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
 
@@ -68,7 +68,16 @@ function formatDue(iso: string): string {
   })
 }
 
-export default function WhatsNextSheet() {
+/**
+ * @param trigger Optional custom element that opens the sheet. When provided
+ * it is wrapped in `<SheetTrigger asChild>` in place of the default button —
+ * the hero's spark pill passes its own button here (redesign chunk 26). When
+ * omitted, the original `size="sm"` "What's next?" button renders unchanged,
+ * so existing call sites are byte-for-byte unaffected.
+ */
+export default function WhatsNextSheet({
+  trigger,
+}: { trigger?: ReactNode } = {}) {
   const navigate = useNavigate()
   const isTouch = useIsTouchDevice()
   const availableMinutes = useUIStore((s) => s.availableMinutes)
@@ -143,10 +152,12 @@ export default function WhatsNextSheet() {
       }}
     >
       <SheetTrigger asChild>
-        <Button size="sm">
-          <Sparkles className="size-4" />
-          What&rsquo;s next?
-        </Button>
+        {trigger ?? (
+          <Button size="sm">
+            <Sparkles className="size-4" />
+            What&rsquo;s next?
+          </Button>
+        )}
       </SheetTrigger>
       <SheetContent
         side={isTouch ? 'bottom' : 'right'}

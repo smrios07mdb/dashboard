@@ -6,12 +6,13 @@ import AllClearBanner from '@/components/AllClearBanner'
 import BusyStrip from '@/components/BusyStrip'
 import CategoryColumn from '@/components/CategoryColumn'
 import EmptyStateCard from '@/components/EmptyStateCard'
-import WhatsNextSheet from '@/components/WhatsNextSheet'
+import DailyHero from '@/components/gamify/DailyHero'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
-import { today as clockToday } from '@/lib/clock'
+import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
 import { selectDashboardState } from '@/lib/dashboardState'
+import { calcStreak } from '@/lib/streak'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -36,21 +37,12 @@ import { useUIStore } from '@/state/uiStore'
 
 const SAVE_ERROR = 'Could not save — retry'
 
-function formatMinutes(mins: number): string {
-  if (!mins) return '0m'
-  if (mins < 60) return `${mins}m`
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  return m ? `${h}h ${m}m` : `${h}h`
-}
-
-function formatToday(d: Date): string {
-  return d.toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  })
-}
+/**
+ * How far back the hero's routine-log read reaches. Mirrors the
+ * `STREAK_LOOKBACK_DAYS` window in `src/lib/streak.ts` so the hero's streak
+ * inputs match the Routines screen exactly (ARCH §11).
+ */
+const STREAK_LOOKBACK_DAYS = 60
 
 type DashboardData = {
   categories: Category[]
@@ -58,25 +50,49 @@ type DashboardData = {
   tasks: Task[]
 }
 
-function useDashboardData() {
+function useDashboardData(userId: string | null) {
   const [data, setData] = useState<DashboardData>({
     categories: [],
     subcategories: [],
     tasks: [],
   })
+  // The hero's "best current routine streak" — the larger of the morning and
+  // night streaks. Computed at load since it depends only on routine
+  // items/logs (not task CRUD), so it survives optimistic task mutations.
+  const [streak, setStreak] = useState(0)
   const [loading, setLoading] = useState(true)
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [categories, subcategories, tasks] = await Promise.all([
-        repo.categories.list(),
-        repo.subcategories.list(),
-        repo.tasks.list(),
-      ])
+      // Source the streak inputs identically to Routines.tsx so the two
+      // screens never disagree: resolve the timezone from settings first
+      // (default if not yet hydrated), then load a 60-day routine-log window
+      // plus the routine items. `today(tz)` flows through the clock module so
+      // the DEV `__clockOverride` smoke hook still pins it.
+      const settings = userId ? await repo.settings.get(userId) : null
+      const tz = settings?.timezone ?? 'America/New_York'
+      const todayKey = clockToday(tz)
+      const fromKey = dateKeyDaysAgo(todayKey, STREAK_LOOKBACK_DAYS - 1)
+      const [categories, subcategories, tasks, logs, items] =
+        await Promise.all([
+          repo.categories.list(),
+          repo.subcategories.list(),
+          repo.tasks.list(),
+          repo.routineLogs.listByRange(fromKey, todayKey),
+          repo.routineItems.list(),
+        ])
       if (cancelled) return
+      // The canonical routines streak is per-routine; the hero shows the
+      // stronger of the two — always equal to the larger number on the
+      // Routines screen, so the hero can never contradict it.
+      const heroStreak = Math.max(
+        calcStreak('morning', items, logs, todayKey, tz),
+        calcStreak('night', items, logs, todayKey, tz),
+      )
       setData({ categories, subcategories, tasks })
+      setStreak(heroStreak)
       setLoading(false)
     }
     load().catch((e) => {
@@ -86,84 +102,15 @@ function useDashboardData() {
     return () => {
       cancelled = true
     }
-  }, [dashboardRefreshKey])
+  }, [dashboardRefreshKey, userId])
 
-  return { data, setData, loading }
-}
-
-type TodayStripProps = {
-  openCount: number
-  openMinutes: number
-}
-
-function TodayStrip({ openCount, openMinutes }: TodayStripProps) {
-  const availableMinutes = useUIStore((s) => s.availableMinutes)
-  const setAvailableMinutes = useUIStore((s) => s.setAvailableMinutes)
-  // Read "today" through the clock module so the DEV-only
-  // `__clockOverride` hook (see src/lib/clock.ts) can pin the displayed
-  // date during smoke passes. We pass the browser's resolved timezone
-  // — matching the pre-override `new Date()` behavior (which used the
-  // browser's local tz implicitly) — instead of plumbing settings.tz
-  // through the dashboard; the routines screen still uses settings.tz
-  // directly where the math actually depends on it.
-  const todayKey = clockToday(
-    Intl.DateTimeFormat().resolvedOptions().timeZone,
-  )
-  // Mid-day local on the pinned date so DST transitions can't roll the
-  // weekday/month/day result the formatter produces.
-  const today = useMemo(
-    () => new Date(`${todayKey}T12:00:00`),
-    [todayKey],
-  )
-  return (
-    <div className="mb-6 flex flex-wrap items-center gap-3 rounded-md border border-border bg-card px-4 py-3">
-      <div className="flex flex-1 items-baseline gap-2">
-        <span className="label">Today</span>
-        <span className="font-mono text-[13px] text-muted-foreground">
-          {formatToday(today)}
-        </span>
-        <span className="text-muted-foreground/60" aria-hidden>
-          ·
-        </span>
-        <span className="font-mono text-[14px] font-semibold text-foreground tabular-nums">
-          {openCount}
-        </span>
-        <span className="text-[13px] text-muted-foreground">open</span>
-        <span className="text-muted-foreground/60" aria-hidden>
-          ·
-        </span>
-        <span className="font-mono text-[13px] text-secondary-foreground tabular-nums">
-          {formatMinutes(openMinutes)}
-        </span>
-      </div>
-      <div className="flex items-center gap-2">
-        <label className="label flex items-center gap-2">
-          I have
-          <input
-            type="number"
-            min={0}
-            step={15}
-            value={availableMinutes}
-            onChange={(e) =>
-              setAvailableMinutes(Number(e.target.value) || 0)
-            }
-            aria-label="Available minutes"
-            className="w-16 rounded-sm border border-border bg-background px-2 py-1 text-right font-mono text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:text-[13px]"
-          />
-          <span className="font-mono text-[11px] text-muted-foreground">
-            min
-          </span>
-        </label>
-        <WhatsNextSheet />
-      </div>
-    </div>
-  )
+  return { data, setData, loading, streak }
 }
 
 export default function Dashboard() {
-  const { data, setData, loading } = useDashboardData()
   const { user } = useSession()
   const userId = user?.id ?? null
+  const { data, setData, loading, streak } = useDashboardData(userId)
   const navigate = useNavigate()
 
   const subsByCat = useMemo(() => {
@@ -196,13 +143,12 @@ export default function Dashboard() {
     return m
   }, [data.tasks, liveSubIds])
 
-  const openTasks = data.tasks.filter(
-    (t) => !t.completedAt && liveSubIds.has(t.subcategoryId),
-  )
-  const openCount = openTasks.length
-  const openMinutes = openTasks.reduce(
-    (sum, t) => sum + t.estimateMinutes,
-    0,
+  // All tasks under live subcategories (done + open) — the hero's ring,
+  // bars and counts derive from these so they stay consistent with the
+  // visible columns (chunk-26 note E).
+  const liveTasks = useMemo(
+    () => data.tasks.filter((t) => liveSubIds.has(t.subcategoryId)),
+    [data.tasks, liveSubIds],
   )
 
   // ---------- mutation handlers ----------
@@ -581,7 +527,13 @@ export default function Dashboard() {
     return (
       <div>
         <BusyStrip />
-        <TodayStrip openCount={openCount} openMinutes={openMinutes} />
+        <DailyHero
+          user={user}
+          tasks={liveTasks}
+          subcategories={liveSubcategories}
+          categories={data.categories}
+          streak={streak}
+        />
         <EmptyStateCard
           categories={data.categories}
           onPickCategory={onPickCategory}
@@ -593,7 +545,13 @@ export default function Dashboard() {
   return (
     <div>
       <BusyStrip />
-      <TodayStrip openCount={openCount} openMinutes={openMinutes} />
+      <DailyHero
+        user={user}
+        tasks={liveTasks}
+        subcategories={liveSubcategories}
+        categories={data.categories}
+        streak={streak}
+      />
       {/* All-clear: jade banner above the still-visible columns. */}
       {dashboardState === 'all-clear' && <AllClearBanner />}
       <div className="grid gap-6 sm:grid-cols-2 sm:gap-8">
