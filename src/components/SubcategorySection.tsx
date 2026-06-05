@@ -143,8 +143,32 @@ export default function SubcategorySection({
 
   // Rows shown in the main list: open tasks + any lingering just-completed
   // ones. The collapsed bucket excludes lingerers so a row never shows twice.
-  const visibleIncomplete = tasks.filter((t) => !t.completedAt || linger.has(t.id))
-  const bucketCompleted = completed.filter((t) => !linger.has(t.id))
+  // A task that completed since the previous render: keep it visible THIS
+  // render (don't wait for `linger` to catch up next tick) so its TaskRow
+  // instance is never unmounted across open→done. Otherwise the remount trips
+  // TaskRow's mount guard and the completion cheer (flush/+XP/pop) never fires.
+  // `prevTasks.current` is written only in the linger effect (post-commit), so
+  // during THIS render it still holds the previous render's tasks — the read
+  // that catches the open→done transition before the row would unmount and trip
+  // TaskRow's mount guard. The read is safe (the ref is never written during
+  // render); react-hooks/refs flags this legitimate compare-to-previous-render
+  // idiom, and moving it to an effect would reintroduce the dead-cheer bug.
+  const justCompletedIds = new Set(
+    tasks
+      .filter(
+        // eslint-disable-next-line react-hooks/refs
+        (t) =>
+          t.completedAt &&
+          prevTasks.current.some((p) => p.id === t.id && !p.completedAt),
+      )
+      .map((t) => t.id),
+  )
+  const visibleIncomplete = tasks.filter(
+    (t) => !t.completedAt || linger.has(t.id) || justCompletedIds.has(t.id),
+  )
+  const bucketCompleted = completed.filter(
+    (t) => !linger.has(t.id) && !justCompletedIds.has(t.id),
+  )
 
   return (
     <section className="border-t border-line first:border-t-0">
