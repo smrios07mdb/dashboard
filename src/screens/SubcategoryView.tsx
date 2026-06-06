@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ChevronDown, Move, Trash2 } from 'lucide-react'
+import { ArrowUpDown, Check, ChevronDown, Move, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import AddTaskInline from '@/components/AddTaskInline'
@@ -9,9 +9,12 @@ import DeleteConfirm from '@/components/DeleteConfirm'
 import { MoveToPickerContent } from '@/components/MoveToPicker'
 import TaskRow from '@/components/TaskRow'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { repo } from '@/db/repo'
@@ -46,6 +49,41 @@ function formatMinutes(mins: number): string {
   const h = Math.floor(mins / 60)
   const m = mins % 60
   return m ? `${h}h ${m}m` : `${h}h`
+}
+
+// Client-side list sort (chunk 31, Decision D2). View-only — never persisted.
+type SortBy = 'created' | 'minutes' | 'priority' | 'title'
+
+const SORT_OPTIONS: { value: SortBy; label: string }[] = [
+  { value: 'created', label: 'Created (default)' },
+  { value: 'minutes', label: 'Estimate (high → low)' },
+  { value: 'priority', label: 'Priority (1 → 3)' },
+  { value: 'title', label: 'Title (A → Z)' },
+]
+
+/*
+ * Sort the visible task list. `created` keeps the natural order
+ * (repo.tasks.list returns newest-updated first); the others re-sort a copy.
+ *
+ * Judgment calls baked in here (see the chunk note / ask the human if these
+ * should differ):
+ *   - Priority sorts 1 → 3 with null LAST via `?? Infinity`. Our model is
+ *     {1, 2, 3, null}, so this is safe — and avoids the prototype's `|| 9`
+ *     idiom, which would also push a (non-existent) priority 0 to the back.
+ *   - Ties preserve input order: Array.prototype.sort is stable in V8, so an
+ *     equal-estimate / equal-priority group keeps its prior arrangement.
+ */
+function sortTasks(tasks: Task[], sortBy: SortBy): Task[] {
+  if (sortBy === 'created') return tasks
+  const list = [...tasks]
+  if (sortBy === 'minutes') {
+    list.sort((a, b) => b.estimateMinutes - a.estimateMinutes)
+  } else if (sortBy === 'priority') {
+    list.sort((a, b) => (a.priority ?? Infinity) - (b.priority ?? Infinity))
+  } else if (sortBy === 'title') {
+    list.sort((a, b) => a.title.localeCompare(b.title))
+  }
+  return list
 }
 
 type ViewData = {
@@ -94,6 +132,7 @@ export default function SubcategoryView() {
   const { data, setData, loading } = useSubcategoryViewData()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showCompleted, setShowCompleted] = useState(false)
+  const [sortBy, setSortBy] = useState<SortBy>('created')
   const [searchParams, setSearchParams] = useSearchParams()
   const highlightId = searchParams.get('task')
   const highlightRef = useRef<HTMLDivElement | null>(null)
@@ -122,6 +161,9 @@ export default function SubcategoryView() {
   )
 
   const visibleTasks = showCompleted ? allTasks : incomplete
+  // Rendered order respects the D2 sort menu; selection still operates on the
+  // unsorted `visibleTasks` set (order is irrelevant to which ids are chosen).
+  const sortedTasks = sortTasks(visibleTasks, sortBy)
   const openMinutes = incomplete.reduce(
     (sum, t) => sum + t.estimateMinutes,
     0,
@@ -169,6 +211,21 @@ export default function SubcategoryView() {
 
   function clearSelection() {
     setSelected(new Set())
+  }
+
+  // D1 — select-all over the *visible* rows. If every visible row is already
+  // selected, the master checkbox clears them; otherwise it selects them all.
+  function toggleAllVisible() {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      const allChosen =
+        visibleTasks.length > 0 && visibleTasks.every((t) => prev.has(t.id))
+      for (const t of visibleTasks) {
+        if (allChosen) next.delete(t.id)
+        else next.add(t.id)
+      }
+      return next
+    })
   }
 
   // ---------- mutation helpers ----------
@@ -357,6 +414,32 @@ export default function SubcategoryView() {
     [selected, setData],
   )
 
+  const onBulkComplete = useCallback(async () => {
+    const ids = Array.from(selected)
+    if (ids.length === 0) return
+    // markComplete(id) is just update(id, { completedAt }) (repo.ts) — no extra
+    // side effects — so one shared timestamp lets bulkUpdate group every id into
+    // a single round-trip, mirroring the bulk-move path (Decision D3).
+    const completedAt = new Date().toISOString()
+    try {
+      const updated = await repo.tasks.bulkUpdate(
+        ids.map((id) => ({ id, patch: { completedAt } })),
+      )
+      setData((prev) => {
+        const byId = new Map(updated.map((t) => [t.id, t]))
+        return {
+          ...prev,
+          tasks: prev.tasks.map((t) => byId.get(t.id) ?? t),
+        }
+      })
+      toast(`${ids.length} task${ids.length === 1 ? '' : 's'} completed`)
+      clearSelection()
+    } catch (e) {
+      console.error('Bulk complete failed', e)
+      toast.error(SAVE_ERROR)
+    }
+  }, [selected, setData])
+
   const onBulkDelete = useCallback(async () => {
     const ids = Array.from(selected)
     if (ids.length === 0) return
@@ -375,7 +458,7 @@ export default function SubcategoryView() {
   }, [selected, setData])
 
   if (loading) {
-    return <div className="text-[13px] text-muted-foreground">Loading…</div>
+    return <div className="text-[13px] text-ink-3">Loading…</div>
   }
   if (!subcategory || subcategory.archivedAt || !category) {
     // Archived or missing → punt to Dashboard.
@@ -384,6 +467,9 @@ export default function SubcategoryView() {
 
   const accent = category.name === 'Work' ? 'var(--work)' : 'var(--personal)'
   const selectedCount = selected.size
+  const allVisibleSelected =
+    visibleTasks.length > 0 && visibleTasks.every((t) => selected.has(t.id))
+  const someVisibleSelected = visibleTasks.some((t) => selected.has(t.id))
 
   return (
     <div>
@@ -395,7 +481,7 @@ export default function SubcategoryView() {
           style={{ background: accent }}
         />
         <h1
-          className="m-0 text-[32px] font-semibold text-foreground"
+          className="m-0 font-display text-[40px] font-medium text-ink"
           style={{ letterSpacing: '-0.02em' }}
         >
           {subcategory.name}
@@ -403,24 +489,50 @@ export default function SubcategoryView() {
         <span className="label">
           {incomplete.length} open · {formatMinutes(openMinutes)}
         </span>
-        {completed.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowCompleted((s) => !s)}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-sm border border-border px-2 py-1 text-[11px] uppercase tracking-wider text-muted-foreground hover:bg-secondary hover:text-foreground"
-          >
-            <ChevronDown
-              aria-hidden
-              className={cn(
-                'size-3 transition-transform',
-                showCompleted && 'rotate-180',
-              )}
-            />
-            {showCompleted
-              ? `Hide ${completed.length} done`
-              : `Show ${completed.length} done`}
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {completed.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowCompleted((s) => !s)}
+              className="inline-flex items-center gap-1.5 rounded-sm border border-line px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.08em] text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ChevronDown
+                aria-hidden
+                className={cn(
+                  'size-3 transition-transform',
+                  showCompleted && 'rotate-180',
+                )}
+              />
+              {showCompleted
+                ? `Hide ${completed.length} done`
+                : `Show ${completed.length} done`}
+            </button>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Sort tasks"
+                className="inline-flex items-center gap-1.5 rounded-sm border border-line px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.08em] text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <ArrowUpDown aria-hidden className="size-3" />
+                Sort
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup
+                value={sortBy}
+                onValueChange={(v) => setSortBy(v as SortBy)}
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <DropdownMenuRadioItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </header>
 
       {selectedCount > 0 && (
@@ -430,46 +542,68 @@ export default function SubcategoryView() {
           subcategories={liveSubs}
           currentSubcategoryId={subcategoryId}
           onMove={onBulkMove}
+          onComplete={onBulkComplete}
           onDelete={onBulkDelete}
           onClear={clearSelection}
         />
       )}
 
-      <div className="overflow-hidden rounded-md border border-border bg-card">
+      <div className="overflow-hidden rounded-md border border-line bg-surface">
         {visibleTasks.length === 0 ? (
-          <div className="px-4 py-8 text-center text-[13px] italic text-muted-foreground">
+          <div className="px-4 py-8 text-center text-[13px] italic text-ink-3">
             {allTasks.length === 0
               ? 'No tasks here yet. Add one below.'
               : `All done. ${completed.length} completed.`}
           </div>
         ) : (
-          visibleTasks.map((t) => (
-            <div
-              key={t.id}
-              ref={t.id === highlightId ? highlightRef : undefined}
-              className={cn(
-                t.id === highlightId &&
-                  'rounded-md ring-2 ring-ring ring-inset transition-shadow duration-500',
-              )}
-            >
-              <TaskRow
-                task={t}
-                categories={data.categories}
-                subcategories={liveSubs}
-                selectable
-                selected={selected.has(t.id)}
-                onToggleSelected={toggleSelected}
-                dragEnabled={false}
-                onComplete={onCompleteTask}
-                onEditTitle={onEditTitle}
-                onEditMinutes={onEditMinutes}
-                onDelete={onDeleteTask}
-                onMoveToSubcategory={onMoveTaskToSubcategory}
-                onSetReminder={onSetTaskReminder}
-                onEditNotes={onEditTaskNotes}
+          <>
+            {/* List header (D1): select-all master + column captions. */}
+            <div className="flex items-center gap-3 border-b border-line bg-bg-alt px-3 py-2">
+              <Checkbox
+                aria-label={
+                  allVisibleSelected ? 'Deselect all tasks' : 'Select all tasks'
+                }
+                checked={
+                  allVisibleSelected
+                    ? true
+                    : someVisibleSelected
+                      ? 'indeterminate'
+                      : false
+                }
+                onCheckedChange={toggleAllVisible}
+                className="rounded-sm"
               />
+              <span className="label">Task</span>
+              <span className="label ml-auto">Est.</span>
             </div>
-          ))
+            {sortedTasks.map((t) => (
+              <div
+                key={t.id}
+                ref={t.id === highlightId ? highlightRef : undefined}
+                className={cn(
+                  t.id === highlightId &&
+                    'rounded-md ring-2 ring-ring ring-inset transition-shadow duration-500',
+                )}
+              >
+                <TaskRow
+                  task={t}
+                  categories={data.categories}
+                  subcategories={liveSubs}
+                  selectable
+                  selected={selected.has(t.id)}
+                  onToggleSelected={toggleSelected}
+                  dragEnabled={false}
+                  onComplete={onCompleteTask}
+                  onEditTitle={onEditTitle}
+                  onEditMinutes={onEditMinutes}
+                  onDelete={onDeleteTask}
+                  onMoveToSubcategory={onMoveTaskToSubcategory}
+                  onSetReminder={onSetTaskReminder}
+                  onEditNotes={onEditTaskNotes}
+                />
+              </div>
+            ))}
+          </>
         )}
         <AddTaskInline
           onCreate={({ title, estimateMinutes }) =>
@@ -491,6 +625,7 @@ type BulkToolbarProps = {
   subcategories: Subcategory[]
   currentSubcategoryId?: string
   onMove: (targetSubcategoryId: string) => void | Promise<void>
+  onComplete: () => void | Promise<void>
   onDelete: () => void | Promise<void>
   onClear: () => void
 }
@@ -501,6 +636,7 @@ function BulkToolbar({
   subcategories,
   currentSubcategoryId,
   onMove,
+  onComplete,
   onDelete,
   onClear,
 }: BulkToolbarProps) {
@@ -508,12 +644,12 @@ function BulkToolbar({
     <div
       role="toolbar"
       aria-label={`${selectedCount} task${selectedCount === 1 ? '' : 's'} selected`}
-      className="sticky top-2 z-10 mb-4 flex flex-wrap items-center gap-3 rounded-full bg-foreground px-5 py-2 text-background shadow-lg"
+      className="sticky top-2 z-10 mb-4 flex flex-wrap items-center gap-3 rounded-full bg-[var(--ink)] px-5 py-2 text-[var(--bg)] shadow-[0_8px_24px_rgba(0,0,0,0.32)]"
     >
       <span className="text-[13px] font-semibold">
         {selectedCount} selected
       </span>
-      <span aria-hidden className="h-3.5 w-px bg-background/20" />
+      <span aria-hidden className="h-3.5 w-px bg-[var(--bg)]/20" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
@@ -533,6 +669,14 @@ function BulkToolbar({
           />
         </DropdownMenuContent>
       </DropdownMenu>
+      <button
+        type="button"
+        onClick={() => void onComplete()}
+        className="inline-flex items-center gap-1.5 text-[13px] hover:opacity-70"
+      >
+        <Check className="size-3.5" aria-hidden />
+        Mark complete
+      </button>
       <span className="ml-auto" />
       <DeleteConfirm
         trigger={
@@ -553,9 +697,9 @@ function BulkToolbar({
         variant="ghost"
         size="sm"
         onClick={onClear}
-        className="text-[12px] text-background/60 hover:bg-background/10 hover:text-background"
+        className="text-[12px] text-[var(--bg)]/60 hover:bg-[var(--bg)]/10 hover:text-[var(--bg)]"
       >
-        Clear
+        Cancel
       </Button>
     </div>
   )

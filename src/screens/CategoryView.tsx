@@ -521,7 +521,7 @@ export default function CategoryView() {
   }
 
   if (loading) {
-    return <div className="text-[13px] text-muted-foreground">Loading…</div>
+    return <div className="text-[13px] text-ink-3">Loading…</div>
   }
 
   if (!category) {
@@ -541,7 +541,7 @@ export default function CategoryView() {
           style={{ background: accent }}
         />
         <h1
-          className="m-0 text-[36px] font-semibold text-foreground"
+          className="m-0 font-display text-[44px] font-medium text-ink"
           style={{ letterSpacing: '-0.02em' }}
         >
           {category.name}
@@ -550,9 +550,9 @@ export default function CategoryView() {
           {openCount} open · {formatMinutes(openMinutes)}
         </span>
       </header>
-      <div className="overflow-hidden rounded-md border border-border bg-card">
+      <div className="overflow-hidden rounded-md border border-line bg-surface">
         {subcategories.length === 0 ? (
-          <div className="px-4 py-6 text-center text-[13px] text-muted-foreground">
+          <div className="px-4 py-6 text-center text-[13px] text-ink-3">
             No subcategories yet.
           </div>
         ) : (

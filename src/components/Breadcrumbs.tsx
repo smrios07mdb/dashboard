@@ -30,18 +30,18 @@ export default function Breadcrumbs({
   return (
     <nav
       aria-label="Breadcrumb"
-      className="mb-3 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground"
+      className="mb-3 flex flex-wrap items-center gap-1.5 text-[12px] text-ink-3"
     >
       {/* "All" → /  */}
       {category || subcategory ? (
         <Link
           to="/"
-          className="rounded-sm px-1 py-0.5 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded-sm px-1 py-0.5 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           All
         </Link>
       ) : (
-        <span className="px-1 py-0.5 text-foreground">All</span>
+        <span className="px-1 py-0.5 text-ink-2">All</span>
       )}
 
       {category && (
@@ -50,12 +50,12 @@ export default function Breadcrumbs({
           {subcategory ? (
             <Link
               to={`/category/${category.id}`}
-              className="rounded-sm px-1 py-0.5 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-sm px-1 py-0.5 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {category.name}
             </Link>
           ) : (
-            <span className="px-1 py-0.5 font-medium text-foreground">
+            <span className="px-1 py-0.5 font-medium text-ink-2">
               {category.name}
             </span>
           )}
@@ -65,7 +65,7 @@ export default function Breadcrumbs({
       {subcategory && (
         <>
           <Separator />
-          <span className="px-1 py-0.5 font-medium text-foreground">
+          <span className="px-1 py-0.5 font-medium text-ink-2">
             {subcategory.name}
           </span>
         </>
@@ -76,7 +76,7 @@ export default function Breadcrumbs({
 
 function Separator() {
   return (
-    <span aria-hidden className="text-muted-foreground/60">
+    <span aria-hidden className="text-ink-3/60">
       ›
     </span>
   )
