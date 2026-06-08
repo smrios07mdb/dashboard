@@ -127,4 +127,14 @@ describe('BlockTimeSheet notes opt-in (PRIV-03)', () => {
       screen.getByText(/sync(s)? to all devices on your apple id/i),
     ).toBeInTheDocument()
   })
+
+  // Guards the limited-availability notice (re-skinned from the dead dark: amber
+  // variant to the --warn token): the copy must still render when proposeSlots
+  // returns fewer than three slots. The default fixture proposes a single slot.
+  it('warns when fewer than three slots are available', async () => {
+    render(<BlockTimeSheet task={taskWithNotes()} open onOpenChange={vi.fn()} />)
+    expect(
+      await screen.findByText(/limited availability — only 1 slot/i),
+    ).toBeInTheDocument()
+  })
 })

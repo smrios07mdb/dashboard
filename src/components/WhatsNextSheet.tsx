@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sparkles } from 'lucide-react'
 
+import BlockTimeSheet from '@/components/BlockTimeSheet'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -22,6 +23,7 @@ import {
   type AiErrorKind,
   type TriageResult,
 } from '@/lib/ai'
+import { catColor } from '@/lib/cat'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useUIStore } from '@/state/uiStore'
 
@@ -86,8 +88,16 @@ export default function WhatsNextSheet({
   const [open, setOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>({ status: 'idle' })
   const [lookup, setLookup] = useState<Map<string, CardTask>>(new Map())
+  // B3: recommendations the user has dismissed from the visible list. Ephemeral
+  // (no backend) and cleared on each new run / sheet close.
+  const [skipped, setSkipped] = useState<Set<string>>(new Set())
+  // B2: handing off to the (fully-wired) BlockTimeSheet. Following the prototype
+  // — and the deep-link precedent — the triage sheet closes first, then this
+  // controlled sheet opens for the chosen task.
+  const [blockTask, setBlockTask] = useState<Task | null>(null)
 
   async function getRecommendations() {
+    setSkipped(new Set())
     setPhase({ status: 'loading' })
     try {
       const [tasks, subs, cats] = await Promise.all([
@@ -138,17 +148,36 @@ export default function WhatsNextSheet({
     setOpen(false)
   }
 
+  function blockTime(task: Task) {
+    // Close the triage sheet, then open block-time for this task (the prototype
+    // hands off rather than nesting). The lookup already holds the full Task.
+    setOpen(false)
+    setBlockTask(task)
+  }
+
+  function skip(taskId: string) {
+    setSkipped((prev) => {
+      const next = new Set(prev)
+      next.add(taskId)
+      return next
+    })
+  }
+
   function goToSettings() {
     navigate('/settings')
     setOpen(false)
   }
 
   return (
+    <>
     <Sheet
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
-        if (!next) setPhase({ status: 'idle' })
+        if (!next) {
+          setPhase({ status: 'idle' })
+          setSkipped(new Set())
+        }
       }}
     >
       <SheetTrigger asChild>
@@ -185,49 +214,68 @@ export default function WhatsNextSheet({
               value={availableMinutes}
               onChange={(e) => setAvailableMinutes(Number(e.target.value) || 0)}
               aria-label="Available minutes"
-              className="w-16 rounded-sm border border-border bg-background px-2 py-1 text-right font-mono text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-16 rounded-sm border border-line bg-bg-alt px-2 py-1 text-right font-mono text-[13px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <span className="font-mono text-[11px] text-muted-foreground">
-              min
-            </span>
+            <span className="font-mono text-[11px] text-ink-3">minutes</span>
           </label>
           <Button
             onClick={getRecommendations}
             disabled={phase.status === 'loading'}
             className="ml-auto"
           >
-            {phase.status === 'loading' ? 'Thinking…' : 'Get recommendations'}
+            <Sparkles className="size-4" aria-hidden />
+            {phase.status === 'loading' ? 'Thinking…' : 'Decide'}
           </Button>
         </div>
 
         <div className="min-h-0 flex-1">
+          {phase.status === 'idle' && (
+            <div className="rounded-[var(--radius-md)] border border-dashed border-line-strong bg-bg-alt px-5 py-6 text-[13px] leading-relaxed text-ink-3">
+              <strong className="mb-1 block font-medium text-ink-2">
+                Decide with Claude
+              </strong>
+              Tell me how much time you have. I&rsquo;ll rank 1&ndash;3 tasks from
+              your list with a one-line reason for each. Uses your Anthropic key.
+            </div>
+          )}
+
           {phase.status === 'loading' && <LoadingSkeleton />}
 
           {phase.status === 'empty' && (
-            <p className="text-[13px] text-muted-foreground">
+            <p className="text-[13px] text-ink-3">
               Nothing to triage yet — add a few tasks and try again.
             </p>
           )}
 
           {phase.status === 'results' && (
             <div className="space-y-3">
-              {phase.result.note && (
-                <p className="text-[13px] italic text-muted-foreground">
-                  {phase.result.note}
-                </p>
-              )}
-              {phase.result.recommendations.map((rec) => {
-                const item = lookup.get(rec.taskId)
-                if (!item) return null
-                return (
-                  <ResultCard
-                    key={rec.taskId}
-                    item={item}
-                    reason={rec.reason}
-                    onStart={() => start(item.task)}
-                  />
+              {phase.result.recommendations
+                .filter(
+                  (rec) => !skipped.has(rec.taskId) && lookup.has(rec.taskId),
                 )
-              })}
+                .map((rec, i) => {
+                  const item = lookup.get(rec.taskId)!
+                  return (
+                    <ResultCard
+                      key={rec.taskId}
+                      rank={i + 1}
+                      item={item}
+                      reason={rec.reason}
+                      onStart={() => start(item.task)}
+                      onBlock={() => blockTime(item.task)}
+                      onSkip={() => skip(rec.taskId)}
+                    />
+                  )
+                })}
+              {phase.result.note && (
+                <div className="flex items-start gap-2 rounded-[var(--radius)] bg-[var(--accent-soft)] px-3.5 py-2.5 text-[13px] leading-relaxed text-[var(--accent-ink)]">
+                  <span className="inline-flex shrink-0 items-center gap-1.5 font-medium">
+                    <Sparkles className="size-3.5" aria-hidden />
+                    Claude
+                  </span>
+                  <span>{phase.result.note}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -242,53 +290,87 @@ export default function WhatsNextSheet({
         </div>
       </SheetContent>
     </Sheet>
+    {blockTask && (
+      <BlockTimeSheet
+        task={blockTask}
+        open
+        onOpenChange={(next) => {
+          if (!next) setBlockTask(null)
+        }}
+      />
+    )}
+    </>
   )
 }
 
 function ResultCard({
+  rank,
   item,
   reason,
   onStart,
+  onBlock,
+  onSkip,
 }: {
+  rank: number
   item: CardTask
   reason: string
   onStart: () => void
+  onBlock: () => void
+  onSkip: () => void
 }) {
   const { task, subName, catName } = item
   return (
-    <Card className="flex flex-col gap-2 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-medium leading-snug text-foreground">
-            {task.title}
-          </div>
-          <div className="label mt-1">
-            {subName} · {catName}
-          </div>
+    <Card
+      className="flex flex-col gap-2 rounded-[var(--radius)] border-line p-4"
+      style={{ borderLeftWidth: '3px', borderLeftColor: catColor(catName) }}
+    >
+      <div className="flex items-baseline gap-2">
+        <span className="num display shrink-0 text-[14px] font-semibold text-ink-3">
+          {rank}.
+        </span>
+        <h4 className="min-w-0 flex-1 font-medium leading-snug text-ink">
+          {task.title}
+        </h4>
+        <span className="num shrink-0 text-[12px] tabular-nums text-ink-3">
+          {formatMinutes(task.estimateMinutes)}
+        </span>
+      </div>
+      {task.dueAt && (
+        <div className="num ml-6 text-[12px] tabular-nums text-ink-3">
+          due {formatDue(task.dueAt)}
         </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={onStart}
-          aria-label={`Start "${task.title}"`}
-        >
-          Start
-        </Button>
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[12px] text-muted-foreground tabular-nums">
-        <span>{formatMinutes(task.estimateMinutes)}</span>
-        {task.dueAt && (
-          <>
-            <span aria-hidden className="text-muted-foreground/50">
-              ·
-            </span>
-            <span>due {formatDue(task.dueAt)}</span>
-          </>
-        )}
-      </div>
-      <p className="text-[13px] leading-relaxed text-secondary-foreground">
+      )}
+      <p className="ml-6 text-[13px] italic leading-relaxed text-ink-2">
         {reason}
       </p>
+      <div className="label ml-6">
+        {subName} · {catName}
+      </div>
+      <div className="ml-6 mt-1 flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          onClick={onStart}
+          aria-label={`Start now: ${task.title}`}
+        >
+          Start now
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onBlock}
+          aria-label={`Block time for ${task.title}`}
+        >
+          Block time
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onSkip}
+          aria-label={`Skip ${task.title}`}
+        >
+          Skip
+        </Button>
+      </div>
     </Card>
   )
 }
@@ -307,7 +389,7 @@ function ErrorView({
   if (kind === 'missing-key') {
     return (
       <div className="space-y-3">
-        <p className="text-[13px] text-muted-foreground">
+        <p className="text-[13px] text-ink-3">
           You haven&rsquo;t added an Anthropic API key yet.
         </p>
         <Button onClick={onGoToSettings}>Add your API key in Settings</Button>
@@ -317,7 +399,7 @@ function ErrorView({
   if (kind === 'auth') {
     return (
       <div className="space-y-3">
-        <p className="text-[13px] text-muted-foreground">
+        <p className="text-[13px] text-ink-3">
           API key rejected. Update it in Settings.
         </p>
         <Button onClick={onGoToSettings}>Update key in Settings</Button>
@@ -327,18 +409,18 @@ function ErrorView({
   if (kind === 'malformed') {
     return (
       <div className="space-y-3">
-        <p className="text-[13px] text-muted-foreground">
+        <p className="text-[13px] text-ink-3">
           AI response was malformed. Try again.
         </p>
         <div className="flex items-center gap-2">
           <Button onClick={onRetry}>Try again</Button>
         </div>
         {raw && (
-          <details className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-[12px]">
-            <summary className="cursor-pointer text-muted-foreground">
+          <details className="rounded-md border border-line bg-bg-alt px-3 py-2 text-[12px]">
+            <summary className="cursor-pointer text-ink-3">
               Show raw response
             </summary>
-            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-foreground">
+            <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] text-ink">
               {raw}
             </pre>
           </details>
@@ -349,7 +431,7 @@ function ErrorView({
   // network
   return (
     <div className="space-y-3">
-      <p className="text-[13px] text-muted-foreground">
+      <p className="text-[13px] text-ink-3">
         Couldn&rsquo;t reach the AI. Try again.
       </p>
       <Button onClick={onRetry}>Try again</Button>

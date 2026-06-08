@@ -214,7 +214,7 @@ export default function BlockTimeSheet({
 
           {phase.status === 'unconfigured' && (
             <div className="space-y-3">
-              <p className="text-[13px] text-muted-foreground">
+              <p className="text-[13px] text-ink-3">
                 Connect your Apple Calendar to block time for tasks.
               </p>
               <Button onClick={goToSettings}>Set up in Settings</Button>
@@ -223,7 +223,7 @@ export default function BlockTimeSheet({
 
           {phase.status === 'error' && (
             <div className="space-y-3">
-              <p className="text-[13px] text-muted-foreground">
+              <p className="text-[13px] text-ink-3">
                 Couldn’t load your calendar. Try again.
               </p>
               <Button
@@ -238,7 +238,7 @@ export default function BlockTimeSheet({
           )}
 
           {phase.status === 'ready' && phase.slots.length === 0 && (
-            <p className="text-[13px] text-muted-foreground">
+            <p className="text-[13px] text-ink-3">
               {task.estimateMinutes > 0
                 ? 'No open slots in the next 24 hours (working hours are 9 AM–6 PM).'
                 : 'Add a time estimate to this task first, then try blocking time.'}
@@ -248,7 +248,7 @@ export default function BlockTimeSheet({
           {phase.status === 'ready' && phase.slots.length > 0 && (
             <div className="space-y-3">
               {phase.slots.length < 3 && (
-                <p className="text-[13px] text-amber-700 dark:text-amber-400">
+                <p className="text-[13px] text-[var(--warn)]">
                   Limited availability — only {phase.slots.length}{' '}
                   {phase.slots.length === 1 ? 'slot' : 'slots'} found.
                 </p>
@@ -274,13 +274,13 @@ export default function BlockTimeSheet({
                   />
                   <label
                     htmlFor="include-notes"
-                    className="text-[13px] text-foreground"
+                    className="text-[13px] text-ink"
                   >
                     Include notes in calendar event
                   </label>
                 </div>
               )}
-              <p className="text-[12px] leading-relaxed text-muted-foreground">
+              <p className="text-[12px] leading-relaxed text-ink-3">
                 The event title
                 {task.notes ? ' (and notes, if included above)' : ''} is saved to
                 Apple Calendar and syncs to all devices on your Apple ID.
@@ -333,19 +333,19 @@ function SlotCard({
       className={
         selected
           ? 'flex w-full items-center justify-between gap-3 rounded-md border border-primary bg-primary/5 p-3 text-left ring-1 ring-primary'
-          : 'flex w-full items-center justify-between gap-3 rounded-md border border-border p-3 text-left transition-colors hover:bg-secondary/50'
+          : 'flex w-full items-center justify-between gap-3 rounded-md border border-line p-3 text-left transition-colors hover:bg-bg-alt'
       }
     >
       <div className="min-w-0">
-        <div className="font-medium leading-snug text-foreground">
+        <div className="font-medium leading-snug text-ink">
           {dateLabel}
         </div>
-        <div className="font-mono text-[13px] text-muted-foreground tabular-nums">
+        <div className="font-mono text-[13px] text-ink-3 tabular-nums">
           {timeLabel}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        <span className="font-mono text-[12px] text-muted-foreground tabular-nums">
+        <span className="font-mono text-[12px] text-ink-3 tabular-nums">
           {durationLabel}
         </span>
         {selected && <Badge variant="success">Selected</Badge>}
@@ -358,7 +358,7 @@ function LoadingSkeleton() {
   return (
     <div className="space-y-2" aria-busy="true" aria-label="Finding open slots">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-md border border-border p-3">
+        <div key={i} className="rounded-md border border-line p-3">
           <Skeleton className="h-4 w-1/3" />
           <Skeleton className="mt-2 h-3 w-1/2" />
         </div>

@@ -36,6 +36,16 @@ vi.mock('@/lib/supabase', () => ({
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => navigateMock }))
 
+// B2 handoff: WhatsNextSheet reuses the real, fully-wired BlockTimeSheet via its
+// task/open/onOpenChange contract. This unit only owns the handoff (close triage
+// → open block-time for the right task); BlockTimeSheet's own caldav behaviour is
+// covered in BlockTimeSheet.test.tsx, so we stub it to a recognisable marker here
+// rather than dragging its calendar/session deps into this suite.
+vi.mock('./BlockTimeSheet', () => ({
+  default: ({ task, open }: { task: { title: string }; open: boolean }) =>
+    open ? <div>{`BlockTimeSheet for ${task.title}`}</div> : null,
+}))
+
 import { AiError } from '@/lib/ai'
 
 import WhatsNextSheet from './WhatsNextSheet'
@@ -72,9 +82,7 @@ async function openAndRun() {
   const user = userEvent.setup()
   render(<WhatsNextSheet />)
   await user.click(screen.getByRole('button', { name: /what.s next/i }))
-  await user.click(
-    await screen.findByRole('button', { name: /get recommendations/i }),
-  )
+  await user.click(await screen.findByRole('button', { name: /^decide$/i }))
   return user
 }
 
@@ -86,7 +94,14 @@ describe('WhatsNextSheet', () => {
   })
   afterEach(() => vi.clearAllMocks())
 
-  it('renders recommendation cards with title, context, reason and a Start button', async () => {
+  it('renders the idle "Decide with Claude" prompt before running', async () => {
+    const user = userEvent.setup()
+    render(<WhatsNextSheet />)
+    await user.click(screen.getByRole('button', { name: /what.s next/i }))
+    expect(await screen.findByText(/decide with claude/i)).toBeInTheDocument()
+  })
+
+  it('renders recommendation cards with title, context, reason and Start now / Block time / Skip actions', async () => {
     triageMock.mockResolvedValue({
       recommendations: [{ taskId: 't1', reason: 'Fits your 30 minutes' }],
       note: 'Good window',
@@ -98,17 +113,55 @@ describe('WhatsNextSheet', () => {
     expect(screen.getByText(/Fits your 30 minutes/)).toBeInTheDocument()
     expect(screen.getByText(/Good window/)).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /start/i }),
+      screen.getByRole('button', { name: /start now/i }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /block time/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /skip/i })).toBeInTheDocument()
   })
 
-  it('navigates to the subcategory with the task highlight when Start is clicked', async () => {
+  it('navigates to the subcategory with the task highlight when Start now is clicked', async () => {
     triageMock.mockResolvedValue({
       recommendations: [{ taskId: 't1', reason: 'Do it' }],
     })
     const user = await openAndRun()
-    await user.click(await screen.findByRole('button', { name: /start/i }))
+    await user.click(await screen.findByRole('button', { name: /start now/i }))
     expect(navigateMock).toHaveBeenCalledWith('/subcategory/sub-1?task=t1')
+  })
+
+  it('opens BlockTimeSheet for the task when Block time is clicked (B2 handoff)', async () => {
+    triageMock.mockResolvedValue({
+      recommendations: [{ taskId: 't1', reason: 'Do it' }],
+    })
+    const user = await openAndRun()
+    await user.click(await screen.findByRole('button', { name: /block time/i }))
+    expect(
+      await screen.findByText(/BlockTimeSheet for Write report/i),
+    ).toBeInTheDocument()
+  })
+
+  it('removes a recommendation from the list when Skip is clicked (B3)', async () => {
+    listIncompleteMock.mockResolvedValue([
+      task({ id: 't1', title: 'First task' }),
+      task({ id: 't2', title: 'Second task' }),
+    ])
+    triageMock.mockResolvedValue({
+      recommendations: [
+        { taskId: 't1', reason: 'one' },
+        { taskId: 't2', reason: 'two' },
+      ],
+    })
+    const user = await openAndRun()
+
+    expect(await screen.findByText('First task')).toBeInTheDocument()
+    expect(screen.getByText('Second task')).toBeInTheDocument()
+
+    const [firstSkip] = screen.getAllByRole('button', { name: /skip/i })
+    await user.click(firstSkip)
+
+    expect(screen.queryByText('First task')).not.toBeInTheDocument()
+    expect(screen.getByText('Second task')).toBeInTheDocument()
   })
 
   it('shows a Settings CTA on a missing-key error', async () => {
