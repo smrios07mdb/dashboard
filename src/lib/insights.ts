@@ -10,8 +10,8 @@
 import type { Category, Subcategory, Task } from '@/db/types'
 
 /** Color bases per ARCH §12 / chunk-16 R8. */
-const WORK_BASE = '#3a5a40'
-const PERSONAL_BASE = '#a85a3c'
+const WORK_BASE = '#059669'
+const PERSONAL_BASE = '#f43f5e'
 /** Neutral gray for the folded "Other" segment. */
 export const OTHER_COLOR = '#6b6f76'
 /** Stable series key for the grouped "Other" bucket. */
