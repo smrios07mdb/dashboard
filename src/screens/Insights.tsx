@@ -425,12 +425,13 @@ export default function Insights() {
                         .sort((a, b) => b[1] - a[1])
                       if (rows.length === 0) return null
                       return (
-                        <div className="rounded-md border border-line bg-surface px-3 py-2 text-[12px] shadow-lg">
-                          <div className="mb-1 font-medium text-ink">{label}</div>
+                        <div className="rounded-md px-3 py-2 text-[12px] shadow-lg" style={{ background: 'var(--ink)' }}>
+                          <div className="mb-1 font-medium" style={{ color: 'var(--bg)' }}>{label}</div>
                           {rows.map(([key, v]) => (
                             <div
                               key={key}
-                              className="flex items-center gap-2 text-ink-2"
+                              className="flex items-center gap-2"
+                              style={{ color: 'var(--bg-alt)' }}
                             >
                               <span
                                 className="inline-block h-2 w-2 rounded-[2px]"
@@ -439,14 +440,14 @@ export default function Insights() {
                               <span className="mr-3">
                                 {subMeta.get(key)?.name ?? key}
                               </span>
-                              <span className="num ml-auto">{v}m</span>
+                              <span className="num ml-auto" style={{ color: 'var(--bg)' }}>{v}m</span>
                             </div>
                           ))}
                         </div>
                       )
                     }}
                   />
-                  {bars.series.map((s) => (
+                  {bars.series.map((s, i) => (
                     <Bar
                       key={s.key}
                       dataKey={s.key}
@@ -454,6 +455,7 @@ export default function Insights() {
                       fill={s.color}
                       name={s.name}
                       isAnimationActive={false}
+                      radius={i === bars.series.length - 1 ? [2, 2, 0, 0] : undefined}
                     />
                   ))}
                 </BarChart>
@@ -484,7 +486,8 @@ export default function Insights() {
 
       {/* Summary table (exhaustive — never grouped) */}
       {!loading && summary.length > 0 && (
-        <table className="mt-6 w-full border-collapse text-[13px]">
+        <div className="mt-6 overflow-hidden rounded-md border border-line bg-surface px-5 pt-[14px] pb-4 shadow-md">
+        <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr className="border-b border-[var(--line-strong)] text-left">
               <th className="label py-2.5">Subcategory</th>
@@ -531,6 +534,7 @@ export default function Insights() {
             </tr>
           </tbody>
         </table>
+        </div>
       )}
     </div>
   )
