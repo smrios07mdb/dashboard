@@ -4,6 +4,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { Bell, GripVertical, Trash2 } from 'lucide-react'
 
 import DeleteConfirm from '@/components/DeleteConfirm'
+import { Sun } from '@/components/icons'
 import SetReminderPopover from '@/components/SetReminderPopover'
 import TaskMenu from '@/components/TaskMenu'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -100,6 +101,15 @@ export type TaskRowProps = {
    * section (e.g. SubcategoryView, which doesn't pass one).
    */
   hue?: string
+  /**
+   * Today-plan membership adornment. When `onToggleToday` is provided (dashboard
+   * rows only), a sun toggle renders in the action cluster and reflects
+   * `inToday`; toggling drives the one shared Today membership set. Screens
+   * without a Today plan (Category/Subcategory views) omit it → no sun, no
+   * change.
+   */
+  inToday?: boolean
+  onToggleToday?: (id: string, force?: boolean) => void
 }
 
 export default function TaskRow({
@@ -118,6 +128,8 @@ export default function TaskRow({
   onToggleSelected,
   dragEnabled = true,
   hue,
+  inToday = false,
+  onToggleToday,
 }: TaskRowProps) {
   const isTouch = useIsTouchDevice()
   const canDrag = dragEnabled && !isTouch
@@ -177,6 +189,7 @@ export default function TaskRow({
     canDrag ? '14px' : null,    // grip
     '1fr',                      // title
     'auto',                     // minutes
+    onToggleToday ? 'auto' : null, // Today sun toggle (dashboard rows only)
     'auto',                     // bell
     'auto',                     // trash
     'auto',                     // three-dot menu
@@ -253,6 +266,28 @@ export default function TaskRow({
         task={task}
         onCommit={(minutes) => onEditMinutes(task.id, minutes)}
       />
+      {onToggleToday && (
+        <button
+          type="button"
+          aria-label={
+            inToday
+              ? `Remove "${task.title}" from Today`
+              : `Add "${task.title}" to Today`
+          }
+          title={inToday ? 'Remove from Today' : 'Add to Today'}
+          aria-pressed={inToday}
+          onClick={() => onToggleToday(task.id)}
+          className={cn(
+            'inline-flex items-center justify-center rounded-sm hover:bg-bg-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            isTouch ? 'h-11 w-11' : 'h-6 w-6',
+            inToday
+              ? 'text-[hsl(var(--accent))]'
+              : 'text-ink-3 hover:text-ink',
+          )}
+        >
+          <Sun className="size-3.5" aria-hidden />
+        </button>
+      )}
       <SetReminderPopover
         open={reminderOpen}
         onOpenChange={setReminderOpen}
