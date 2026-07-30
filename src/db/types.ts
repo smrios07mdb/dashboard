@@ -35,7 +35,8 @@ export type Task = {
   dueAt: string | null
   remindAt: string | null
   notified: boolean
-  priority: number | null
+  /** 1 (Urgent) / 2 (Soon) / 3 (Whenever); null = no priority set (chunk 33). */
+  priority: 1 | 2 | 3 | null
   completedAt: string | null
   createdAt: string
   updatedAt: string

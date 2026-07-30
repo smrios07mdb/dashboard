@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { Bell, CalendarClock, FileText, MoreHorizontal, Trash2 } from 'lucide-react'
+import {
+  Bell,
+  CalendarClock,
+  FileText,
+  ListFilter,
+  MoreHorizontal,
+  Trash2,
+} from 'lucide-react'
 
 import BlockTimeSheet from '@/components/BlockTimeSheet'
 import DeleteConfirm from '@/components/DeleteConfirm'
@@ -40,6 +47,8 @@ export type TaskMenuProps = {
   onMoveToSubcategoryId: (targetSubId: string) => void | Promise<void>
   /** Opens the reminder popover that lives in TaskRow (two entry points). */
   onOpenReminder: () => void
+  /** Opens the priority picker that lives in TaskRow (chip + this item). */
+  onOpenPriority: () => void
   onEditNotes: (notes: string | null) => void | Promise<void>
   onDelete: () => void | Promise<void>
 }
@@ -50,6 +59,7 @@ export default function TaskMenu({
   subcategories,
   onMoveToSubcategoryId,
   onOpenReminder,
+  onOpenPriority,
   onEditNotes,
   onDelete,
 }: TaskMenuProps) {
@@ -79,6 +89,15 @@ export default function TaskMenu({
             currentSubcategoryId={task.subcategoryId}
             onSelect={(id) => void onMoveToSubcategoryId(id)}
           />
+          <DropdownMenuItem onSelect={() => onOpenPriority()}>
+            <ListFilter className="size-3.5" aria-hidden />
+            Set priority…
+            {task.priority !== null && (
+              <span className="ml-auto pl-4 font-mono text-[10px] tracking-[0.1em] text-ink-3">
+                P{task.priority}
+              </span>
+            )}
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => onOpenReminder()}>
             <Bell className="size-3.5" aria-hidden />
             {task.remindAt ? 'Edit reminder' : 'Set reminder…'}

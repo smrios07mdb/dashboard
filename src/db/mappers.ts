@@ -96,7 +96,8 @@ export function taskFromRow(row: TaskRow): Task {
     dueAt: row.due_at,
     remindAt: row.remind_at,
     notified: row.notified,
-    priority: row.priority,
+    // DB says int; the 08_priority_check constraint pins it to {1,2,3,null}.
+    priority: row.priority as Task['priority'],
     completedAt: row.completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

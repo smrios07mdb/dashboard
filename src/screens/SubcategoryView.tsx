@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowUpDown, Check, ChevronDown, Move, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, Move, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import AddTaskInline from '@/components/AddTaskInline'
@@ -8,18 +8,23 @@ import Breadcrumbs from '@/components/Breadcrumbs'
 import DeleteConfirm from '@/components/DeleteConfirm'
 import { MoveToPickerContent } from '@/components/MoveToPicker'
 import TaskRow from '@/components/TaskRow'
+import TaskSortControl from '@/components/TaskSortControl'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
+import {
+  compareTasks,
+  loadTaskSortKey,
+  storeTaskSortKey,
+  type TaskSortKey,
+} from '@/lib/taskSort'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/state/uiStore'
 
@@ -51,40 +56,13 @@ function formatMinutes(mins: number): string {
   return m ? `${h}h ${m}m` : `${h}h`
 }
 
-// Client-side list sort (chunk 31, Decision D2). View-only — never persisted.
-type SortBy = 'created' | 'minutes' | 'priority' | 'title'
-
-const SORT_OPTIONS: { value: SortBy; label: string }[] = [
-  { value: 'created', label: 'Created (default)' },
-  { value: 'minutes', label: 'Estimate (high → low)' },
-  { value: 'priority', label: 'Priority (1 → 3)' },
-  { value: 'title', label: 'Title (A → Z)' },
-]
-
 /*
- * Sort the visible task list. `created` keeps the natural order
- * (repo.tasks.list returns newest-updated first); the others re-sort a copy.
- *
- * Judgment calls baked in here (see the chunk note / ask the human if these
- * should differ):
- *   - Priority sorts 1 → 3 with null LAST via `?? Infinity`. Our model is
- *     {1, 2, 3, null}, so this is safe — and avoids the prototype's `|| 9`
- *     idiom, which would also push a (non-existent) priority 0 to the back.
- *   - Ties preserve input order: Array.prototype.sort is stable in V8, so an
- *     equal-estimate / equal-priority group keeps its prior arrangement.
+ * List sort: chunk 33 replaced the chunk-31 view-local sort (D2:
+ * created / minutes / priority / title, session-only) with the global
+ * Priority / Due / Estimate preference from lib/taskSort — one
+ * localStorage-backed choice shared with the Dashboard and
+ * CategoryView. Comparator + tie-breaks live in lib/taskSort.
  */
-function sortTasks(tasks: Task[], sortBy: SortBy): Task[] {
-  if (sortBy === 'created') return tasks
-  const list = [...tasks]
-  if (sortBy === 'minutes') {
-    list.sort((a, b) => b.estimateMinutes - a.estimateMinutes)
-  } else if (sortBy === 'priority') {
-    list.sort((a, b) => (a.priority ?? Infinity) - (b.priority ?? Infinity))
-  } else if (sortBy === 'title') {
-    list.sort((a, b) => a.title.localeCompare(b.title))
-  }
-  return list
-}
 
 type ViewData = {
   categories: Category[]
@@ -132,7 +110,11 @@ export default function SubcategoryView() {
   const { data, setData, loading } = useSubcategoryViewData()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showCompleted, setShowCompleted] = useState(false)
-  const [sortBy, setSortBy] = useState<SortBy>('created')
+  const [sortKey, setSortKey] = useState<TaskSortKey>(loadTaskSortKey)
+  const onChangeSortKey = useCallback((key: TaskSortKey) => {
+    setSortKey(key)
+    storeTaskSortKey(key)
+  }, [])
   const [searchParams, setSearchParams] = useSearchParams()
   const highlightId = searchParams.get('task')
   const highlightRef = useRef<HTMLDivElement | null>(null)
@@ -161,9 +143,9 @@ export default function SubcategoryView() {
   )
 
   const visibleTasks = showCompleted ? allTasks : incomplete
-  // Rendered order respects the D2 sort menu; selection still operates on the
+  // Rendered order respects the global sort; selection still operates on the
   // unsorted `visibleTasks` set (order is irrelevant to which ids are chosen).
-  const sortedTasks = sortTasks(visibleTasks, sortBy)
+  const sortedTasks = [...visibleTasks].sort(compareTasks(sortKey))
   const openMinutes = incomplete.reduce(
     (sum, t) => sum + t.estimateMinutes,
     0,
@@ -370,6 +352,20 @@ export default function SubcategoryView() {
     [upsertTask],
   )
 
+  const onSetTaskPriority = useCallback(
+    async (id: string, priority: 1 | 2 | 3 | null) => {
+      try {
+        const updated = await repo.tasks.update(id, { priority })
+        upsertTask(updated)
+        toast(priority ? `Priority set to P${priority}` : 'Priority cleared')
+      } catch (e) {
+        console.error('Set priority failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
   const onEditTaskNotes = useCallback(
     async (id: string, notes: string | null) => {
       try {
@@ -508,30 +504,7 @@ export default function SubcategoryView() {
                 : `Show ${completed.length} done`}
             </button>
           )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Sort tasks"
-                className="inline-flex items-center gap-1.5 rounded-sm border border-line px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.08em] text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <ArrowUpDown aria-hidden className="size-3" />
-                Sort
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuRadioGroup
-                value={sortBy}
-                onValueChange={(v) => setSortBy(v as SortBy)}
-              >
-                {SORT_OPTIONS.map((opt) => (
-                  <DropdownMenuRadioItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <TaskSortControl value={sortKey} onChange={onChangeSortKey} />
         </div>
       </header>
 
@@ -599,6 +572,7 @@ export default function SubcategoryView() {
                   onDelete={onDeleteTask}
                   onMoveToSubcategory={onMoveTaskToSubcategory}
                   onSetReminder={onSetTaskReminder}
+                  onSetPriority={onSetTaskPriority}
                   onEditNotes={onEditTaskNotes}
                 />
               </div>

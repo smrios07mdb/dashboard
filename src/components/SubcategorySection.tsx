@@ -6,6 +6,7 @@ import SubcategoryHeader from '@/components/SubcategoryHeader'
 import TaskRow from '@/components/TaskRow'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { subColor } from '@/lib/gamify'
+import { compareTasks, type TaskSortKey } from '@/lib/taskSort'
 import { cn } from '@/lib/utils'
 
 /*
@@ -54,7 +55,16 @@ export type SubcategorySectionProps = {
     id: string,
     remindAt: string | null,
   ) => void | Promise<void>
+  onSetTaskPriority: (
+    id: string,
+    priority: 1 | 2 | 3 | null,
+  ) => void | Promise<void>
   onEditTaskNotes: (id: string, notes: string | null) => void | Promise<void>
+  /**
+   * Global list-sort preference (chunk 33). Applies to the open set
+   * only — the collapsed completed bucket keeps its existing order.
+   */
+  sortKey: TaskSortKey
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,
@@ -85,7 +95,9 @@ export default function SubcategorySection({
   onDeleteTask,
   onMoveTaskToSubcategory,
   onSetTaskReminder,
+  onSetTaskPriority,
   onEditTaskNotes,
+  sortKey,
   onRenameSubcategory,
   onDeleteSubcategory,
   onMergeSubcategory,
@@ -163,9 +175,14 @@ export default function SubcategorySection({
       )
       .map((t) => t.id),
   )
-  const visibleIncomplete = tasks.filter(
-    (t) => !t.completedAt || linger.has(t.id) || justCompletedIds.has(t.id),
-  )
+  // Chunk 33: the open set renders in the global sort order. Lingering
+  // just-completed rows keep their task data, so the comparator holds
+  // them in place for the celebration instead of jumping them around.
+  const visibleIncomplete = tasks
+    .filter(
+      (t) => !t.completedAt || linger.has(t.id) || justCompletedIds.has(t.id),
+    )
+    .sort(compareTasks(sortKey))
   const bucketCompleted = completed.filter(
     (t) => !linger.has(t.id) && !justCompletedIds.has(t.id),
   )
@@ -212,6 +229,7 @@ export default function SubcategorySection({
               onDelete={onDeleteTask}
               onMoveToSubcategory={onMoveTaskToSubcategory}
               onSetReminder={onSetTaskReminder}
+              onSetPriority={onSetTaskPriority}
               onEditNotes={onEditTaskNotes}
             />
           ))
@@ -247,6 +265,7 @@ export default function SubcategorySection({
                   onDelete={onDeleteTask}
                   onMoveToSubcategory={onMoveTaskToSubcategory}
                   onSetReminder={onSetTaskReminder}
+                  onSetPriority={onSetTaskPriority}
                   onEditNotes={onEditTaskNotes}
                 />
               ))}

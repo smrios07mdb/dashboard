@@ -14,6 +14,11 @@ import { useSession } from '@/lib/auth'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
 import { selectDashboardState } from '@/lib/dashboardState'
 import { calcStreak } from '@/lib/streak'
+import {
+  loadTaskSortKey,
+  storeTaskSortKey,
+  type TaskSortKey,
+} from '@/lib/taskSort'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -113,6 +118,14 @@ export default function Dashboard() {
   const userId = user?.id ?? null
   const { data, setData, loading, streak } = useDashboardData(userId)
   const navigate = useNavigate()
+
+  // Global list-sort preference (chunk 33) — one localStorage-backed
+  // value shared by both column controls and every list in the app.
+  const [sortKey, setSortKey] = useState<TaskSortKey>(loadTaskSortKey)
+  const onChangeSortKey = useCallback((key: TaskSortKey) => {
+    setSortKey(key)
+    storeTaskSortKey(key)
+  }, [])
 
   const subsByCat = useMemo(() => {
     const m: Record<string, Subcategory[]> = {}
@@ -321,6 +334,20 @@ export default function Dashboard() {
         toast(remindAt ? 'Reminder set' : 'Reminder cleared')
       } catch (e) {
         console.error('Set reminder failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
+  const onSetTaskPriority = useCallback(
+    async (id: string, priority: 1 | 2 | 3 | null) => {
+      try {
+        const updated = await repo.tasks.update(id, { priority })
+        upsertTask(updated)
+        toast(priority ? `Priority set to P${priority}` : 'Priority cleared')
+      } catch (e) {
+        console.error('Set priority failed', e)
         toast.error(SAVE_ERROR)
       }
     },
@@ -618,7 +645,10 @@ export default function Dashboard() {
             onDeleteTask={onDeleteTask}
             onMoveTaskToSubcategory={onMoveTaskToSubcategory}
             onSetTaskReminder={onSetTaskReminder}
+            onSetTaskPriority={onSetTaskPriority}
             onEditTaskNotes={onEditTaskNotes}
+            sortKey={sortKey}
+            onChangeSortKey={onChangeSortKey}
             onCreateSubcategory={onCreateSubcategory}
             onRenameSubcategory={onRenameSubcategory}
             onDeleteSubcategory={onDeleteSubcategory}

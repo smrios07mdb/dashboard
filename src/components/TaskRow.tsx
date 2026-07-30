@@ -4,6 +4,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { Bell, GripVertical, Trash2 } from 'lucide-react'
 
 import DeleteConfirm from '@/components/DeleteConfirm'
+import PriorityChip from '@/components/PriorityChip'
+import PriorityPicker from '@/components/PriorityPicker'
 import SetReminderPopover from '@/components/SetReminderPopover'
 import TaskMenu from '@/components/TaskMenu'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -77,6 +79,10 @@ export type TaskRowProps = {
     id: string,
     remindAt: string | null,
   ) => void | Promise<void>
+  onSetPriority: (
+    id: string,
+    priority: 1 | 2 | 3 | null,
+  ) => void | Promise<void>
   onEditNotes: (id: string, notes: string | null) => void | Promise<void>
   /**
    * Optional bulk-select adornments. When `selectable` is true, a
@@ -112,6 +118,7 @@ export default function TaskRow({
   onDelete,
   onMoveToSubcategory,
   onSetReminder,
+  onSetPriority,
   onEditNotes,
   selectable = false,
   selected = false,
@@ -123,6 +130,15 @@ export default function TaskRow({
   const canDrag = dragEnabled && !isTouch
   const completed = !!task.completedAt
   const [reminderOpen, setReminderOpen] = useState(false)
+  // Priority picker open state lives here (two entry points: the chip
+  // and TaskMenu → "Set priority…"), mirroring the reminder popover.
+  const [priorityOpen, setPriorityOpen] = useState(false)
+  // Chips hide on completed rows (DESIGN_NOTES § Priority system). The
+  // grid slot exists only while a chip shows or the picker is open —
+  // unlike the left edge, chip presence may shift layout (matches the
+  // prototype).
+  const chipPriority = completed ? null : task.priority
+  const prioritySlot = chipPriority !== null || priorityOpen
 
   // Completion celebration (chunk 27). The "+XP" floater color and the
   // row-flush tint both use the subcategory hue; default to Work when none.
@@ -176,6 +192,7 @@ export default function TaskRow({
     '18px',                     // completion checkbox
     canDrag ? '14px' : null,    // grip
     '1fr',                      // title
+    prioritySlot ? 'auto' : null, // priority chip / picker anchor
     'auto',                     // minutes
     'auto',                     // bell
     'auto',                     // trash
@@ -249,6 +266,25 @@ export default function TaskRow({
         task={task}
         onCommit={(title) => onEditTitle(task.id, title)}
       />
+      {prioritySlot && (
+        <PriorityPicker
+          open={priorityOpen}
+          onOpenChange={setPriorityOpen}
+          priority={task.priority}
+          trigger={
+            chipPriority !== null ? (
+              <PriorityChip
+                priority={chipPriority}
+                // Radix's trigger toggle merges in via Slot; this stops
+                // the click from reaching row-level handlers.
+                onClick={(e) => e.stopPropagation()}
+                className={cn(isTouch && 'before:size-11')}
+              />
+            ) : undefined
+          }
+          onPick={(p) => onSetPriority(task.id, p)}
+        />
+      )}
       <MinutesField
         task={task}
         onCommit={(minutes) => onEditMinutes(task.id, minutes)}
@@ -302,6 +338,7 @@ export default function TaskRow({
           onMoveToSubcategory(task.id, targetId)
         }
         onOpenReminder={() => setReminderOpen(true)}
+        onOpenPriority={() => setPriorityOpen(true)}
         onEditNotes={(notes) => onEditNotes(task.id, notes)}
         onDelete={() => onDelete(task.id)}
       />

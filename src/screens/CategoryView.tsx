@@ -19,9 +19,15 @@ import { toast } from 'sonner'
 import AddSubcategoryInline from '@/components/AddSubcategoryInline'
 import Breadcrumbs from '@/components/Breadcrumbs'
 import SubcategorySection from '@/components/SubcategorySection'
+import TaskSortControl from '@/components/TaskSortControl'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
+import {
+  loadTaskSortKey,
+  storeTaskSortKey,
+  type TaskSortKey,
+} from '@/lib/taskSort'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useUIStore } from '@/state/uiStore'
 
@@ -110,6 +116,14 @@ export default function CategoryView() {
   const userId = user?.id ?? null
   const isTouch = useIsTouchDevice()
   const { data, setData, loading } = useCategoryViewData()
+
+  // Global list-sort preference (chunk 33) — shared with Dashboard and
+  // SubcategoryView via localStorage.
+  const [sortKey, setSortKey] = useState<TaskSortKey>(loadTaskSortKey)
+  const onChangeSortKey = useCallback((key: TaskSortKey) => {
+    setSortKey(key)
+    storeTaskSortKey(key)
+  }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -300,6 +314,20 @@ export default function CategoryView() {
         toast(remindAt ? 'Reminder set' : 'Reminder cleared')
       } catch (e) {
         console.error('Set reminder failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
+  const onSetTaskPriority = useCallback(
+    async (id: string, priority: 1 | 2 | 3 | null) => {
+      try {
+        const updated = await repo.tasks.update(id, { priority })
+        upsertTask(updated)
+        toast(priority ? `Priority set to P${priority}` : 'Priority cleared')
+      } catch (e) {
+        console.error('Set priority failed', e)
         toast.error(SAVE_ERROR)
       }
     },
@@ -549,6 +577,12 @@ export default function CategoryView() {
         <span className="label">
           {openCount} open · {formatMinutes(openMinutes)}
         </span>
+        {/* Chunk 33: list sort — same global preference as the Dashboard. */}
+        <TaskSortControl
+          value={sortKey}
+          onChange={onChangeSortKey}
+          className="ml-auto"
+        />
       </header>
       <div className="overflow-hidden rounded-md border border-line bg-surface">
         {subcategories.length === 0 ? (
@@ -582,7 +616,9 @@ export default function CategoryView() {
                   onDeleteTask={onDeleteTask}
                   onMoveTaskToSubcategory={onMoveTaskToSubcategory}
                   onSetTaskReminder={onSetTaskReminder}
+                  onSetTaskPriority={onSetTaskPriority}
                   onEditTaskNotes={onEditTaskNotes}
+                  sortKey={sortKey}
                   onRenameSubcategory={onRenameSubcategory}
                   onDeleteSubcategory={onDeleteSubcategory}
                   onMergeSubcategory={onMergeSubcategory}
@@ -635,7 +671,12 @@ type SortableSubSectionProps = {
     id: string,
     remindAt: string | null,
   ) => void | Promise<void>
+  onSetTaskPriority: (
+    id: string,
+    priority: 1 | 2 | 3 | null,
+  ) => void | Promise<void>
   onEditTaskNotes: (id: string, notes: string | null) => void | Promise<void>
+  sortKey: TaskSortKey
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,

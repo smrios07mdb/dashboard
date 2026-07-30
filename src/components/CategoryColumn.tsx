@@ -15,8 +15,10 @@ import { CSS } from '@dnd-kit/utilities'
 
 import AddSubcategoryInline from '@/components/AddSubcategoryInline'
 import SubcategorySection from '@/components/SubcategorySection'
+import TaskSortControl from '@/components/TaskSortControl'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { catColor, fmtMin } from '@/lib/cat'
+import type { TaskSortKey } from '@/lib/taskSort'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 
 /*
@@ -70,10 +72,17 @@ export type CategoryColumnProps = {
     id: string,
     remindAt: string | null,
   ) => void | Promise<void>
+  onSetTaskPriority: (
+    id: string,
+    priority: 1 | 2 | 3 | null,
+  ) => void | Promise<void>
   onEditTaskNotes: (
     id: string,
     notes: string | null,
   ) => void | Promise<void>
+  /** Global sort preference (chunk 33) — one control per column, shared state. */
+  sortKey: TaskSortKey
+  onChangeSortKey: (key: TaskSortKey) => void
   onCreateSubcategory: (input: {
     categoryId: string
     name: string
@@ -108,7 +117,10 @@ export default function CategoryColumn({
   onDeleteTask,
   onMoveTaskToSubcategory,
   onSetTaskReminder,
+  onSetTaskPriority,
   onEditTaskNotes,
+  sortKey,
+  onChangeSortKey,
   onCreateSubcategory,
   onRenameSubcategory,
   onDeleteSubcategory,
@@ -188,7 +200,7 @@ export default function CategoryColumn({
             onDrillDown('category', category.id)
           }
         }}
-        className="grid cursor-pointer items-center gap-3.5 p-0.5 pb-4 [grid-template-columns:5px_1fr_auto_auto_auto]"
+        className="grid cursor-pointer items-center gap-3.5 p-0.5 pb-4 [grid-template-columns:5px_1fr_auto_auto_auto_auto]"
       >
         {/* Full-bleed accent bar — no card behind the header. */}
         <span
@@ -220,6 +232,8 @@ export default function CategoryColumn({
         <span className="whitespace-nowrap font-display text-[19px] font-medium tabular-nums text-ink-2">
           {fmtMin(total)}
         </span>
+        {/* Chunk 33: list sort — global preference, one control per column. */}
+        <TaskSortControl value={sortKey} onChange={onChangeSortKey} />
         <button
           type="button"
           aria-label={`Open ${category.name}`}
@@ -273,7 +287,9 @@ export default function CategoryColumn({
                   onDeleteTask={onDeleteTask}
                   onMoveTaskToSubcategory={onMoveTaskToSubcategory}
                   onSetTaskReminder={onSetTaskReminder}
+                  onSetTaskPriority={onSetTaskPriority}
                   onEditTaskNotes={onEditTaskNotes}
+                  sortKey={sortKey}
                   onRenameSubcategory={onRenameSubcategory}
                   onDeleteSubcategory={onDeleteSubcategory}
                   onMergeSubcategory={onMergeSubcategory}
@@ -320,7 +336,12 @@ type SortableSubSectionProps = {
     id: string,
     remindAt: string | null,
   ) => void | Promise<void>
+  onSetTaskPriority: (
+    id: string,
+    priority: 1 | 2 | 3 | null,
+  ) => void | Promise<void>
   onEditTaskNotes: (id: string, notes: string | null) => void | Promise<void>
+  sortKey: TaskSortKey
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,

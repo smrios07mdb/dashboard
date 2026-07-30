@@ -134,6 +134,8 @@ push_subscriptions
 
 **Realtime publication.** All seven user-scoped tables (`categories`, `subcategories`, `tasks`, `routine_items`, `routine_logs`, `settings`, `push_subscriptions`) are members of the `supabase_realtime` publication with `REPLICA IDENTITY FULL`. The `FULL` identity is required so DELETE events carry `user_id` for the realtime RLS filter — without it, deletes silently drop on the client side. Any future schema migration that adds a new user-scoped table must include both `alter publication supabase_realtime add table public.<name>;` and `alter table public.<name> replica identity full;` in the same migration.
 
+**Task priority (chunk 33, canonical for the planner series):** `tasks.priority` ∈ {1, 2, 3, null}, enforced by `08_priority_check.sql` — P1 Urgent / P2 Soon / P3 Whenever. `null` means "no priority set": renders no chip, sorts after P3, and is never coerced to 3. List sorting (`src/lib/taskSort.ts`) is a single global preference (localStorage `hupo.taskSort`, default `priority`) shared by every list. Tie-breaks: `priority` → `due_at` asc (nulls last) → `created_at` asc; `due` → `due_at` asc (nulls last) → priority → `created_at`; `estimate` → `estimate_minutes` asc → priority → `created_at`. Sort applies within the open set only — completed-row placement is whatever each list already does.
+
 **Client-only tables (Dexie):**
 
 ```
