@@ -219,6 +219,13 @@ export default function Planner() {
       ),
     [days, busyBlocks, todayIdx, nowMin],
   )
+  // Header free-total is the sum of the per-day figures by construction —
+  // `computeCapacity.free` has no past-day/elapsed-time clamping and would
+  // show the full 45h even on past weeks.
+  const weekFree = useMemo(
+    () => dayFree.reduce((sum: number, v) => sum + (v ?? 0), 0),
+    [dayFree],
+  )
 
   // ── tasks (tray) ───────────────────────────────────────────────────────
   const [taskData, setTaskData] = useState<{
@@ -316,7 +323,7 @@ export default function Planner() {
         <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>
           {fmtMin(capacity.planned)} planned
         </span>{' '}
-        · {fmtMin(capacity.free)} free
+        · {fmtMin(weekFree)} free
       </span>
     </header>
   )

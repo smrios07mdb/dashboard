@@ -6,6 +6,7 @@ import WindowRail from '@/components/planner/WindowRail'
 import { fmtMin } from '@/lib/cat'
 import {
   DAY_LABELS,
+  expandedWindow,
   fmtClock,
   hiddenCounts,
   PLANNER,
@@ -67,7 +68,7 @@ function DayHeader({
         className="num mono mt-0.5 min-h-3 text-[9px]"
         style={{ color: isToday ? 'var(--ink-2)' : 'var(--ink-3)' }}
       >
-        {free === undefined ? '' : free === null ? '—' : `${fmtMin(free)} free`}
+        {free == null ? '—' : `${fmtMin(free)} free`}
       </div>
     </div>
   )
@@ -114,7 +115,8 @@ export type WeekGridProps = {
   loading: boolean
   /** CalendarError message for the quiet inline notice; null when healthy. */
   errorMessage: string | null
-  /** Per-day free minutes (Mon–Fri); undefined = weekend (no figure). */
+  /** Per-day free minutes (Mon–Fri); null = past day, undefined = weekend
+   *  (outside the planning window) — both render the `—` placeholder. */
   dayFree: Array<number | null | undefined>
 }
 
@@ -136,8 +138,11 @@ export default function WeekGrid({
   const [botExpanded, setBotExpanded] = useState(false)
   const [openBusy, setOpenBusy] = useState<OpenBusy | null>(null)
 
-  const h0 = topExpanded ? PLANNER.winFullStart : PLANNER.winCollapsedStart
-  const h1 = botExpanded ? PLANNER.winFullEnd : PLANNER.winCollapsedEnd
+  // Expanded bounds stretch past 07:00/21:00 when busy data falls outside
+  // them, so every block the rails count is reachable by expanding.
+  const win = expandedWindow(busy)
+  const h0 = topExpanded ? win.start : PLANNER.winCollapsedStart
+  const h1 = botExpanded ? win.end : PLANNER.winCollapsedEnd
   const gridH = ((h1 - h0) / 60) * PLANNER.hourH
   const hidden = hiddenCounts(busy)
 
@@ -172,7 +177,7 @@ export default function WeekGrid({
         side="top"
         expanded={topExpanded}
         onToggle={() => setTopExpanded((x) => !x)}
-        label="07:00 – 08:00"
+        label={`${fmtClock(win.start)} – ${fmtClock(PLANNER.winCollapsedStart)}`}
         hiddenCount={hidden.top}
       />
 
@@ -262,7 +267,7 @@ export default function WeekGrid({
         side="bottom"
         expanded={botExpanded}
         onToggle={() => setBotExpanded((x) => !x)}
-        label="19:00 – 21:00"
+        label={`${fmtClock(PLANNER.winCollapsedEnd)} – ${fmtClock(win.end)}`}
         hiddenCount={hidden.bottom}
       />
     </div>

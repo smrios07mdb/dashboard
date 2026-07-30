@@ -5,6 +5,7 @@ import {
   blockPos,
   busyToWeekBlocks,
   ceil15,
+  expandedWindow,
   fmtClock,
   fmtRange,
   hiddenCounts,
@@ -214,6 +215,36 @@ describe('hiddenCounts', () => {
     expect(hiddenCounts([{ startMin: 600, endMin: 660 }])).toEqual({
       top: 0,
       bottom: 0,
+    })
+  })
+})
+
+describe('expandedWindow', () => {
+  it('defaults to the full 07:00–21:00 window', () => {
+    expect(expandedWindow([])).toEqual({
+      start: PLANNER.winFullStart,
+      end: PLANNER.winFullEnd,
+    })
+    expect(expandedWindow([{ startMin: 600, endMin: 660 }])).toEqual({
+      start: PLANNER.winFullStart,
+      end: PLANNER.winFullEnd,
+    })
+  })
+
+  it('stretches to whole hours to cover out-of-window blocks', () => {
+    // 05:10–06:00 → floor to 05:00; 21:00–22:40 → ceil to 23:00.
+    expect(
+      expandedWindow([
+        { startMin: 310, endMin: 360 },
+        { startMin: 1260, endMin: 1360 },
+      ]),
+    ).toEqual({ start: 300, end: 1380 })
+  })
+
+  it('clamps to the day bounds', () => {
+    expect(expandedWindow([{ startMin: 0, endMin: 24 * 60 }])).toEqual({
+      start: 0,
+      end: 24 * 60,
     })
   })
 })

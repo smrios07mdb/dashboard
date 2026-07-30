@@ -50,7 +50,8 @@ describe('WeekGrid (chunk 36)', () => {
 
   it('renders per-day free figures and the past/weekend variants', () => {
     renderGrid({ dayFree: [null, 540, 390, 540, 540, undefined, undefined] })
-    expect(screen.getByText('—')).toBeInTheDocument() // past day
+    // 1 past day + 2 weekend days all get the same placeholder.
+    expect(screen.getAllByText('—')).toHaveLength(3)
     expect(screen.getByText('6h 30m free')).toBeInTheDocument() // today from now
   })
 
@@ -91,6 +92,21 @@ describe('WeekGrid (chunk 36)', () => {
     // Expanding the top window to 07:00 removes the clamp stamp.
     fireEvent.click(screen.getByText(/SHOW 07:00 – 08:00/))
     expect(screen.queryByText('↑ 07:30')).not.toBeInTheDocument()
+  })
+
+  it('stretches the expanded window to reach blocks outside 07:00–21:00', () => {
+    // 05:00–06:00 block: invisible collapsed, counted by the top rail, and
+    // reachable once expanded (the fixed 07:00 floor left it unreachable).
+    renderGrid({
+      busy: [
+        { day: 1, startMin: 300, endMin: 360, source: 'icloud', title: 'Early' },
+      ],
+    })
+    expect(screen.queryByText('Early')).not.toBeInTheDocument()
+    const rail = screen.getByText(/SHOW 05:00 – 08:00/)
+    expect(rail).toHaveTextContent('· 1 HIDDEN')
+    fireEvent.click(rail)
+    expect(screen.getByText('Early')).toBeInTheDocument()
   })
 
   it('rails show hidden-block counts per edge', () => {

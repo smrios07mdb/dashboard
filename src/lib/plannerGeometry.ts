@@ -236,3 +236,22 @@ export function hiddenCounts(
   }
   return { top, bottom }
 }
+
+/**
+ * Expanded visible window for a set of blocks: the full 07:00–21:00 window,
+ * stretched to whole hours so every block fits inside it, clamped to the day.
+ * The fixed 07:00 floor left real busy data (e.g. proxy-reported 05:00
+ * intervals) counted by the rails but unreachable by expanding — the window
+ * must cover the same data the rails count.
+ */
+export function expandedWindow(
+  blocks: Array<{ startMin: number; endMin: number }>,
+): { start: number; end: number } {
+  let start = PLANNER.winFullStart
+  let end = PLANNER.winFullEnd
+  for (const b of blocks) {
+    if (b.startMin < start) start = Math.floor(b.startMin / 60) * 60
+    if (b.endMin > end) end = Math.ceil(b.endMin / 60) * 60
+  }
+  return { start: Math.max(0, start), end: Math.min(24 * 60, end) }
+}

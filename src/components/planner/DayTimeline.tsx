@@ -4,6 +4,7 @@ import BusyBlock from '@/components/planner/BusyBlock'
 import BusyPopover from '@/components/planner/BusyPopover'
 import WindowRail from '@/components/planner/WindowRail'
 import {
+  expandedWindow,
   fmtClock,
   hiddenCounts,
   PLANNER,
@@ -45,10 +46,15 @@ export default function DayTimeline({
     top: number
   } | null>(null)
 
-  const h0 = topExpanded ? PLANNER.winFullStart : PLANNER.winCollapsedStart
-  const h1 = botExpanded ? PLANNER.winFullEnd : PLANNER.winCollapsedEnd
+  // Expanded bounds stretch past 07:00/21:00 when busy data falls outside
+  // them, so every block the rails count is reachable by expanding.
+  const win = expandedWindow(busy)
+  const h0 = topExpanded ? win.start : PLANNER.winCollapsedStart
+  const h1 = botExpanded ? win.end : PLANNER.winCollapsedEnd
   const gridH = ((h1 - h0) / 60) * PLANNER.mHourH
   const hidden = hiddenCounts(busy)
+  // Mobile rail labels are hour-only: `07 – 08`.
+  const hh = (m: number) => fmtClock(m).slice(0, 2)
 
   const hours: number[] = []
   for (let m = h0; m <= h1; m += 60) hours.push(m)
@@ -67,7 +73,7 @@ export default function DayTimeline({
         side="top"
         expanded={topExpanded}
         onToggle={() => setTopExpanded((x) => !x)}
-        label="07 – 08"
+        label={`${hh(win.start)} – ${hh(PLANNER.winCollapsedStart)}`}
         hiddenCount={hidden.top}
       />
       <div
@@ -155,7 +161,7 @@ export default function DayTimeline({
         side="bottom"
         expanded={botExpanded}
         onToggle={() => setBotExpanded((x) => !x)}
-        label="19 – 21"
+        label={`${hh(PLANNER.winCollapsedEnd)} – ${hh(win.end)}`}
         hiddenCount={hidden.bottom}
       />
     </div>
