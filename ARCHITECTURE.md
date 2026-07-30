@@ -117,7 +117,15 @@ settings
   caldav_status text not null default 'unconfigured'
     check (caldav_status in ('unconfigured','ok','auth_failed')),
   timezone text not null default 'America/New_York',
-  last_daily_reset date
+  last_daily_reset date,
+  -- Outlook ICS feed (chunk 35 / migration 09; proxy-owned except the three
+  -- readable status columns — see §7)
+  outlook_ics_url_encrypted bytea,
+  outlook_feed_name text,
+  outlook_status text not null default 'unconfigured'
+    check (outlook_status in ('unconfigured','ok','unreachable')),
+  outlook_cached_busy jsonb,
+  outlook_fetched_at timestamptz
 
 push_subscriptions
   id, user_id,
@@ -208,6 +216,8 @@ Cache mirrors of all user-scoped Postgres tables live in Dexie (no `user_id` col
 - Password encrypted with AES-GCM (Vercel env-var key) on top of Supabase at-rest encryption.
 - Service role key lives only in Vercel env vars.
 - JWT validated via `jose.jwtVerify` against Supabase JWKS.
+
+**Outlook ICS feed (chunk 34 proxy / chunk 35 client).** A second, read-only busy source: the user publishes their work calendar from Outlook and pastes the ICS link into Settings. `POST /api/calendar/outlook` with `{ icsUrl }` verifies the feed and persists it AES-GCM-encrypted (`outlook_ics_url_encrypted`) along with `outlook_feed_name`/`outlook_status`; `{ icsUrl: null }` disconnects. Verification failures return `422 { ok: false, error: 'invalid_url' | 'unreachable' | 'invalid_feed' }`. `GET /api/calendar/busy` merges both sources — `busy` entries carry `source: 'icloud' | 'outlook'` (+ optional `title`) and the response includes a `sources` block with per-source health; it 412s only when NEITHER source is configured. When the feed stops responding the proxy serves `outlook_cached_busy` (stamped `outlook_fetched_at`) and flips `outlook_status='unreachable'` — the UI treats this as stale-not-lost (amber, never destructive). The ICS URL is write-only from the client: never mapped into the client `Settings` type, never prefilled, never read back. Nothing is ever written to Outlook.
 
 ---
 

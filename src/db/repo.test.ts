@@ -188,6 +188,9 @@ describe('mappers', () => {
       caldav_apple_id: null,
       caldav_calendar_url: null,
       caldav_status: 'unconfigured' as const,
+      outlook_status: 'unconfigured' as const,
+      outlook_feed_name: null,
+      outlook_fetched_at: null,
       timezone: 'America/New_York',
       last_daily_reset: null,
     }
@@ -353,6 +356,9 @@ describe('settings cache omits secrets at rest (PRIV-02)', () => {
     caldav_apple_id: 'me@icloud.com',
     caldav_calendar_url: 'https://cal.example',
     caldav_status: 'ok' as const,
+    outlook_status: 'ok' as const,
+    outlook_feed_name: 'Meetings — S. Ríos',
+    outlook_fetched_at: '2026-07-30T09:14:00.000Z',
     timezone: 'America/New_York',
     last_daily_reset: null,
   }

@@ -198,12 +198,17 @@ export function routineLogToRow(
 
 // ---------- settings ----------
 
+// `outlook_ics_url_encrypted` and `outlook_cached_busy` are intentionally
+// absent (write-only secrets, proxy-owned — see db/types.ts).
 export type SettingsRow = {
   user_id: string
   ai_api_key: string | null
   caldav_apple_id: string | null
   caldav_calendar_url: string | null
   caldav_status: Settings['caldavStatus']
+  outlook_status: Settings['outlookStatus']
+  outlook_feed_name: string | null
+  outlook_fetched_at: string | null
   timezone: string
   last_daily_reset: string | null
 }
@@ -215,6 +220,11 @@ export function settingsFromRow(row: SettingsRow): Settings {
     caldavAppleId: row.caldav_apple_id,
     caldavCalendarUrl: row.caldav_calendar_url,
     caldavStatus: row.caldav_status,
+    // Rows cached before migration 09 may predate the column; default to the
+    // DB default rather than persisting `undefined` into the Settings shape.
+    outlookStatus: row.outlook_status ?? 'unconfigured',
+    outlookFeedName: row.outlook_feed_name ?? null,
+    outlookFetchedAt: row.outlook_fetched_at ?? null,
     timezone: row.timezone,
     lastDailyReset: row.last_daily_reset,
   }
@@ -254,6 +264,12 @@ export function settingsToRow(
   if (value.caldavCalendarUrl !== undefined)
     row.caldav_calendar_url = value.caldavCalendarUrl
   if (value.caldavStatus !== undefined) row.caldav_status = value.caldavStatus
+  if (value.outlookStatus !== undefined)
+    row.outlook_status = value.outlookStatus
+  if (value.outlookFeedName !== undefined)
+    row.outlook_feed_name = value.outlookFeedName
+  if (value.outlookFetchedAt !== undefined)
+    row.outlook_fetched_at = value.outlookFetchedAt
   if (value.timezone !== undefined) row.timezone = value.timezone
   if (value.lastDailyReset !== undefined)
     row.last_daily_reset = value.lastDailyReset

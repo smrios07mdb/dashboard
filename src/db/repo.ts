@@ -912,6 +912,9 @@ const settingsRepo = {
       caldavAppleId: null,
       caldavCalendarUrl: null,
       caldavStatus: 'unconfigured',
+      outlookStatus: 'unconfigured',
+      outlookFeedName: null,
+      outlookFetchedAt: null,
       timezone: 'America/New_York',
       lastDailyReset: null,
     }

@@ -25,7 +25,7 @@ import {
 } from '@/db/outbox'
 import { repo } from '@/db/repo'
 import { useSyncStore } from '@/db/syncStore'
-import type { CaldavStatus, OutboxRow } from '@/db/types'
+import type { CaldavStatus, OutboxRow, OutlookStatus } from '@/db/types'
 import { useSession } from '@/lib/auth'
 import {
   downloadExport,
@@ -43,10 +43,12 @@ import { useUIStore } from '@/state/uiStore'
 import {
   CalendarError,
   clearVerified,
+  disconnectOutlookFeed,
   getVerifiedAt,
   isSignedOut,
   markVerified,
   saveCredentials,
+  saveOutlookFeed,
   testCredentials,
   type DiscoveredCalendar,
 } from '@/lib/calendarApi'
@@ -449,6 +451,28 @@ function StatusBadge({
   return <Badge variant="secondary">Not configured</Badge>
 }
 
+/**
+ * Shared error reporter for calendar-proxy actions (Apple + Outlook rows).
+ * Signed-out gets the session-refresh recovery path; everything else toasts
+ * the typed CalendarError message (or the caller's fallback).
+ */
+async function reportCalendarError(e: unknown, fallback: string) {
+  if (isSignedOut(e)) {
+    // Stale/expired Supabase JWT (resolution 3, source #2). Try one refresh;
+    // on success the user simply retries (we don't auto-resubmit Test/Save),
+    // on failure the now-null session drives <Protected> to <Login/>.
+    const outcome = await recoverSignedOut()
+    toast.error(
+      outcome === 'recovered'
+        ? 'Session refreshed — please try again.'
+        : 'Your session expired — sign in again.',
+    )
+    return
+  }
+  console.error('Calendar action failed', e)
+  toast.error(e instanceof CalendarError ? e.message : fallback)
+}
+
 function CalendarSection() {
   const { user } = useSession()
   const userId = user?.id ?? null
@@ -493,23 +517,6 @@ function CalendarSection() {
     setCalendarUrl(settings.caldavCalendarUrl ?? '')
   }
 
-  async function reportError(e: unknown, fallback: string) {
-    if (isSignedOut(e)) {
-      // Stale/expired Supabase JWT (resolution 3, source #2). Try one refresh;
-      // on success the user simply retries (we don't auto-resubmit Test/Save),
-      // on failure the now-null session drives <Protected> to <Login/>.
-      const outcome = await recoverSignedOut()
-      toast.error(
-        outcome === 'recovered'
-          ? 'Session refreshed — please try again.'
-          : 'Your session expired — sign in again.',
-      )
-      return
-    }
-    console.error('Calendar action failed', e)
-    toast.error(e instanceof CalendarError ? e.message : fallback)
-  }
-
   async function testConnection() {
     const id = appleId.trim()
     if (!id || !appPassword) return
@@ -529,7 +536,7 @@ function CalendarSection() {
           : 'Connected, but no event calendars were found.',
       )
     } catch (e) {
-      await reportError(
+      await reportCalendarError(
         e,
         'Could not connect — check your Apple ID and app-specific password.',
       )
@@ -551,7 +558,7 @@ function CalendarSection() {
       setAppPassword('') // write-only: don't retain it in the form
       toast('Apple Calendar connected.')
     } catch (e) {
-      await reportError(e, 'Could not save — retry.')
+      await reportCalendarError(e, 'Could not save — retry.')
     } finally {
       setSaving(false)
     }
@@ -583,7 +590,7 @@ function CalendarSection() {
   const isConnected = caldavStatus === 'ok' || caldavStatus === 'auth_failed'
 
   return (
-    <SettingsSection kicker="02" title="Apple Calendar">
+    <SettingsSection kicker="02" title="Calendars">
       <SettingsRow title="Status" align="center">
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge status={caldavStatus} testing={testing} />
@@ -706,7 +713,204 @@ function CalendarSection() {
           </div>
         )}
       </SettingsRow>
+
+      <OutlookRows />
     </SettingsSection>
+  )
+}
+
+function formatClock(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  // 24h to match the planner's clock convention (DESIGN_NOTES).
+  return d.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+function OutlookStatusBadge({
+  status,
+  feedName,
+  fetchedAt,
+}: {
+  status: OutlookStatus
+  feedName: string | null
+  fetchedAt: string | null
+}) {
+  if (status === 'ok') {
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        <Badge variant="success">Connected · {feedName ?? 'calendar'}</Badge>
+        {fetchedAt && (
+          <span className="num text-[12px] text-ink-3">
+            Last refreshed {formatAge(fetchedAt)}
+          </span>
+        )}
+      </div>
+    )
+  }
+  if (status === 'unreachable') {
+    // Amber, not destructive: the feed is stale, not lost — the proxy keeps
+    // serving its cached copy (DESIGN_NOTES § stale feed).
+    const clock = fetchedAt ? formatClock(fetchedAt) : ''
+    return (
+      <div className="flex flex-col gap-1.5">
+        <div>
+          <Badge variant="warning">
+            {clock ? `Feed unreachable since ${clock}` : 'Feed unreachable'}
+          </Badge>
+        </div>
+        <span className="text-[12px] leading-relaxed text-ink-3">
+          {clock
+            ? `Showing busy times cached at ${clock}. The feed is retried on the next busy refresh.`
+            : 'Showing cached busy times. The feed is retried on the next busy refresh.'}
+        </span>
+      </div>
+    )
+  }
+  return <Badge variant="secondary">Not connected</Badge>
+}
+
+/**
+ * Outlook (work) ICS feed rows (chunk 35), rendered inside the Calendars
+ * section under the Apple rows. The ICS URL is write-only: entered here,
+ * POSTed to the proxy, never prefilled or read back (db/types.ts). Status /
+ * feed name / fetched-at are read back from settings after every action —
+ * the proxy is the source of truth, same as the Apple save path.
+ *
+ * Live status: realtime settings events land in Dexie and bump
+ * `dashboardRefreshKey` (db/realtime.ts), so re-reading on that counter keeps
+ * the badge current — e.g. a busy fetch flipping `outlook_status` to
+ * 'unreachable' — without polling.
+ */
+function OutlookRows() {
+  const { user } = useSession()
+  const userId = user?.id ?? null
+  const refreshKey = useUIStore((s) => s.dashboardRefreshKey)
+
+  const [status, setStatus] = useState<OutlookStatus>('unconfigured')
+  const [feedName, setFeedName] = useState<string | null>(null)
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null)
+  const [url, setUrl] = useState('')
+  const [verifying, setVerifying] = useState(false)
+
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    repo.settings
+      .get(userId)
+      .then((settings) => {
+        if (cancelled || !settings) return
+        setStatus(settings.outlookStatus ?? 'unconfigured')
+        setFeedName(settings.outlookFeedName ?? null)
+        setFetchedAt(settings.outlookFetchedAt ?? null)
+      })
+      .catch((e) => {
+        console.error('Load Outlook settings failed', e)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [userId, refreshKey])
+
+  async function refetchSettings() {
+    if (!userId) return
+    const settings = await repo.settings.get(userId).catch(() => null)
+    if (!settings) return
+    setStatus(settings.outlookStatus ?? 'unconfigured')
+    setFeedName(settings.outlookFeedName ?? null)
+    setFetchedAt(settings.outlookFetchedAt ?? null)
+  }
+
+  async function verifyAndSave() {
+    const icsUrl = url.trim()
+    if (!icsUrl) return
+    setVerifying(true)
+    try {
+      const result = await saveOutlookFeed({ icsUrl })
+      setUrl('') // write-only: don't retain the link in the form
+      // The proxy wrote status/feedName/fetchedAt server-side; read back
+      // rather than setting optimistically (same as the Apple save path).
+      await refetchSettings()
+      toast(
+        `Connected — ${result.feedName ?? 'calendar'} · ${result.eventCount} events this week`,
+      )
+    } catch (e) {
+      await reportCalendarError(e, "That feed couldn't be verified — retry.")
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  async function disconnect() {
+    try {
+      await disconnectOutlookFeed()
+      await refetchSettings()
+      toast('Outlook feed disconnected.')
+    } catch (e) {
+      await reportCalendarError(e, SAVE_ERROR)
+    }
+  }
+
+  return (
+    <>
+      <SettingsRow
+        title="Outlook (work)"
+        hint="Read-only: events from this feed appear as busy time; nothing is ever written to Outlook."
+        align="top"
+      >
+        <OutlookStatusBadge
+          status={status}
+          feedName={feedName}
+          fetchedAt={fetchedAt}
+        />
+      </SettingsRow>
+
+      <SettingsRow
+        title="ICS link"
+        hint="In Outlook: Settings → Shared calendars → Publish a calendar → copy the ICS link."
+      >
+        <div className="flex max-w-xl items-center gap-2">
+          <Input
+            id="outlook-ics-url"
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://outlook.office365.com/owa/calendar/…/calendar.ics"
+            aria-label="Outlook ICS link"
+            autoComplete="off"
+            spellCheck={false}
+            className="mono text-[12px]"
+          />
+          <Button
+            type="button"
+            onClick={verifyAndSave}
+            disabled={verifying || !url.trim()}
+          >
+            <Link2 className="size-4" />
+            {verifying ? 'Verifying…' : 'Verify & save'}
+          </Button>
+        </div>
+
+        {status !== 'unconfigured' && (
+          <div className="mt-2.5">
+            <DeleteConfirm
+              trigger={
+                <Button type="button" variant="outline" size="sm">
+                  Disconnect
+                </Button>
+              }
+              title="Disconnect Outlook feed?"
+              description="This removes the stored feed link from this app. Busy times from Outlook disappear; the published calendar in Outlook is untouched."
+              confirmLabel="Disconnect"
+              onConfirm={disconnect}
+            />
+          </div>
+        )}
+      </SettingsRow>
+    </>
   )
 }
 

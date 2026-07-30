@@ -27,6 +27,18 @@ export type CalendarErrorKind =
   | 'not_configured' // proxy has no saved credentials (412), or the proxy URL is unset
   | 'network' // transport failure, 5xx, or 502 upstream CalDAV error
   | 'bad_response' // non-JSON / unexpected response shape
+  | 'bad_feed' // Outlook ICS verification failed (422); message carries the specific reason
+
+/**
+ * Proxy 422 verification kinds → user-readable toasts (chunk 35). Only the
+ * `POST /api/calendar/outlook` endpoint 422s, so the mapping is keyed by its
+ * three documented error codes.
+ */
+const OUTLOOK_FEED_MESSAGES: Record<string, string> = {
+  invalid_url: "That doesn't look like a valid https ICS link.",
+  unreachable: "The feed didn't respond — check the link.",
+  invalid_feed: "That URL isn't an iCalendar feed.",
+}
 
 const DEFAULT_MESSAGES: Record<CalendarErrorKind, string> = {
   auth_failed: 'Apple Calendar disconnected — reconnect in Settings.',
@@ -36,6 +48,7 @@ const DEFAULT_MESSAGES: Record<CalendarErrorKind, string> = {
   not_configured: 'Apple Calendar is not set up yet.',
   network: 'Could not reach the calendar service — retry.',
   bad_response: 'Unexpected response from the calendar service.',
+  bad_feed: "That feed couldn't be verified — check the link and retry.",
 }
 
 export class CalendarError extends Error {
@@ -162,6 +175,11 @@ async function callProxy(path: string, init: RequestInit): Promise<Envelope> {
   if (res.status === 412 || code === 'no_credentials') {
     throw new CalendarError('not_configured')
   }
+  if (res.status === 422) {
+    // Outlook ICS verification failure — the code picks the message; an
+    // unknown code falls back to the generic bad_feed default.
+    throw new CalendarError('bad_feed', OUTLOOK_FEED_MESSAGES[code])
+  }
   throw new CalendarError(
     'network',
     body
@@ -214,15 +232,79 @@ export async function saveCredentials(args: {
   })
 }
 
-/** Busy intervals between two ISO instants for the saved calendar. */
+/** One merged busy interval; `source` says which calendar it came from
+ *  (chunk 35 — the proxy now merges iCloud CalDAV + the Outlook ICS feed). */
+export interface BusySource extends BusyRange {
+  source: 'icloud' | 'outlook'
+  title?: string
+}
+
+/** Per-source health from the busy endpoint. `outlook.status === 'stale'`
+ *  means cached data is being served because the feed stopped responding. */
+export interface BusySources {
+  icloud: { configured: boolean; ok: boolean }
+  outlook: {
+    configured: boolean
+    status: 'ok' | 'stale' | 'unconfigured'
+    fetchedAt: string | null
+    feedName: string | null
+  }
+}
+
+/**
+ * An array of busy intervals (assignable to `BusyRange[]`, so pre-chunk-35
+ * consumers like `busyCache` compile untouched) with the proxy's per-source
+ * health attached as an optional `sources` property. Optional so plain-array
+ * mocks and older callsites stay valid.
+ */
+export type GetBusyResult = BusySource[] & { sources?: BusySources }
+
+/** Merged busy intervals between two ISO instants, across both sources. */
 export async function getBusy(args: {
   from: string
   to: string
-}): Promise<BusyRange[]> {
+}): Promise<GetBusyResult> {
   const qs = new URLSearchParams({ from: args.from, to: args.to }).toString()
   const body = await callProxy(`/api/calendar/busy?${qs}`, { method: 'GET' })
   markVerified()
-  return Array.isArray(body.busy) ? (body.busy as BusyRange[]) : []
+  const result: GetBusyResult = Array.isArray(body.busy)
+    ? (body.busy.slice() as GetBusyResult)
+    : []
+  if (body.sources && typeof body.sources === 'object') {
+    result.sources = body.sources as BusySources
+  }
+  return result
+}
+
+/**
+ * Verify + persist the published Outlook ICS link. The proxy AES-GCM-encrypts
+ * the URL and writes `outlook_status='ok'` / feed name / fetched-at
+ * server-side — callers read those back via settings (never set them
+ * optimistically). The URL itself is write-only: it leaves the client only as
+ * this HTTPS body and is never read back (see db/types.ts).
+ */
+export async function saveOutlookFeed(args: {
+  icsUrl: string
+}): Promise<{ feedName: string | null; eventCount: number }> {
+  const body = await callProxy('/api/calendar/outlook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ icsUrl: args.icsUrl }),
+  })
+  return {
+    feedName: typeof body.feedName === 'string' ? body.feedName : null,
+    eventCount: typeof body.eventCount === 'number' ? body.eventCount : 0,
+  }
+}
+
+/** Disconnect the Outlook feed (`{ icsUrl: null }` clears the stored URL and
+ *  resets `outlook_status='unconfigured'` server-side). */
+export async function disconnectOutlookFeed(): Promise<void> {
+  await callProxy('/api/calendar/outlook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ icsUrl: null }),
+  })
 }
 
 /** Create a VEVENT on the saved calendar; returns the generated UID. */

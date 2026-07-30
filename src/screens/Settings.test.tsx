@@ -146,14 +146,25 @@ describe('Settings — re-skin (chunk 30)', () => {
     expect(screen.queryByRole('button', { name: /^light$/i })).toBeNull()
   })
 
+  it('renders the Outlook rows inside the Calendars section', async () => {
+    render(<Settings />)
+    await screen.findByRole('button', { name: /sign out/i })
+    expect(screen.getByText('Outlook (work)')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /verify & save/i }),
+    ).toBeInTheDocument()
+  })
+
   it('renders each real section heading', async () => {
     render(<Settings />)
     await screen.findByRole('button', { name: /sign out/i })
     expect(
       screen.getByRole('heading', { name: /account/i }),
     ).toBeInTheDocument()
+    // Chunk 35: section 02 renamed "Apple Calendar" → "Calendars" (it now
+    // holds the Apple rows + the Outlook feed rows).
     expect(
-      screen.getByRole('heading', { name: /apple calendar/i }),
+      screen.getByRole('heading', { name: /calendars/i }),
     ).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /ai assist/i })).toBeInTheDocument()
     expect(
@@ -161,5 +172,79 @@ describe('Settings — re-skin (chunk 30)', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /^data$/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /about/i })).toBeInTheDocument()
+  })
+})
+
+/**
+ * Chunk 35 — Outlook feed badge states. Mocked repo only; the three
+ * `outlookStatus` values drive the badge copy (DESIGN_NOTES § stale feed:
+ * unreachable is amber/stale, never destructive/lost).
+ */
+describe('Settings — Outlook feed (chunk 35)', () => {
+  function mockSettings(over: Record<string, unknown> = {}) {
+    settingsGetMock.mockResolvedValue({
+      userId: 'u1',
+      aiApiKey: null,
+      caldavAppleId: null,
+      caldavCalendarUrl: null,
+      caldavStatus: 'unconfigured',
+      outlookStatus: 'unconfigured',
+      outlookFeedName: null,
+      outlookFetchedAt: null,
+      timezone: 'America/New_York',
+      lastDailyReset: null,
+      ...over,
+    })
+  }
+  afterEach(() => vi.clearAllMocks())
+
+  it('shows "Not connected" when unconfigured, with no Disconnect button', async () => {
+    mockSettings()
+    render(<Settings />)
+    expect(await screen.findByText('Not connected')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /disconnect$/i }),
+    ).toBeNull()
+  })
+
+  it('shows the connected badge with feed name and refreshed age when ok', async () => {
+    mockSettings({
+      outlookStatus: 'ok',
+      outlookFeedName: 'Meetings — S. Ríos',
+      outlookFetchedAt: new Date(Date.now() - 12 * 60000).toISOString(),
+    })
+    render(<Settings />)
+    expect(
+      await screen.findByText(/connected · meetings — s\. ríos/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/last refreshed 12m ago/i)).toBeInTheDocument()
+  })
+
+  it('shows the amber unreachable state with the cached-data explanation', async () => {
+    mockSettings({
+      outlookStatus: 'unreachable',
+      outlookFeedName: 'Meetings — S. Ríos',
+      outlookFetchedAt: '2026-07-30T09:14:00.000Z',
+    })
+    render(<Settings />)
+    expect(
+      await screen.findByText(/feed unreachable since/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/showing busy times cached at/i),
+    ).toBeInTheDocument()
+  })
+
+  it('never prefills the ICS link input (write-only URL)', async () => {
+    mockSettings({
+      outlookStatus: 'ok',
+      outlookFeedName: 'Meetings — S. Ríos',
+      outlookFetchedAt: new Date().toISOString(),
+    })
+    render(<Settings />)
+    await screen.findByText(/connected · meetings/i)
+    expect(
+      (screen.getByLabelText(/outlook ics link/i) as HTMLInputElement).value,
+    ).toBe('')
   })
 })

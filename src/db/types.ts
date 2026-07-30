@@ -7,7 +7,9 @@
  *
  * `caldav_app_password_encrypted` (bytea) is intentionally omitted from
  * Settings — the encrypted password is never read by the client, only
- * the proxy.
+ * the proxy. `outlook_ics_url_encrypted` and `outlook_cached_busy` get the
+ * same treatment (chunk 35): the ICS URL is entered, sent to the proxy,
+ * and never read back; the cached busy JSON is proxy-internal.
  */
 
 export type Category = {
@@ -62,12 +64,19 @@ export type RoutineLog = {
 
 export type CaldavStatus = 'unconfigured' | 'ok' | 'auth_failed'
 
+/** 'unreachable' = feed stopped responding; proxy serves cached busy data
+ *  (stale, not lost — amber in the UI, never destructive). */
+export type OutlookStatus = 'unconfigured' | 'ok' | 'unreachable'
+
 export type Settings = {
   userId: string
   aiApiKey: string | null
   caldavAppleId: string | null
   caldavCalendarUrl: string | null
   caldavStatus: CaldavStatus
+  outlookStatus: OutlookStatus
+  outlookFeedName: string | null
+  outlookFetchedAt: string | null
   timezone: string
   lastDailyReset: string | null
 }
