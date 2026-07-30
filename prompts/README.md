@@ -104,9 +104,9 @@ When a chunk asks for something that overlaps with existing code, reuse rather t
 
 ---
 
-## PROGRESS.md and Cowork ownership
+## PROGRESS.md ownership
 
-`PROGRESS.md` is Cowork's lane. Claude Code passes do NOT touch it — even if a chunk prompt's acceptance criteria mention "update PROGRESS.md." Hand that to a follow-up Cowork pass after the implementation SHA is in hand. See `CLAUDE.md` → "Routine doc edits" for the full rule.
+`PROGRESS.md` is updated by Claude Code directly as part of each chunk (row flip, SHA, review notes, decisions log, "Last updated"). The old rule — hand PROGRESS.md edits to a follow-up Cowork pass — was retired 2026-07-30; chunk prompts that still say "hand off to Cowork" should be read as "Claude Code does it in the same pass." See `CLAUDE.md` → "Progress tracking".
 
 ---
 

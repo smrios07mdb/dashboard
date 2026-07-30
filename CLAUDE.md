@@ -6,7 +6,7 @@
 
 ## Progress tracking
 
-The PROGRESS.md backfill pass (steps 1–6 below) is owned by Cowork, run after the chunk's deploy is green. Claude Code's per-chunk responsibility ends at code + tests + the same-chunk ARCH / prompt / `docs/` edits. If a chunk prompt asks Claude Code to write or modify `PROGRESS.md`, treat that as a Cowork task instead — Claude Code hands off a task spec, Cowork applies the edits.
+Claude Code updates `PROGRESS.md` directly as part of each chunk — no Cowork handoff. (Policy changed 2026-07-30; before that, PROGRESS.md edits were owned by a separate Cowork pass.)
 
 After completing any chunk:
 1. Flip the row's status in `PROGRESS.md` from ☐ to ☑.
@@ -24,8 +24,7 @@ A chunk is done when:
 - `PROGRESS.md` reflects completion per the rules above.
 
 ## Routine doc edits
-`PROGRESS.md` updates, decision log entries, and README additions are handled by Cowork — not Claude Code, not by hand. After a chunk's code work lands, hand Cowork a task spec covering the doc changes; it applies the edits and prepares the commit.
-Claude Code's responsibility ends at the code changes (and any tests / migrations that ship with them). If a chunk asks Claude Code to write or modify `PROGRESS.md`, treat that as a Cowork task instead.
+`PROGRESS.md` updates, decision log entries, and README additions are handled by Claude Code directly, in the same pass as the chunk's code work — committed with the chunk or as an immediate follow-up. (Until 2026-07-30 these were Cowork's lane; that handoff is retired.)
 
 ## Smoke harness notes (Chrome MCP via Cowork)
 
