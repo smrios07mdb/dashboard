@@ -26,14 +26,15 @@ function renderAt(path: string) {
 }
 
 describe('Tabs — primary nav (Chunk 24)', () => {
-  it('renders all four routes across the top + bottom navs', () => {
+  it('renders all five routes across the top + bottom navs', () => {
     renderAt('/')
-    // 4 top + 4 bottom = 8 tab buttons
-    expect(screen.getAllByRole('button')).toHaveLength(8)
+    // 5 top + 5 bottom = 10 tab buttons (Planner added in chunk 36)
+    expect(screen.getAllByRole('button')).toHaveLength(10)
     // Dashboard reads "Dashboard" on top, "Tasks" in the bottom bar
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
     expect(screen.getByText('Tasks')).toBeInTheDocument()
     // The shared labels appear once per nav
+    expect(screen.getAllByText('Planner')).toHaveLength(2)
     expect(screen.getAllByText('Routines')).toHaveLength(2)
     expect(screen.getAllByText('Insights')).toHaveLength(2)
     expect(screen.getAllByText('Settings')).toHaveLength(2)

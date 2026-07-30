@@ -21,6 +21,10 @@ import '@/lib/network'
 // chunk and doesn't bloat the initial bundle / Lighthouse Perf (chunk-16 R7).
 const Insights = lazy(() => import('@/screens/Insights'))
 
+// Planner pulls in the whole week-grid layout tree (chunk 36) — same
+// lazy-chunk treatment as Insights.
+const Planner = lazy(() => import('@/screens/Planner'))
+
 // Throwaway design-token check page (redesign chunk 21). DEV-only: the ternary
 // is statically false in prod, so Vite drops the dynamic import and never emits
 // the chunk. Route is also `import.meta.env.DEV`-gated below.
@@ -64,6 +68,21 @@ export default function App() {
           <Route
             path="subcategory/:subcategoryId"
             element={<SubcategoryView />}
+          />
+          <Route
+            path="planner"
+            element={
+              <Suspense
+                fallback={
+                  <div
+                    className="h-[280px] animate-pulse rounded-md bg-secondary motion-reduce:animate-none"
+                    aria-hidden
+                  />
+                }
+              >
+                <Planner />
+              </Suspense>
+            }
           />
           <Route path="routines" element={<Routines />} />
           <Route

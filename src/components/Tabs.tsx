@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-import { Filter, Sun, Tag, User } from '@/components/icons'
+import { Calendar, Filter, Sun, Tag, User } from '@/components/icons'
 import { BottomTabs, TopTabs, type NavItem } from '@/components/ui/nav-tabs'
 
 /*
@@ -27,6 +27,7 @@ type Tab = {
 
 const TABS: readonly Tab[] = [
   { to: '/', label: 'Dashboard', mobileLabel: 'Tasks', icon: <Tag size={20} /> },
+  { to: '/planner', label: 'Planner', mobileLabel: 'Planner', icon: <Calendar size={20} /> },
   { to: '/routines', label: 'Routines', mobileLabel: 'Routines', icon: <Sun size={20} /> },
   { to: '/insights', label: 'Insights', mobileLabel: 'Insights', icon: <Filter size={20} /> },
   { to: '/settings', label: 'Settings', mobileLabel: 'Settings', icon: <User size={20} /> },

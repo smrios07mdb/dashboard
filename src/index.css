@@ -93,6 +93,15 @@
     --good:    #11a06e;
     --offline: #b0a593;
 
+    /* Planner busy overlays (chunk 36) — the ONLY sanctioned new raw values
+       (hupomnemata_handoff/planner/README §Design tokens). Neutral family:
+       iCloud flat tint + ring; Outlook one step cooler + 135° hatch. */
+    --busy-icloud:        rgba(38, 32, 46, 0.05);
+    --busy-icloud-ln:     rgba(38, 32, 46, 0.09);
+    --busy-outlook:       rgba(45, 56, 88, 0.06);
+    --busy-outlook-ln:    rgba(45, 56, 88, 0.12);
+    --busy-outlook-hatch: rgba(45, 56, 88, 0.055);
+
     /* Jewel palette — vivid, bold, made to pop on cream */
     --jewel-sapphire: #2f6bf0;
     --jewel-amethyst: #7a4ff5;

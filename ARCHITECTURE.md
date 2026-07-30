@@ -313,6 +313,13 @@ If more than 8 subcategories appear in the filtered range, group all but the top
 - Inline inputs render at ≥16px font-size on touch (compact only at `sm:` and up) so iOS Safari does not zoom the viewport on focus.
 - `viewport-fit=cover` + `env(safe-area-inset-*)`: the top inset is applied at the AppShell wrapper (not the header alone) so the header and the InstallHint banner clear the notch / Dynamic Island; the fixed bottom nav and scroll container are padded for the home indicator.
 
+**Week Planner (chunk 36 — read-only until chunk 37):**
+- `/planner` (lazy-loaded, fifth primary tab): desktop 7-column week grid + unscheduled tray; mobile day strip + single-day timeline. Busy overlays only — no `scheduled_blocks`, no scheduling interactions yet (chunk 37).
+- Busy fetch is screen-level: one `getBusy` per visible week (Mon 00:00 → Sun 24:00, local ISO instants), simple in-memory per-week cache keyed on `dashboardRefreshKey`; `lib/busyCache`/`BusyStrip` remain the Dashboard's day-scoped concern.
+- All planner day/time math is browser-local (`lib/plannerGeometry`); `settings.timezone` stays a routines/streak concern.
+- Capacity math (`lib/plannerCapacity`) already accepts busy + scheduled inputs; chunk 36 passes `scheduled = []` so "planned" is honestly 0m.
+- The tray reuses the chunk-33 global sort (`hupo.taskSort` + `TaskSortControl`); the five `--busy-*` CSS variables in `src/index.css` are the only sanctioned raw values beyond the Daylight tokens.
+
 ---
 
 ## 14. Known limitations and tradeoffs
