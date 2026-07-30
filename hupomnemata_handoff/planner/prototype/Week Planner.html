@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hupomnemata — Week Planner (design reference)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    /* DAYLIGHT — light only. Category palette: emerald / rose. */
+    --bg:#f6f4f7; --bg-alt:#eceaef; --surface:#ffffff; --surface-2:#f8f6fa;
+    --line:rgba(38,32,46,.09); --line-strong:rgba(38,32,46,.16);
+    --ink:#221f28; --ink-2:#635f6c; --ink-3:#948f9e; --ink-4:#c7c2d0;
+    --accent:#1f5142; --accent-soft:rgba(31,81,66,.10); --accent-ink:#1f5142;
+    --destructive:#b8462e; --destructive-soft:rgba(184,70,46,.13);
+    --work:#059669; --work-soft:rgba(5,150,105,.14);
+    --personal:#f43f5e; --personal-soft:rgba(244,63,94,.14);
+    --warn:#d98a1c; --good:#059669; --offline:#b0a593;
+    --jewel-amethyst:#7a4ff5; --jewel-rose:#e83f93; --jewel-sapphire:#2f6bf0; --jewel-jade:#11a06e;
+    /* Busy-source tints — the only new values; both in the neutral family.
+       iCloud: plain neutral. Outlook: one step cooler + fine hatch. */
+    --busy-icloud:rgba(38,32,46,.05); --busy-icloud-ln:rgba(38,32,46,.09);
+    --busy-outlook:rgba(45,56,88,.06); --busy-outlook-ln:rgba(45,56,88,.12);
+    --busy-outlook-hatch:rgba(45,56,88,.055);
+    --radius-sm:4px; --radius:7px; --radius-md:11px; --radius-lg:16px;
+    --shadow-sm:0 1px 2px rgba(30,26,40,.06);
+    --shadow-md:0 2px 5px rgba(30,26,40,.05), 0 14px 30px -12px rgba(30,26,40,.16);
+    --shadow-lg:0 30px 70px -16px rgba(26,22,36,.26);
+    --font-ui:'Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+    --font-display:'Newsreader',Georgia,'Times New Roman',serif;
+    --font-serif:'Newsreader',Georgia,serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink)}
+  body{font-family:var(--font-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;font-feature-settings:"ss01","cv11";text-rendering:optimizeLegibility;position:relative}
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(70vw 56vh at 2% -16%, color-mix(in srgb, var(--jewel-amethyst) 20%, transparent), transparent 58%),radial-gradient(66vw 58vh at 116% 4%, color-mix(in srgb, var(--jewel-rose) 17%, transparent), transparent 54%),radial-gradient(56vw 50vh at 50% 122%, color-mix(in srgb, var(--jewel-sapphire) 14%, transparent), transparent 56%);opacity:.6}
+  #root{position:relative;z-index:1}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  input,textarea,select{font:inherit;color:inherit}
+  ::selection{background:var(--accent-soft);color:var(--ink)}
+  a{color:var(--accent)}a:hover{color:var(--accent-ink);text-decoration:underline}
+  .mono{font-family:var(--font-mono);font-feature-settings:"tnum","zero";letter-spacing:-.02em;font-weight:500}
+  .num{font-variant-numeric:tabular-nums}
+  .display{font-family:var(--font-display);letter-spacing:-.015em}
+  .serif{font-family:var(--font-serif);letter-spacing:-.005em}
+  .title{font-family:var(--font-serif);font-weight:500;letter-spacing:-.012em;color:var(--ink);line-height:1.04}
+  .title em{font-style:italic;font-weight:500}
+  .label{font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-family:var(--font-mono);white-space:nowrap}
+  .hairline{border:0;border-top:1px solid var(--line);margin:0}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+  .shell{max-width:1480px;margin:0 auto;padding:0 28px}
+  @keyframes fadein{from{opacity:.001}to{opacity:1}}
+  .lst{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+  .lst::-webkit-scrollbar{width:8px;height:8px}
+  .lst::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:13px;box-shadow:var(--shadow-lg);animation:fadein .18s ease-out forwards}
+  body.no-scroll{overflow:hidden}
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="src/icons.jsx"></script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="planner/planner-primitives.jsx"></script>
+<script type="text/babel" src="planner/WeekPlannerDesktop.jsx"></script>
+<script type="text/babel" src="planner/WeekPlannerMobile.jsx"></script>
+<script type="text/babel" src="planner/PriorityRows.jsx"></script>
+<script type="text/babel" src="planner/SettingsCalendars.jsx"></script>
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "week": "populated",
+  "drag": "none",
+  "outlook": "fresh",
+  "apple": "connected",
+  "mobileSheet": "closed"
+}/*EDITMODE-END*/;
+window.__TWEAK_DEFAULTS = TWEAK_DEFAULTS;
+
+function PlannerApp() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [tab, setTab] = React.useState(() => localStorage.getItem('hupo-planner-tab') || 'desktop');
+  React.useEffect(() => { localStorage.setItem('hupo-planner-tab', tab); }, [tab]);
+  const [toast, setToast] = React.useState(null);
+  const stale = t.outlook === 'stale';
+  return (
+    <div style={{ minHeight: '100vh' }}>
+      <div className="shell">
+        <header style={{ display: 'flex', alignItems: 'baseline', gap: 14, padding: '24px 0 4px' }}>
+          <span className="title" style={{ fontSize: 19 }}>Hupomnemata</span>
+          <span className="label" style={{ fontSize: 9 }}>Week Planner · Design reference</span>
+        </header>
+        <TopTabs value={tab} onChange={setTab} items={[
+          { id: 'desktop', label: 'Planner · Desktop' },
+          { id: 'mobile', label: 'Planner · Mobile' },
+          { id: 'priority', label: 'Priority' },
+          { id: 'settings', label: 'Settings · Calendars' },
+        ]}/>
+        <div className="lst" style={{ padding: '30px 0 80px', overflowX: 'auto' }}>
+          {tab === 'desktop' && <WeekPlannerDesktop week={t.week} drag={t.drag} stale={stale} onToast={setToast}/>}
+          {tab === 'mobile' && <WeekPlannerMobile week={t.week} stale={stale} sheetOpen={t.mobileSheet === 'open'} onToast={setToast}/>}
+          {tab === 'priority' && <PriorityRows/>}
+          {tab === 'settings' && <SettingsCalendars apple={t.apple} stale={stale} onToast={setToast}/>}
+        </div>
+      </div>
+      <Toast msg={toast} onClose={() => setToast(null)}/>
+      <TweaksPanel>
+        <TweakSection label="Planner state"/>
+        <TweakRadio label="Week" value={t.week} options={['populated', 'empty']} onChange={(v) => setTweak('week', v)}/>
+        <TweakRadio label="Drag demo (desktop)" value={t.drag} options={['none', 'valid', 'conflict']} onChange={(v) => setTweak('drag', v)}/>
+        <TweakRadio label="Outlook feed" value={t.outlook} options={['fresh', 'stale']} onChange={(v) => setTweak('outlook', v)}/>
+        <TweakSection label="Screen states"/>
+        <TweakRadio label="Mobile sheet" value={t.mobileSheet} options={['closed', 'open']} onChange={(v) => setTweak('mobileSheet', v)}/>
+        <TweakRadio label="Apple status" value={t.apple} options={['connected', 'reconnect']} onChange={(v) => setTweak('apple', v)}/>
+      </TweaksPanel>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<PlannerApp />);
+</script>
+</body>
+</html>
