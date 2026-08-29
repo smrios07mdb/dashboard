@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 
 import type { WeekBusyBlock } from '@/lib/plannerGeometry'
@@ -127,6 +127,161 @@ describe('WeekGrid (chunk 36)', () => {
     })
     expect(
       screen.getByText(/Could not reach the calendar service/),
+    ).toBeInTheDocument()
+  })
+})
+
+// ============================================================
+// Chunk 37 — scheduled task blocks
+// ============================================================
+
+import type { Task } from '@/db/types'
+import type { GridTaskBlock } from './WeekGrid'
+
+const aTask = (overrides: Partial<Task> = {}): Task => ({
+  id: 't-1',
+  userId: 'u-1',
+  subcategoryId: 'sub-1',
+  title: 'Draft launch brief',
+  notes: null,
+  estimateMinutes: 45,
+  dueAt: null,
+  remindAt: null,
+  notified: false,
+  priority: 1,
+  completedAt: null,
+  createdAt: '2026-05-01T00:00:00.000Z',
+  updatedAt: '2026-05-01T00:00:00.000Z',
+  ...overrides,
+})
+
+const aGridBlock = (
+  overrides: Partial<GridTaskBlock> = {},
+  blockOverrides: Partial<GridTaskBlock['block']> = {},
+): GridTaskBlock => ({
+  block: {
+    id: 'b-1',
+    taskId: 't-1',
+    day: 0,
+    startMin: 600,
+    endMin: 660,
+    done: false,
+    ...blockOverrides,
+  },
+  task: aTask(),
+  catName: 'Work',
+  done: false,
+  ...overrides,
+})
+
+describe('WeekGrid (chunk 37 — task blocks)', () => {
+  it('renders a task block with title, mono range and the P1 chip', () => {
+    renderGrid({ scheduled: [aGridBlock()] })
+    const block = screen.getByRole('button', { name: 'Draft launch brief, 10:00–11:00' })
+    expect(block).toHaveTextContent('10:00–11:00')
+    expect(block).toHaveTextContent('P1')
+    expect(block.style.opacity).toBe('1')
+  })
+
+  it('done styling: strikethrough, no P1 chip, 72% opacity, "done" in the label', () => {
+    renderGrid({ scheduled: [aGridBlock({ done: true })] })
+    const block = screen.getByRole('button', {
+      name: 'Draft launch brief, 10:00–11:00, done',
+    })
+    expect(block.style.opacity).toBe('0.72')
+    expect(block).not.toHaveTextContent('P1')
+    const title = screen.getByText('Draft launch brief') as HTMLElement
+    expect(title.style.textDecoration).toBe('line-through')
+  })
+
+  it('rails count includes a scheduled block past 19:00', () => {
+    renderGrid({
+      busy: [],
+      scheduled: [aGridBlock({}, { startMin: 1110, endMin: 1200 })],
+    })
+    expect(screen.getByText(/SHOW 19:00 – 21:00/)).toHaveTextContent('· 1 HIDDEN')
+  })
+
+  it('hover reveals the action row; × fires onUnschedule, check fires onToggleDone', () => {
+    const onUnschedule = vi.fn()
+    const onToggleDone = vi.fn()
+    renderGrid({ scheduled: [aGridBlock()], onUnschedule, onToggleDone })
+    const block = screen.getByRole('button', { name: 'Draft launch brief, 10:00–11:00' })
+    expect(screen.queryByRole('button', { name: 'Unschedule' })).not.toBeInTheDocument()
+    fireEvent.mouseEnter(block)
+    fireEvent.click(screen.getByRole('button', { name: 'Unschedule' }))
+    expect(onUnschedule).toHaveBeenCalledWith(expect.objectContaining({ id: 'b-1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mark done' }))
+    expect(onToggleDone).toHaveBeenCalledWith(expect.objectContaining({ id: 'b-1' }))
+  })
+
+  it('Enter on a block opens the action sheet path (onOpenActions)', () => {
+    const onOpenActions = vi.fn()
+    renderGrid({ scheduled: [aGridBlock()], onOpenActions })
+    fireEvent.keyDown(
+      screen.getByRole('button', { name: 'Draft launch brief, 10:00–11:00' }),
+      { key: 'Enter' },
+    )
+    expect(onOpenActions).toHaveBeenCalledWith(expect.objectContaining({ id: 'b-1' }))
+  })
+
+  it('empty-week copy appears only when both busy and scheduled are empty', () => {
+    const { rerender } = renderGrid({ busy: [], scheduled: [] })
+    expect(screen.getByText('Nothing planned yet.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Drag a task from the tray onto a time.'),
+    ).toBeInTheDocument()
+    rerender(
+      <WeekGrid
+        days={week}
+        todayIdx={2}
+        nowMin={680}
+        busy={[]}
+        stale={false}
+        staleTime={null}
+        fetchedAt={Date.now()}
+        loading={false}
+        errorMessage={null}
+        dayFree={[540, 540, 390, 540, 540, undefined, undefined]}
+        scheduled={[aGridBlock()]}
+      />,
+    )
+    expect(screen.queryByText('Nothing planned yet.')).not.toBeInTheDocument()
+  })
+
+  it('renders the drop preview for a live tray drag, destructive on busy overlap', () => {
+    const dragTask = aTask({ id: 't-9', title: 'Dragged' })
+    // Over WED 09:15–10:00 → overlaps Standup (09:00–10:30) by 45m.
+    renderGrid({
+      drag: {
+        kind: 'tray',
+        task: dragTask,
+        catName: 'Work',
+        durationMin: 45,
+        px: 0,
+        py: 0,
+        over: { day: 2, startMin: 555, endMin: 600 },
+      },
+    })
+    const slot = screen.getByTestId('drop-slot')
+    expect(slot).toHaveTextContent('09:15–10:00')
+    expect(slot).toHaveTextContent('OVERLAPS STANDUP · 45M')
+    // No empty-week copy while dragging.
+    expect(screen.queryByText('Nothing planned yet.')).not.toBeInTheDocument()
+  })
+
+  it('applies a live resize preview to the block itself', () => {
+    const g = aGridBlock()
+    renderGrid({
+      scheduled: [g],
+      drag: {
+        kind: 'resize',
+        block: g.block,
+        over: { day: 0, startMin: 600, endMin: 690 },
+      },
+    })
+    expect(
+      screen.getByRole('button', { name: 'Draft launch brief, 10:00–11:30' }),
     ).toBeInTheDocument()
   })
 })

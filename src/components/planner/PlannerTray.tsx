@@ -1,3 +1,5 @@
+import type { PointerEvent } from 'react'
+
 import { ChevronRight } from '@/components/icons'
 import PriorityChip from '@/components/PriorityChip'
 import TaskSortControl from '@/components/TaskSortControl'
@@ -7,14 +9,15 @@ import { catColor, fmtMin } from '@/lib/cat'
 import { compareTasks, type TaskSortKey } from '@/lib/taskSort'
 
 /*
- * Unscheduled-task tray (chunk 36, README §1 left tray + §2 mobile rows).
+ * Unscheduled-task tray (chunk 36 shape, chunk 37 interactions).
  *
- * Read-only this chunk: every open task lives here (no `scheduled_blocks`
- * until 37), cards are static — no drag handles, no grab cursors. Sorting
- * reuses the chunk-33 global preference via the shared `TaskSortControl`
- * trigger (locked decision D4); the prototype's segmented control is
- * deliberately not rebuilt. Grouped `P1 — URGENT` headers render only
- * under the priority sort; Due/Estimate sorts render flat.
+ * Tray = open tasks with no scheduled block (the screen splits them —
+ * `splitTray`). Cards are `<button>`s: `pointerdown` hands off to the
+ * screen's drag hook (desktop), a click without a drag opens the Schedule
+ * sheet — the keyboard path (D7). The source card goes ghost while its
+ * floating twin is being dragged. Sorting reuses the chunk-33 global
+ * preference via `TaskSortControl`; grouped `P1 — URGENT` headers render
+ * only under the priority sort.
  */
 
 export type TrayItem = {
@@ -47,16 +50,29 @@ function sortItems(items: TrayItem[], sortKey: TaskSortKey): TrayItem[] {
   return [...items].sort((a, b) => cmp(a.task, b.task))
 }
 
-function TrayCard({ item }: { item: TrayItem }) {
+export type TrayCardProps = {
+  item: TrayItem
+  /** Source card while its floating twin is dragged: dashed, 45%, no shadow. */
+  ghost?: boolean
+  /** Touch device: no grab cursor, tap opens the sheet. */
+  touch?: boolean
+  onPointerDown?: (e: PointerEvent<HTMLElement>, item: TrayItem) => void
+  onClick?: (item: TrayItem) => void
+  /** Presentational twin (floating card): no handlers, not focusable. */
+  inert?: boolean
+}
+
+export function TrayCard({
+  item,
+  ghost = false,
+  touch = false,
+  onPointerDown,
+  onClick,
+  inert = false,
+}: TrayCardProps) {
   const { task, catName, overdue, dueText, dueToday } = item
-  return (
-    <div
-      className="rounded border border-line bg-surface shadow-sm"
-      style={{
-        borderLeft: overdue ? '3px solid hsl(var(--destructive))' : undefined,
-        padding: overdue ? '10px 12px 10px 10px' : '10px 12px',
-      }}
-    >
+  const body = (
+    <>
       <div className="flex items-start gap-2">
         {task.priority !== null && (
           <PriorityChip priority={task.priority} className="mt-px" />
@@ -91,7 +107,38 @@ function TrayCard({ item }: { item: TrayItem }) {
           {fmtMin(task.estimateMinutes)}
         </span>
       </div>
-    </div>
+    </>
+  )
+  const style = {
+    border: ghost ? '1px dashed var(--line-strong)' : undefined,
+    borderLeft: overdue && !ghost ? '3px solid hsl(var(--destructive))' : undefined,
+    padding: overdue && !ghost ? '10px 12px 10px 10px' : '10px 12px',
+    opacity: ghost ? 0.45 : 1,
+    boxShadow: ghost ? 'none' : undefined,
+    cursor: inert ? 'grabbing' : touch ? 'default' : 'grab',
+    userSelect: 'none' as const,
+    touchAction: 'none' as const,
+  }
+  const cls =
+    'w-full rounded border border-line bg-surface text-left shadow-sm transition-colors hover:border-line-strong'
+  if (inert) {
+    return (
+      <div className={cls} style={style} aria-hidden>
+        {body}
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      aria-label={`${task.title} — schedule`}
+      className={`${cls} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
+      style={style}
+      onPointerDown={onPointerDown ? (e) => onPointerDown(e, item) : undefined}
+      onClick={onClick ? () => onClick(item) : undefined}
+    >
+      {body}
+    </button>
   )
 }
 
@@ -99,6 +146,13 @@ export type PlannerTrayProps = {
   items: TrayItem[]
   sortKey: TaskSortKey
   onChangeSortKey: (key: TaskSortKey) => void
+  /** Opens the Schedule sheet (click without drag / keyboard). */
+  onSchedule?: (item: TrayItem) => void
+  /** Starts a tray drag (desktop). */
+  onCardPointerDown?: (e: PointerEvent<HTMLElement>, item: TrayItem) => void
+  /** Task id currently being dragged — its card renders as a ghost. */
+  draggingTaskId?: string | null
+  touch?: boolean
 }
 
 /** Desktop left tray: 300px, 1px right rule. */
@@ -106,6 +160,10 @@ export default function PlannerTray({
   items,
   sortKey,
   onChangeSortKey,
+  onSchedule,
+  onCardPointerDown,
+  draggingTaskId = null,
+  touch = false,
 }: PlannerTrayProps) {
   const sorted = sortItems(items, sortKey)
   const overdueN = items.filter((i) => i.overdue).length
@@ -157,7 +215,14 @@ export default function PlannerTray({
             )}
             <div className="flex flex-col gap-2">
               {g.items.map((item) => (
-                <TrayCard key={item.task.id} item={item} />
+                <TrayCard
+                  key={item.task.id}
+                  item={item}
+                  ghost={item.task.id === draggingTaskId}
+                  touch={touch}
+                  onPointerDown={touch ? undefined : onCardPointerDown}
+                  onClick={onSchedule}
+                />
               ))}
             </div>
           </div>
@@ -168,16 +233,17 @@ export default function PlannerTray({
 }
 
 /**
- * Mobile `UNSCHEDULED (N)` section — compact read-only rows. Inert this
- * chunk (tap-to-schedule is chunk 37's Schedule sheet), so rows are plain
- * divs, not buttons.
+ * Mobile `UNSCHEDULED (N)` section — compact rows; tap opens the Schedule
+ * sheet for the selected day (chunk 37).
  */
 export function MobileUnscheduledList({
   items,
   sortKey,
+  onSchedule,
 }: {
   items: TrayItem[]
   sortKey: TaskSortKey
+  onSchedule?: (item: TrayItem) => void
 }) {
   const sorted = sortItems(items, sortKey)
   return (
@@ -189,9 +255,12 @@ export function MobileUnscheduledList({
         <div className="py-3 text-[12px] text-ink-3">No unscheduled tasks.</div>
       ) : (
         sorted.map((item) => (
-          <div
+          <button
             key={item.task.id}
-            className="grid w-full grid-cols-[auto_1fr_auto_auto_auto] items-center gap-[9px] border-b border-line px-0.5 py-[11px] text-left"
+            type="button"
+            aria-label={`${item.task.title} — schedule`}
+            onClick={() => onSchedule?.(item)}
+            className="grid w-full grid-cols-[auto_1fr_auto_auto_auto] items-center gap-[9px] border-b border-line px-0.5 py-[11px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {item.task.priority !== null ? (
               <PriorityChip priority={item.task.priority} />
@@ -220,7 +289,7 @@ export function MobileUnscheduledList({
               {fmtMin(item.task.estimateMinutes)}
             </span>
             <ChevronRight size={13} className="text-ink-4" aria-hidden />
-          </div>
+          </button>
         ))
       )}
     </section>

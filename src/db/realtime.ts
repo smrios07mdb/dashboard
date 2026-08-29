@@ -27,6 +27,7 @@ import {
   pushSubscriptionFromRow,
   routineItemFromRow,
   routineLogFromRow,
+  scheduledBlockFromRow,
   settingsFromRow,
   toCachedSettings,
   subcategoryFromRow,
@@ -35,6 +36,7 @@ import {
   type PushSubscriptionRow,
   type RoutineItemRow,
   type RoutineLogRow,
+  type ScheduledBlockRow,
   type SettingsRow,
   type SubcategoryRow,
   type TaskRow,
@@ -141,6 +143,14 @@ const handlers = {
       await db.push_subscriptions.delete(id)
     },
   }),
+  scheduled_blocks: makeHandler<ScheduledBlockRow>({
+    apply: async (row) => {
+      await db.scheduled_blocks.put(scheduledBlockFromRow(row))
+    },
+    remove: async (id) => {
+      await db.scheduled_blocks.delete(id)
+    },
+  }),
 }
 
 /** Settings is keyed by user_id — handler uses the same as PK. */
@@ -212,6 +222,12 @@ export function startRealtime(userId: string): void {
       'postgres_changes' as any,
       { event: '*', schema: 'public', table: 'push_subscriptions', filter },
       handlers.push_subscriptions,
+    )
+    .on(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      'postgres_changes' as any,
+      { event: '*', schema: 'public', table: 'scheduled_blocks', filter },
+      handlers.scheduled_blocks,
     )
     .subscribe()
 }

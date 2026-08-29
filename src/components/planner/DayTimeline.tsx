@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 import BusyBlock from '@/components/planner/BusyBlock'
 import BusyPopover from '@/components/planner/BusyPopover'
+import TaskBlock from '@/components/planner/TaskBlock'
+import type { GridTaskBlock } from '@/components/planner/WeekGrid'
 import WindowRail from '@/components/planner/WindowRail'
 import {
   expandedWindow,
@@ -10,16 +12,20 @@ import {
   PLANNER,
   type WeekBusyBlock,
 } from '@/lib/plannerGeometry'
+import type { WeekScheduledBlock } from '@/lib/plannerSchedule'
 
 /*
- * Mobile single-day timeline (chunk 36, README §2): 48px hour, 46px
- * gutter, same rails / busy overlays / popover as the desktop grid.
- * Read-only — no tap-to-schedule until chunk 37.
+ * Mobile single-day timeline (chunk 36 geometry, chunk 37 blocks): 48px
+ * hour, 46px gutter, same rails / busy overlays / popover as the desktop
+ * grid, plus the selected day's task blocks in `touch` mode — no drag,
+ * tap opens the block action sheet. Rails count task blocks too (D10).
  */
 
 export type DayTimelineProps = {
   /** Busy blocks for the selected day only. */
   busy: WeekBusyBlock[]
+  /** Scheduled blocks (joined with tasks) for the selected day only. */
+  scheduled?: GridTaskBlock[]
   isToday: boolean
   nowMin: number
   stale: boolean
@@ -27,10 +33,13 @@ export type DayTimelineProps = {
   fetchedAt: number | null
   loading: boolean
   errorMessage: string | null
+  onOpenActions?: (block: WeekScheduledBlock) => void
+  onToggleDone?: (block: WeekScheduledBlock) => void
 }
 
 export default function DayTimeline({
   busy,
+  scheduled = [],
   isToday,
   nowMin,
   stale,
@@ -38,35 +47,43 @@ export default function DayTimeline({
   fetchedAt,
   loading,
   errorMessage,
+  onOpenActions,
+  onToggleDone,
 }: DayTimelineProps) {
   const [topExpanded, setTopExpanded] = useState(false)
   const [botExpanded, setBotExpanded] = useState(false)
   const [openBusy, setOpenBusy] = useState<{
     block: WeekBusyBlock
     top: number
+    syncedAgoMin: number | null
   } | null>(null)
 
-  // Expanded bounds stretch past 07:00/21:00 when busy data falls outside
-  // them, so every block the rails count is reachable by expanding.
-  const win = expandedWindow(busy)
+  // Expanded bounds stretch past 07:00/21:00 when data falls outside them,
+  // so every block the rails count is reachable by expanding.
+  const all = [...busy, ...scheduled.map((g) => g.block)]
+  const win = expandedWindow(all)
   const h0 = topExpanded ? win.start : PLANNER.winCollapsedStart
   const h1 = botExpanded ? win.end : PLANNER.winCollapsedEnd
   const gridH = ((h1 - h0) / 60) * PLANNER.mHourH
-  const hidden = hiddenCounts(busy)
+  const hidden = hiddenCounts(all)
   // Mobile rail labels are hour-only: `07 – 08`.
   const hh = (m: number) => fmtClock(m).slice(0, 2)
 
   const hours: number[] = []
   for (let m = h0; m <= h1; m += 60) hours.push(m)
 
-  const syncedAgoMin =
-    fetchedAt === null ? null : Math.floor((Date.now() - fetchedAt) / 60_000)
+  const emptyDay = busy.length === 0 && scheduled.length === 0 && !loading
 
   return (
     <div className={loading ? 'opacity-50' : undefined}>
       {errorMessage && (
         <p className="pb-2 text-[12px] text-ink-3">
           {errorMessage} The timeline is shown without calendar overlays.
+        </p>
+      )}
+      {emptyDay && (
+        <p className="pb-2 text-[12px]" style={{ color: 'var(--ink-3)' }}>
+          Tap an unscheduled task to give it a time.
         </p>
       )}
       <WindowRail
@@ -116,6 +133,11 @@ export default function DayTimeline({
                 setOpenBusy({
                   block,
                   top: Math.min(pos.top + pos.height + 4, gridH - 150),
+                  // Computed in the handler — `Date.now()` stays out of render.
+                  syncedAgoMin:
+                    fetchedAt === null
+                      ? null
+                      : Math.floor((Date.now() - fetchedAt) / 60_000),
                 })
               }
             />
@@ -144,12 +166,27 @@ export default function DayTimeline({
               />
             </div>
           )}
+          {scheduled.map((g) => (
+            <TaskBlock
+              key={`${g.block.id}-${g.block.startMin}`}
+              block={g.block}
+              task={g.task}
+              catName={g.catName}
+              hourH={PLANNER.mHourH}
+              windowStartMin={h0}
+              windowEndMin={h1}
+              done={g.done}
+              touch
+              onOpenActions={onOpenActions}
+              onToggleDone={onToggleDone}
+            />
+          ))}
           {openBusy && (
             <BusyPopover
               block={openBusy.block}
               stale={stale}
               staleTime={staleTime}
-              syncedAgoMin={syncedAgoMin}
+              syncedAgoMin={openBusy.syncedAgoMin}
               top={openBusy.top}
               alignRight={false}
               onClose={() => setOpenBusy(null)}

@@ -26,6 +26,8 @@ import {
   routineItemToRow,
   routineLogFromRow,
   routineLogToRow,
+  scheduledBlockFromRow,
+  scheduledBlockToRow,
   settingsFromRow,
   settingsToRow,
   toCachedSettings,
@@ -37,6 +39,7 @@ import {
   type PushSubscriptionRow,
   type RoutineItemRow,
   type RoutineLogRow,
+  type ScheduledBlockRow,
   type SettingsRow,
   type SubcategoryRow,
   type TaskRow,
@@ -50,6 +53,7 @@ import {
   type PushSubscription,
   type RoutineItem,
   type RoutineLog,
+  type ScheduledBlock,
   type Settings,
   type Subcategory,
   type TableName,
@@ -876,6 +880,132 @@ const routineLogsRepo = {
   },
 }
 
+// ---------- scheduled_blocks (chunk 37) ----------
+
+const scheduledBlocksRepo = {
+  /**
+   * Blocks overlapping [from, to) — the planner's per-week read. Online path
+   * mirrors the range into Dexie (delete-then-bulkPut, the
+   * `routineLogs.listByRange` pattern); fallback filters the cache the same
+   * way.
+   */
+  async listByRange(fromIso: string, toIso: string): Promise<ScheduledBlock[]> {
+    const overlaps = (b: { startAt: string; endAt: string }) =>
+      b.startAt < toIso && b.endAt > fromIso
+    return readWithFallback({
+      online: async () => {
+        const { data, error } = await supabase
+          .from('scheduled_blocks')
+          .select('*')
+          .lt('start_at', toIso)
+          .gt('end_at', fromIso)
+          .order('start_at', { ascending: true })
+        throwIfClientError(error)
+        const rows = (data ?? []) as ScheduledBlockRow[]
+        const mapped = rows.map(scheduledBlockFromRow)
+        await db.transaction('rw', db.scheduled_blocks, async () => {
+          await db.scheduled_blocks.filter(overlaps).delete()
+          await db.scheduled_blocks.bulkPut(mapped)
+        })
+        return mapped
+      },
+      fallback: async () =>
+        db.scheduled_blocks.filter(overlaps).sortBy('startAt'),
+    })
+  },
+
+  async create(input: {
+    userId: string
+    taskId: string
+    startAt: string
+    endAt: string
+    id?: string
+  }): Promise<ScheduledBlock> {
+    const now = new Date().toISOString()
+    const full: ScheduledBlock = {
+      id: input.id ?? crypto.randomUUID(),
+      userId: input.userId,
+      taskId: input.taskId,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      done: false,
+      createdAt: now,
+      updatedAt: now,
+    }
+    return writeRow({
+      op: 'insert',
+      table: TABLES.scheduledBlocks,
+      optimistic: full,
+      cacheApply: async () => {
+        await db.scheduled_blocks.put(full)
+      },
+      online: async () => {
+        const { data, error } = await supabase
+          .from('scheduled_blocks')
+          .insert(scheduledBlockToRow(full))
+          .select()
+          .single()
+        throwIfClientError(error)
+        return scheduledBlockFromRow(data as ScheduledBlockRow)
+      },
+    })
+  },
+
+  async update(
+    id: string,
+    changes: Partial<Pick<ScheduledBlock, 'startAt' | 'endAt' | 'done'>>,
+  ): Promise<ScheduledBlock> {
+    const existing = await db.scheduled_blocks.get(id)
+    const next: ScheduledBlock = {
+      ...(existing as ScheduledBlock),
+      ...changes,
+      id,
+      updatedAt: new Date().toISOString(),
+    }
+    return writeRow({
+      op: 'update',
+      table: TABLES.scheduledBlocks,
+      optimistic: next,
+      cacheApply: async () => {
+        await db.scheduled_blocks.put(next)
+      },
+      online: async () => {
+        const { data, error } = await supabase
+          .from('scheduled_blocks')
+          .update(scheduledBlockToRow({ ...changes, updatedAt: next.updatedAt }))
+          .eq('id', id)
+          .select()
+          .single()
+        throwIfClientError(error)
+        return scheduledBlockFromRow(data as ScheduledBlockRow)
+      },
+    })
+  },
+
+  async delete(id: string): Promise<void> {
+    if (!isOnline()) {
+      markOffline()
+      await db.scheduled_blocks.delete(id)
+      await enqueueOutbox('delete', TABLES.scheduledBlocks, { id })
+      return
+    }
+    try {
+      const { error } = await supabase
+        .from('scheduled_blocks')
+        .delete()
+        .eq('id', id)
+      throwIfClientError(error)
+      await db.scheduled_blocks.delete(id)
+      markSyncedNow()
+    } catch (e) {
+      if (isClientError(e)) throw e
+      markOffline()
+      await db.scheduled_blocks.delete(id)
+      await enqueueOutbox('delete', TABLES.scheduledBlocks, { id })
+    }
+  },
+}
+
 // ---------- settings ----------
 
 const settingsRepo = {
@@ -1082,6 +1212,9 @@ async function applyServerEcho(table: TableName, row: unknown): Promise<void> {
     case TABLES.pushSubscriptions:
       await db.push_subscriptions.put(row as PushSubscription)
       return
+    case TABLES.scheduledBlocks:
+      await db.scheduled_blocks.put(row as ScheduledBlock)
+      return
   }
 }
 
@@ -1128,4 +1261,5 @@ export const repo = {
   routineLogs: routineLogsRepo,
   settings: settingsRepo,
   pushSubscriptions: pushSubscriptionsRepo,
+  scheduledBlocks: scheduledBlocksRepo,
 }

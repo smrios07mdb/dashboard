@@ -95,12 +95,13 @@ async function enqueue(row: Omit<OutboxRow, 'id'>): Promise<number> {
 async function clearDb() {
   await db.transaction(
     'rw',
-    [db.tasks, db.subcategories, db.settings, db.push_subscriptions, db.outbox],
+    [db.tasks, db.subcategories, db.settings, db.push_subscriptions, db.scheduled_blocks, db.outbox],
     async () => {
       await db.tasks.clear()
       await db.subcategories.clear()
       await db.settings.clear()
       await db.push_subscriptions.clear()
+      await db.scheduled_blocks.clear()
       await db.outbox.clear()
     },
   )
@@ -803,5 +804,121 @@ describe('outbox — Sync issues management', () => {
     expect(result.processed).toBe(2)
     expect(await db.outbox.count()).toBe(0)
     expect(useSyncStore.getState().state).toBe('synced')
+  })
+})
+
+// ============================================================
+// Chunk 37 — scheduled_blocks replay + Dexie v4
+// ============================================================
+
+describe('drainOutbox — scheduled_blocks (chunk 37)', () => {
+  const blockPayload = {
+    id: 'sb-1',
+    userId: 'u-1',
+    taskId: 't-1',
+    startAt: '2026-05-06T13:15:00.000Z',
+    endAt: '2026-05-06T14:00:00.000Z',
+    done: false,
+    createdAt: '2026-05-06T00:00:00.000Z',
+    updatedAt: '2026-05-06T00:00:00.000Z',
+  }
+  const blockRow = {
+    id: 'sb-1',
+    user_id: 'u-1',
+    task_id: 't-1',
+    start_at: '2026-05-06T13:15:00.000Z',
+    end_at: '2026-05-06T14:00:00.000Z',
+    done: false,
+    created_at: '2026-05-06T00:00:00.000Z',
+    updated_at: '2099-01-01T00:00:00.000Z',
+  }
+
+  it('insert replays against scheduled_blocks with snake_case keys and reconciles Dexie', async () => {
+    await enqueue({
+      op: 'insert',
+      table: 'scheduled_blocks',
+      payload: blockPayload,
+      createdAt: '2026-05-06T00:00:01.000Z',
+      attempts: 0,
+      lastError: null,
+      lastAttemptAt: null,
+    })
+    queueResults({ data: blockRow, error: null })
+
+    const res = await drainOutbox()
+
+    expect(res.processed).toBe(1)
+    expect(fromTables()).toEqual(['scheduled_blocks'])
+    const insertCall = chainCalls.find((c) => c.method === 'insert')
+    expect(insertCall?.args[0]).toMatchObject({ task_id: 't-1', start_at: blockPayload.startAt })
+    expect((await db.scheduled_blocks.get('sb-1'))?.updatedAt).toBe(
+      '2099-01-01T00:00:00.000Z',
+    )
+  })
+
+  it('delete replays keyed by id and removes the Dexie row', async () => {
+    await db.scheduled_blocks.put(blockPayload)
+    await enqueue({
+      op: 'delete',
+      table: 'scheduled_blocks',
+      payload: { id: 'sb-1' },
+      createdAt: '2026-05-06T00:00:01.000Z',
+      attempts: 0,
+      lastError: null,
+      lastAttemptAt: null,
+    })
+    queueResults({ data: null, error: null })
+
+    await drainOutbox()
+
+    expect(fromTables()).toEqual(['scheduled_blocks'])
+    expect(chainCalls.find((c) => c.method === 'eq')?.args).toEqual(['id', 'sb-1'])
+    expect(await db.scheduled_blocks.get('sb-1')).toBeUndefined()
+  })
+})
+
+describe('Dexie v4 (chunk 37)', () => {
+  it('opens with the scheduled_blocks store and existing stores intact', async () => {
+    const NAME = 'dexie-v4-test'
+    await Dexie.delete(NAME)
+
+    const oldDb = new Dexie(NAME)
+    oldDb.version(3).stores({
+      tasks: '&id, subcategoryId, completedAt, dueAt, remindAt, priority, updatedAt',
+      outbox: '++id, createdAt, table, attempts',
+      busyCache: '&dateKey',
+    })
+    await oldDb.open()
+    await oldDb.table('tasks').add({ id: 't-keep', title: 'kept' })
+    oldDb.close()
+
+    const newDb = new Dexie(NAME)
+    newDb.version(3).stores({
+      tasks: '&id, subcategoryId, completedAt, dueAt, remindAt, priority, updatedAt',
+      outbox: '++id, createdAt, table, attempts',
+      busyCache: '&dateKey',
+    })
+    newDb.version(4).stores({ scheduled_blocks: '&id, taskId, startAt, endAt' })
+    await newDb.open()
+
+    expect(newDb.verno).toBe(4)
+    expect(newDb.tables.map((t) => t.name).sort()).toEqual(
+      ['busyCache', 'outbox', 'scheduled_blocks', 'tasks'].sort(),
+    )
+    expect(await newDb.table('tasks').get('t-keep')).toMatchObject({ title: 'kept' })
+    // taskId is a plain (non-unique) index — two rows may share it.
+    await newDb.table('scheduled_blocks').bulkAdd([
+      { id: 'a', taskId: 't', startAt: 'x', endAt: 'y' },
+      { id: 'b', taskId: 't', startAt: 'x', endAt: 'y' },
+    ])
+    expect(await newDb.table('scheduled_blocks').where('taskId').equals('t').count()).toBe(2)
+
+    newDb.close()
+    await Dexie.delete(NAME)
+  })
+
+  it('the real DashboardCacheDB is at v4 with scheduled_blocks', () => {
+    expect(db.verno).toBe(4)
+    expect(db.tables.map((t) => t.name)).toContain('scheduled_blocks')
   })
 })

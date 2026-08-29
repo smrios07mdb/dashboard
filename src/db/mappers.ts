@@ -11,6 +11,7 @@ import type {
   PushSubscription,
   RoutineItem,
   RoutineLog,
+  ScheduledBlock,
   Settings,
   Subcategory,
   Task,
@@ -120,6 +121,47 @@ export function taskToRow(
   if (value.notified !== undefined) row.notified = value.notified
   if (value.priority !== undefined) row.priority = value.priority
   if (value.completedAt !== undefined) row.completed_at = value.completedAt
+  if (value.createdAt !== undefined) row.created_at = value.createdAt
+  if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
+  return row
+}
+
+// ---------- scheduled_blocks ----------
+
+export type ScheduledBlockRow = {
+  id: string
+  user_id: string
+  task_id: string
+  start_at: string
+  end_at: string
+  done: boolean
+  created_at: string
+  updated_at: string
+}
+
+export function scheduledBlockFromRow(row: ScheduledBlockRow): ScheduledBlock {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    taskId: row.task_id,
+    startAt: row.start_at,
+    endAt: row.end_at,
+    done: row.done,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function scheduledBlockToRow(
+  value: Partial<ScheduledBlock> & { id?: string },
+): Partial<ScheduledBlockRow> {
+  const row: Partial<ScheduledBlockRow> = {}
+  if (value.id !== undefined) row.id = value.id
+  if (value.userId !== undefined) row.user_id = value.userId
+  if (value.taskId !== undefined) row.task_id = value.taskId
+  if (value.startAt !== undefined) row.start_at = value.startAt
+  if (value.endAt !== undefined) row.end_at = value.endAt
+  if (value.done !== undefined) row.done = value.done
   if (value.createdAt !== undefined) row.created_at = value.createdAt
   if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
   return row

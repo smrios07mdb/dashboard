@@ -1,17 +1,29 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+} from 'react'
+import { toast } from 'sonner'
 
 import { ChevronLeft, ChevronRight } from '@/components/icons'
+import BlockActionSheet from '@/components/planner/BlockActionSheet'
 import DayStrip from '@/components/planner/DayStrip'
 import DayTimeline from '@/components/planner/DayTimeline'
 import PlannerTray, {
   MobileUnscheduledList,
+  TrayCard,
   type TrayItem,
 } from '@/components/planner/PlannerTray'
-import WeekGrid from '@/components/planner/WeekGrid'
+import ScheduleSheet from '@/components/planner/ScheduleSheet'
+import { usePlannerDrag, type DropResult } from '@/components/planner/usePlannerDrag'
+import WeekGrid, { type GridTaskBlock } from '@/components/planner/WeekGrid'
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { repo } from '@/db/repo'
-import type { Category, Subcategory, Task } from '@/db/types'
+import type { Category, ScheduledBlock, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
 import {
   CalendarError,
@@ -24,39 +36,60 @@ import { computeCapacity, computeDayFree } from '@/lib/plannerCapacity'
 import {
   addDays,
   busyToWeekBlocks,
+  DAY_LABELS,
+  fmtClock,
+  fmtRange,
   minutesOfDay,
+  PLANNER,
   todayIndex,
   weekDays,
   weekMetaLabel,
   weekRangeLabel,
   weekStart,
 } from '@/lib/plannerGeometry'
+import {
+  blockDurationMin,
+  overlapBusy,
+  scheduledToWeekBlocks,
+  splitTray,
+  toInstant,
+  type WeekScheduledBlock,
+} from '@/lib/plannerSchedule'
 import { withSessionRetry } from '@/lib/session'
 import {
   loadTaskSortKey,
   storeTaskSortKey,
   type TaskSortKey,
 } from '@/lib/taskSort'
+import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useUIStore } from '@/state/uiStore'
 
 /*
- * Week Planner — read-only grid (chunk 36).
+ * Week Planner (chunk 36 grid + chunk 37 scheduling).
  *
  * Desktop ≥sm: 300px unscheduled tray + 7-column week grid. Mobile <sm:
- * day-selector strip + single-day timeline + inert unscheduled rows.
- * Busy overlays come from `getBusy` fetched once per visible week
- * (Monday 00:00 → Sunday 24:00, local — locked decision D3) with a
- * simple in-memory per-week cache, cleared when `dashboardRefreshKey`
- * bumps. No `scheduled_blocks`, no scheduling interactions — chunk 37.
+ * day-selector strip + single-day timeline + tap-to-schedule rows.
  *
- * All day/time math is browser-local (D6); `settings.timezone` stays a
+ * Busy overlays and scheduled blocks are both fetched per visible week
+ * (Monday 00:00 → Sunday 24:00, local) with simple in-memory per-week
+ * caches keyed on `dashboardRefreshKey`, so a realtime event on either
+ * `tasks` or `scheduled_blocks` (bumping the key) refetches. Placement,
+ * move, resize, done and unschedule are optimistic through the repo with
+ * the normalized error toast + re-read on failure.
+ *
+ * All day/time math is browser-local (D3/D6); `settings.timezone` stays a
  * routines/streak concern.
  */
+
+const SAVE_ERROR = 'Could not save — retry'
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 const MONTH_SHORT = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+] as const
+const DAY_FULL = [
+  'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
 ] as const
 
 /** `Tue 5` within ±6 days of today, `May 12` further out. */
@@ -113,6 +146,7 @@ export default function Planner() {
   const { user } = useSession()
   const userId = user?.id ?? null
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
+  const isTouch = useIsTouchDevice()
 
   // Local clock — re-ticks every minute for the now-line / capacity-from-now.
   const [now, setNow] = useState(() => new Date())
@@ -133,15 +167,19 @@ export default function Planner() {
   const weekKey = weekStartDate.toISOString().slice(0, 10)
   const todayIdx = todayIndex(weekStartDate, now)
   const nowMin = minutesOfDay(now)
+  const todayInWeek = todayIdx >= 0 && todayIdx <= 6
 
   // Mobile selected day follows the week: today when visible, else Monday.
+  // Reset on week change via the React-19 "adjust state during render"
+  // pattern (prompts/README) rather than an effect.
   const [selectedDay, setSelectedDay] = useState(() =>
-    todayIdx >= 0 && todayIdx <= 6 ? todayIdx : 0,
+    todayInWeek ? todayIdx : 0,
   )
-  useEffect(() => {
-    const t = todayIndex(weekStartDate, new Date())
-    setSelectedDay(t >= 0 && t <= 6 ? t : 0)
-  }, [weekStartDate])
+  const [prevWeekKey, setPrevWeekKey] = useState(weekKey)
+  if (prevWeekKey !== weekKey) {
+    setPrevWeekKey(weekKey)
+    setSelectedDay(todayInWeek ? todayIdx : 0)
+  }
 
   // ── busy fetch (screen-level, per-week — D3) ───────────────────────────
   const [busyState, setBusyState] = useState<BusyState>({
@@ -210,14 +248,78 @@ export default function Planner() {
     [busyState.busy, weekStartDate],
   )
 
-  // ── capacity (scheduled = [] until chunk 37 — D5) ──────────────────────
-  const capacity = useMemo(() => computeCapacity(busyBlocks, []), [busyBlocks])
+  // ── scheduled blocks (per-week, D14) ───────────────────────────────────
+  const [blocks, setBlocks] = useState<ScheduledBlock[]>([])
+  const [blocksLoading, setBlocksLoading] = useState(true)
+  const blocksCacheRef = useRef(new Map<string, ScheduledBlock[]>())
+  // Bumped after a failed write to force a re-read of the visible week.
+  const [blocksReloadKey, setBlocksReloadKey] = useState(0)
+  const reloadBlocks = useCallback(() => {
+    blocksCacheRef.current.clear()
+    setBlocksReloadKey((k) => k + 1)
+  }, [])
+
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    const key = `${dashboardRefreshKey}:${weekKey}`
+    const cached = blocksCacheRef.current.get(key)
+    if (cached) {
+      setBlocks(cached)
+      setBlocksLoading(false)
+      return
+    }
+    setBlocksLoading(true)
+    const from = weekStartDate.toISOString()
+    const to = addDays(weekStartDate, 7).toISOString()
+    repo.scheduledBlocks
+      .listByRange(from, to)
+      .then((rows) => {
+        if (cancelled) return
+        blocksCacheRef.current.set(key, rows)
+        setBlocks(rows)
+        setBlocksLoading(false)
+      })
+      .catch((e) => {
+        if (cancelled) return
+        console.error('Planner: load scheduled blocks failed', e)
+        setBlocksLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [userId, weekKey, weekStartDate, dashboardRefreshKey, blocksReloadKey])
+
+  /** Apply a local optimistic change and keep the per-week cache honest. */
+  const patchBlocks = useCallback(
+    (fn: (prev: ScheduledBlock[]) => ScheduledBlock[]) => {
+      setBlocks((prev) => {
+        const next = fn(prev)
+        blocksCacheRef.current.set(`${dashboardRefreshKey}:${weekKey}`, next)
+        return next
+      })
+    },
+    [dashboardRefreshKey, weekKey],
+  )
+
+  const weekBlocks = useMemo(
+    () => scheduledToWeekBlocks(blocks, weekStartDate),
+    [blocks, weekStartDate],
+  )
+
+  // ── capacity (scheduled is real now — chunk 37) ────────────────────────
+  const capacity = useMemo(
+    () => computeCapacity(busyBlocks, weekBlocks),
+    [busyBlocks, weekBlocks],
+  )
   const dayFree = useMemo(
     () =>
       days.map((_, i) =>
-        i >= 5 ? undefined : computeDayFree(i, busyBlocks, [], todayIdx, nowMin),
+        i >= 5
+          ? undefined
+          : computeDayFree(i, busyBlocks, weekBlocks, todayIdx, nowMin),
       ),
-    [days, busyBlocks, todayIdx, nowMin],
+    [days, busyBlocks, weekBlocks, todayIdx, nowMin],
   )
   // Header free-total is the sum of the per-day figures by construction —
   // `computeCapacity.free` has no past-day/elapsed-time clamping and would
@@ -227,7 +329,7 @@ export default function Planner() {
     [dayFree],
   )
 
-  // ── tasks (tray) ───────────────────────────────────────────────────────
+  // ── tasks (tray + block join) ──────────────────────────────────────────
   const [taskData, setTaskData] = useState<{
     categories: Category[]
     subcategories: Subcategory[]
@@ -259,34 +361,256 @@ export default function Planner() {
     storeTaskSortKey(key)
   }, [])
 
-  const trayItems: TrayItem[] = useMemo(() => {
+  const subToCat = useMemo(() => {
     const catById = new Map(taskData.categories.map((c) => [c.id, c.name]))
-    const subToCat = new Map(
+    return new Map(
       taskData.subcategories
         .filter((s) => !s.archivedAt)
         .map((s) => [s.id, catById.get(s.categoryId) ?? 'Work']),
     )
-    const n0 = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    return taskData.tasks
-      .filter((t) => !t.completedAt && subToCat.has(t.subcategoryId))
-      .map((task) => {
-        const due = task.dueAt ? new Date(task.dueAt) : null
-        const validDue = due && !Number.isNaN(due.getTime()) ? due : null
-        const d0 = validDue
-          ? new Date(validDue.getFullYear(), validDue.getMonth(), validDue.getDate())
-          : null
-        return {
-          task,
-          catName: subToCat.get(task.subcategoryId) ?? 'Work',
-          overdue: d0 !== null && d0.getTime() < n0.getTime(),
-          dueToday: d0 !== null && d0.getTime() === n0.getTime(),
-          dueText: validDue ? dueFragment(validDue, now) : null,
-        }
-      })
-  }, [taskData, now])
+  }, [taskData.categories, taskData.subcategories])
+
+  const toTrayItem = useCallback(
+    (task: Task): TrayItem => {
+      const n0 = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const due = task.dueAt ? new Date(task.dueAt) : null
+      const validDue = due && !Number.isNaN(due.getTime()) ? due : null
+      const d0 = validDue
+        ? new Date(validDue.getFullYear(), validDue.getMonth(), validDue.getDate())
+        : null
+      return {
+        task,
+        catName: subToCat.get(task.subcategoryId) ?? 'Work',
+        overdue: d0 !== null && d0.getTime() < n0.getTime(),
+        dueToday: d0 !== null && d0.getTime() === n0.getTime(),
+        dueText: validDue ? dueFragment(validDue, now) : null,
+      }
+    },
+    [now, subToCat],
+  )
+
+  const trayItems: TrayItem[] = useMemo(
+    () =>
+      splitTray(taskData.tasks, blocks)
+        .filter((t) => subToCat.has(t.subcategoryId))
+        .map(toTrayItem),
+    [taskData.tasks, blocks, subToCat, toTrayItem],
+  )
+
+  const tasksById = useMemo(
+    () => new Map(taskData.tasks.map((t) => [t.id, t])),
+    [taskData.tasks],
+  )
+
+  const gridBlocks: GridTaskBlock[] = useMemo(
+    () =>
+      weekBlocks.flatMap((b) => {
+        const task = tasksById.get(b.taskId)
+        if (!task) return []
+        return [
+          {
+            block: b,
+            task,
+            catName: subToCat.get(task.subcategoryId) ?? 'Work',
+            done: b.done || task.completedAt !== null,
+          },
+        ]
+      }),
+    [weekBlocks, tasksById, subToCat],
+  )
+
+  // ── mutations (optimistic via repo; error → toast + re-read) ──────────
+  const fail = useCallback(
+    (e: unknown) => {
+      console.error('Planner: write failed', e)
+      toast.error(SAVE_ERROR)
+      reloadBlocks()
+    },
+    [reloadBlocks],
+  )
+
+  const place = useCallback(
+    async (
+      task: Task,
+      day: number,
+      startMin: number,
+      durationMin: number,
+      via: 'drag' | 'sheet',
+    ) => {
+      if (!userId) return
+      const endMin = Math.min(startMin + durationMin, 24 * 60)
+      const ol = overlapBusy(day, startMin, endMin, busyBlocks)
+      try {
+        const created = await repo.scheduledBlocks.create({
+          userId,
+          taskId: task.id,
+          startAt: toInstant(weekStartDate, day, startMin),
+          endAt: toInstant(weekStartDate, day, endMin),
+        })
+        patchBlocks((prev) => [
+          ...prev.filter((b) => b.taskId !== task.id),
+          created,
+        ])
+        const where =
+          via === 'drag'
+            ? `Placed ${DAY_LABELS[day]} ${fmtClock(startMin)}`
+            : `Scheduled ${fmtClock(startMin)}`
+        toast(
+          ol
+            ? `${where} — overlaps ${ol.title ?? 'busy'} by ${ol.mins}m.`
+            : `${where}.`,
+        )
+      } catch (e) {
+        fail(e)
+      }
+    },
+    [userId, busyBlocks, weekStartDate, patchBlocks, fail],
+  )
+
+  const move = useCallback(
+    async (wb: WeekScheduledBlock, day: number, startMin: number) => {
+      const full = blocks.find((b) => b.id === wb.id)
+      if (!full) return
+      const durMin =
+        (new Date(full.endAt).getTime() - new Date(full.startAt).getTime()) /
+        60_000
+      const startAt = toInstant(weekStartDate, day, startMin)
+      const endAt = new Date(
+        new Date(startAt).getTime() + durMin * 60_000,
+      ).toISOString()
+      patchBlocks((prev) =>
+        prev.map((b) => (b.id === wb.id ? { ...b, startAt, endAt } : b)),
+      )
+      try {
+        const saved = await repo.scheduledBlocks.update(wb.id, { startAt, endAt })
+        patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? saved : b)))
+      } catch (e) {
+        fail(e)
+      }
+    },
+    [blocks, weekStartDate, patchBlocks, fail],
+  )
+
+  const resize = useCallback(
+    async (wb: WeekScheduledBlock, endMin: number) => {
+      const endAt = toInstant(weekStartDate, wb.day, endMin)
+      patchBlocks((prev) =>
+        prev.map((b) => (b.id === wb.id ? { ...b, endAt } : b)),
+      )
+      try {
+        const saved = await repo.scheduledBlocks.update(wb.id, { endAt })
+        patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? saved : b)))
+      } catch (e) {
+        fail(e)
+      }
+    },
+    [weekStartDate, patchBlocks, fail],
+  )
+
+  const toggleDone = useCallback(
+    async (wb: WeekScheduledBlock) => {
+      const task = tasksById.get(wb.taskId)
+      const currentlyDone = wb.done || (task?.completedAt ?? null) !== null
+      const next = !currentlyDone
+      patchBlocks((prev) =>
+        prev.map((b) => (b.id === wb.id ? { ...b, done: next } : b)),
+      )
+      try {
+        const savedBlock = await repo.scheduledBlocks.update(wb.id, { done: next })
+        patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? savedBlock : b)))
+        const savedTask = await repo.tasks.markComplete(wb.taskId, next)
+        setTaskData((d) => ({
+          ...d,
+          tasks: d.tasks.map((t) => (t.id === savedTask.id ? savedTask : t)),
+        }))
+      } catch (e) {
+        fail(e)
+      }
+    },
+    [tasksById, patchBlocks, fail],
+  )
+
+  const unschedule = useCallback(
+    async (wb: WeekScheduledBlock) => {
+      patchBlocks((prev) => prev.filter((b) => b.id !== wb.id))
+      try {
+        await repo.scheduledBlocks.delete(wb.id)
+        toast('Returned to tray.')
+      } catch (e) {
+        fail(e)
+      }
+    },
+    [patchBlocks, fail],
+  )
+
+  // ── sheets (mounted once, shared by both breakpoints) ─────────────────
+  const [sheet, setSheet] = useState<{
+    item: TrayItem
+    day: number
+    from: 'desktop' | 'mobile'
+  } | null>(null)
+  const [actionBlock, setActionBlock] = useState<WeekScheduledBlock | null>(null)
+  const actionEntry = actionBlock
+    ? gridBlocks.find((g) => g.block.id === actionBlock.id) ?? null
+    : null
+
+  const openScheduleDesktop = useCallback(
+    (item: TrayItem) =>
+      setSheet({ item, day: todayInWeek ? todayIdx : 0, from: 'desktop' }),
+    [todayInWeek, todayIdx],
+  )
+  const openScheduleMobile = useCallback(
+    (item: TrayItem) => setSheet({ item, day: selectedDay, from: 'mobile' }),
+    [selectedDay],
+  )
+
+  // ── drag (desktop, native pointer events — D7) ─────────────────────────
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  const windowRef = useRef({ h0: PLANNER.winCollapsedStart, h1: PLANNER.winCollapsedEnd })
+  const onWindowChange = useCallback((w: { h0: number; h1: number }) => {
+    windowRef.current = w
+  }, [])
+  const onGridRef = useCallback((el: HTMLDivElement | null) => {
+    gridRef.current = el
+  }, [])
+  const onDrop = useCallback(
+    (r: DropResult) => {
+      if (r.kind === 'tray') {
+        void place(
+          r.task,
+          r.over.day,
+          r.over.startMin,
+          r.over.endMin - r.over.startMin,
+          'drag',
+        )
+      } else if (r.kind === 'move') {
+        void move(r.block, r.over.day, r.over.startMin)
+      } else {
+        void resize(r.block, r.endMin)
+      }
+    },
+    [place, move, resize],
+  )
+  const { drag, startTray, startMove, startResize } = usePlannerDrag({
+    gridRef,
+    getWindow: () => windowRef.current,
+    enabled: !isTouch,
+    onDrop,
+  })
+
+  const onCardPointerDown = useCallback(
+    (e: PointerEvent<HTMLElement>, item: TrayItem) =>
+      startTray(
+        e,
+        item.task,
+        item.catName,
+        blockDurationMin(item.task.estimateMinutes),
+      ),
+    [startTray],
+  )
 
   // ── render ─────────────────────────────────────────────────────────────
-  const loading = busyState.phase === 'loading'
+  const loading = busyState.phase === 'loading' || blocksLoading
   const errorMessage =
     busyState.phase === 'error' ? busyState.errorMessage : null
 
@@ -329,13 +653,16 @@ export default function Planner() {
   )
 
   const selectedDayBusy = busyBlocks.filter((b) => b.day === selectedDay)
+  const selectedDayBlocks = gridBlocks.filter((g) => g.block.day === selectedDay)
   const selectedDayFree =
     selectedDay >= 5
       ? undefined
-      : computeDayFree(selectedDay, busyBlocks, [], todayIdx, nowMin)
-  const DAY_FULL = [
-    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
-  ]
+      : computeDayFree(selectedDay, busyBlocks, weekBlocks, todayIdx, nowMin)
+
+  const draggingTrayItem =
+    drag?.kind === 'tray'
+      ? trayItems.find((i) => i.task.id === drag.task.id) ?? toTrayItem(drag.task)
+      : null
 
   return (
     <div>
@@ -345,6 +672,10 @@ export default function Planner() {
           items={trayItems}
           sortKey={sortKey}
           onChangeSortKey={onChangeSortKey}
+          onSchedule={openScheduleDesktop}
+          onCardPointerDown={onCardPointerDown}
+          draggingTaskId={drag?.kind === 'tray' ? drag.task.id : null}
+          touch={isTouch}
         />
         <main className="min-w-0 flex-1">
           {header}
@@ -359,6 +690,16 @@ export default function Planner() {
             loading={loading}
             errorMessage={errorMessage}
             dayFree={dayFree}
+            scheduled={gridBlocks}
+            drag={drag}
+            touch={isTouch}
+            onGridRef={onGridRef}
+            onWindowChange={onWindowChange}
+            onBlockPointerDown={startMove}
+            onResizePointerDown={startResize}
+            onToggleDone={toggleDone}
+            onUnschedule={unschedule}
+            onOpenActions={setActionBlock}
           />
         </main>
       </div>
@@ -382,6 +723,7 @@ export default function Planner() {
         </div>
         <DayTimeline
           busy={selectedDayBusy}
+          scheduled={selectedDayBlocks}
           isToday={selectedDay === todayIdx}
           nowMin={nowMin}
           stale={!!stale}
@@ -389,9 +731,79 @@ export default function Planner() {
           fetchedAt={busyState.fetchedAt}
           loading={loading}
           errorMessage={errorMessage}
+          onOpenActions={setActionBlock}
+          onToggleDone={toggleDone}
         />
-        <MobileUnscheduledList items={trayItems} sortKey={sortKey} />
+        <MobileUnscheduledList
+          items={trayItems}
+          sortKey={sortKey}
+          onSchedule={openScheduleMobile}
+        />
       </div>
+
+      {/* Floating card while a tray drag is live (desktop). */}
+      {drag?.kind === 'tray' && draggingTrayItem && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed w-[210px] rounded"
+          style={{
+            left: drag.px + 10,
+            top: drag.py + 8,
+            zIndex: 100,
+            transform: 'rotate(-2deg)',
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
+          <TrayCard item={draggingTrayItem} inert />
+        </div>
+      )}
+
+      <ScheduleSheet
+        open={sheet !== null}
+        task={sheet?.item.task ?? null}
+        catName={sheet?.item.catName ?? 'Work'}
+        overdue={sheet?.item.overdue ?? false}
+        days={days}
+        todayIdx={todayIdx}
+        initialDay={sheet?.day ?? 0}
+        nowMin={nowMin}
+        busy={busyBlocks}
+        scheduled={weekBlocks}
+        showDaySelector={sheet?.from === 'desktop'}
+        onClose={() => setSheet(null)}
+        onAdd={(day, startMin) => {
+          const item = sheet?.item
+          setSheet(null)
+          if (!item) return
+          void place(
+            item.task,
+            day,
+            startMin,
+            blockDurationMin(item.task.estimateMinutes),
+            'sheet',
+          )
+        }}
+      />
+
+      <BlockActionSheet
+        open={actionEntry !== null}
+        title={actionEntry?.task.title ?? ''}
+        rangeText={
+          actionEntry
+            ? fmtRange(actionEntry.block.startMin, actionEntry.block.endMin)
+            : ''
+        }
+        done={actionEntry?.done ?? false}
+        onToggleDone={() => {
+          if (actionEntry) void toggleDone(actionEntry.block)
+          setActionBlock(null)
+        }}
+        onUnschedule={() => {
+          if (actionEntry) void unschedule(actionEntry.block)
+          setActionBlock(null)
+        }}
+        onClose={() => setActionBlock(null)}
+      />
     </div>
   )
 }

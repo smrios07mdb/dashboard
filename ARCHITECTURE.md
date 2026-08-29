@@ -134,15 +134,29 @@ push_subscriptions
   auth text not null,
   created_at timestamptz not null default now(),
   unique (user_id, endpoint)
+
+scheduled_blocks                      -- chunk 37 / migration 10
+  id, user_id,
+  task_id uuid not null unique references tasks(id) on delete cascade,
+  start_at timestamptz not null,
+  end_at timestamptz not null,
+  done boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),   -- set_updated_at() trigger
+  check (end_at > start_at)
+  -- index (user_id, start_at); insert/update RLS with-check also asserts
+  -- the referenced task belongs to auth.uid() (FK checks bypass RLS)
 ```
 
 **RLS policies:** every table has `select / insert / update / delete` policies enforcing `auth.uid() = user_id` (or the `user_id` derived from the joined row for log tables).
 
 **Signup trigger:** `AFTER INSERT ON auth.users` → inserts `('Work')` and `('Personal')` rows into `categories` and a default row into `settings` for the new `user_id`.
 
-**Realtime publication.** All seven user-scoped tables (`categories`, `subcategories`, `tasks`, `routine_items`, `routine_logs`, `settings`, `push_subscriptions`) are members of the `supabase_realtime` publication with `REPLICA IDENTITY FULL`. The `FULL` identity is required so DELETE events carry `user_id` for the realtime RLS filter — without it, deletes silently drop on the client side. Any future schema migration that adds a new user-scoped table must include both `alter publication supabase_realtime add table public.<name>;` and `alter table public.<name> replica identity full;` in the same migration.
+**Realtime publication.** All eight user-scoped tables (`categories`, `subcategories`, `tasks`, `routine_items`, `routine_logs`, `settings`, `push_subscriptions`, `scheduled_blocks`) are members of the `supabase_realtime` publication with `REPLICA IDENTITY FULL`. The `FULL` identity is required so DELETE events carry `user_id` for the realtime RLS filter — without it, deletes silently drop on the client side. Any future schema migration that adds a new user-scoped table must include both `alter publication supabase_realtime add table public.<name>;` and `alter table public.<name> replica identity full;` in the same migration.
 
 **Task priority (chunk 33, canonical for the planner series):** `tasks.priority` ∈ {1, 2, 3, null}, enforced by `08_priority_check.sql` — P1 Urgent / P2 Soon / P3 Whenever. `null` means "no priority set": renders no chip, sorts after P3, and is never coerced to 3. List sorting (`src/lib/taskSort.ts`) is a single global preference (localStorage `hupo.taskSort`, default `priority`) shared by every list. Tie-breaks: `priority` → `due_at` asc (nulls last) → `created_at` asc; `due` → `due_at` asc (nulls last) → priority → `created_at`; `estimate` → `estimate_minutes` asc → priority → `created_at`. Sort applies within the open set only — completed-row placement is whatever each list already does.
+
+**Scheduled blocks (chunk 37).** A task's slot on the Week Planner: one block per task (`unique (task_id)` — the unscheduled tray is exactly "open tasks with no block"), deleted with its task. `done` mirrors task completion: toggling the block writes the block first, then `tasks.completed_at`; rendering treats a block as done when either says so, so completing a task on the Dashboard shows as done on the planner without extra sync. All planner math is browser-local (instants ↔ local day/minute on the client; `settings.timezone` is never consulted). Overlap with busy is advisory — surfaced in the drop preview and the toast, never blocked. Last write wins on `updated_at`. `scheduled_blocks` is NOT part of the export/import payload yet (deferred — see §14); Replace-import and "Wipe my data" clear it through the `tasks` cascade.
 
 **Client-only tables (Dexie):**
 
@@ -335,6 +349,8 @@ If more than 8 subcategories appear in the filtered range, group all but the top
 | AI key exposed in browser traffic | Documented (docs/security.md). NOT cached at rest — `aiApiKey`/`caldavAppleId` are never written to Dexie (chunk 18); future: proxy AI calls |
 | iOS PWA sessions evicted after ~7 days inactivity | Re-login is expected; documented |
 | iOS Web Push requires installed PWA + 16.4+ | In-app fallback for other contexts |
+| `scheduled_blocks` are not in the export/import payload (chunk 37) | Deferred to a later chunk; blocks are server-side only and cascade with tasks on wipe/replace-import |
+| Planner blocks are not written to Apple Calendar (chunk 37) | Apple Calendar write-out (proxy update/delete endpoints + app propagation) lands in chunk 39 |
 
 ---
 

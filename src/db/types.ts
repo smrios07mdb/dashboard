@@ -44,6 +44,22 @@ export type Task = {
   updatedAt: string
 }
 
+/**
+ * A task's slot on the Week Planner (chunk 37, ARCHITECTURE.md §4). One
+ * block per task (server-side `unique (task_id)`); `done` mirrors task
+ * completion. ISO instants — all grid math is browser-local on the client.
+ */
+export type ScheduledBlock = {
+  id: string
+  userId: string
+  taskId: string
+  startAt: string
+  endAt: string
+  done: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export type RoutineItem = {
   id: string
   userId: string
@@ -141,5 +157,6 @@ export const TABLES = {
   routineLogs: 'routine_logs',
   settings: 'settings',
   pushSubscriptions: 'push_subscriptions',
+  scheduledBlocks: 'scheduled_blocks',
 } as const
 export type TableName = (typeof TABLES)[keyof typeof TABLES]

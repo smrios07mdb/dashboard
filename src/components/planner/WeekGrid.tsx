@@ -1,8 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState, type PointerEvent } from 'react'
 
 import BusyBlock from '@/components/planner/BusyBlock'
 import BusyPopover from '@/components/planner/BusyPopover'
+import DropSlot from '@/components/planner/DropSlot'
+import TaskBlock from '@/components/planner/TaskBlock'
+import type { DragState } from '@/components/planner/usePlannerDrag'
 import WindowRail from '@/components/planner/WindowRail'
+import type { Task } from '@/db/types'
 import { fmtMin } from '@/lib/cat'
 import {
   DAY_LABELS,
@@ -12,23 +16,40 @@ import {
   PLANNER,
   type WeekBusyBlock,
 } from '@/lib/plannerGeometry'
+import { overlapBusy, type WeekScheduledBlock } from '@/lib/plannerSchedule'
 
 /*
- * Desktop week grid (chunk 36, README §1 + DESIGN_NOTES geometry table).
+ * Desktop week grid (chunk 36 geometry, chunk 37 scheduling).
  *
  * 56px gutter, `repeat(5,1fr) repeat(2,.55fr)` columns with 1px `--line`
  * left rules, 52px hours, hour rules via repeating-linear-gradient, 1px
  * `--line-strong` header separator, weekend 45% `--bg-alt` wash, today
- * 60% `--surface` lift + emerald dot, now-line (z2, today only), SHOW/HIDE
- * collapsed-hour rails. Busy overlays only — task blocks land in chunk 37.
+ * 60% `--surface` lift + emerald dot, SHOW/HIDE collapsed-hour rails.
  *
- * The visible-window flags (top/bottom expanded) are local UI state.
+ * Z-order per DESIGN_NOTES: busy (z1) → now-line (z2) → task blocks (z3)
+ * → drop slot (z4) → empty-week copy (z5). Rails and the expanded window
+ * count task blocks as well as busy (D10). The drag state comes from the
+ * screen's `usePlannerDrag`: a resize previews live on the block itself,
+ * a tray/move drag renders the dashed `DropSlot` (destructive when the
+ * candidate range overlaps busy — advisory, D8).
+ *
+ * The visible-window flags (top/bottom expanded) are local UI state,
+ * reported upward via `onWindowChange` so the drag hook can clamp.
  */
 
 const COLS = `${PLANNER.gutter}px repeat(5, 1fr) repeat(2, .55fr)`
 
 const hourLines = (hourH: number) =>
   `repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px ${hourH}px)`
+
+/** A scheduled block joined with its task for rendering. */
+export type GridTaskBlock = {
+  block: WeekScheduledBlock
+  task: Task
+  catName: string
+  /** `block.done || task.completedAt != null` (D5). */
+  done: boolean
+}
 
 function DayHeader({
   date,
@@ -118,9 +139,31 @@ export type WeekGridProps = {
   /** Per-day free minutes (Mon–Fri); null = past day, undefined = weekend
    *  (outside the planning window) — both render the `—` placeholder. */
   dayFree: Array<number | null | undefined>
+  /** Scheduled blocks joined with their tasks (chunk 37). */
+  scheduled?: GridTaskBlock[]
+  /** Live drag state from `usePlannerDrag`; null when idle. */
+  drag?: DragState | null
+  /** Touch device — blocks get tap-to-open-actions, no drag handlers. */
+  touch?: boolean
+  onGridRef?: (el: HTMLDivElement | null) => void
+  onWindowChange?: (w: { h0: number; h1: number }) => void
+  onBlockPointerDown?: (
+    e: PointerEvent<HTMLElement>,
+    block: WeekScheduledBlock,
+    catName: string,
+  ) => void
+  onResizePointerDown?: (e: PointerEvent<HTMLElement>, block: WeekScheduledBlock) => void
+  onToggleDone?: (block: WeekScheduledBlock) => void
+  onUnschedule?: (block: WeekScheduledBlock) => void
+  onOpenActions?: (block: WeekScheduledBlock) => void
 }
 
-type OpenBusy = { block: WeekBusyBlock; day: number; top: number }
+type OpenBusy = {
+  block: WeekBusyBlock
+  day: number
+  top: number
+  syncedAgoMin: number | null
+}
 
 export default function WeekGrid({
   days,
@@ -133,24 +176,61 @@ export default function WeekGrid({
   loading,
   errorMessage,
   dayFree,
+  scheduled = [],
+  drag = null,
+  touch = false,
+  onGridRef,
+  onWindowChange,
+  onBlockPointerDown,
+  onResizePointerDown,
+  onToggleDone,
+  onUnschedule,
+  onOpenActions,
 }: WeekGridProps) {
   const [topExpanded, setTopExpanded] = useState(false)
   const [botExpanded, setBotExpanded] = useState(false)
   const [openBusy, setOpenBusy] = useState<OpenBusy | null>(null)
 
-  // Expanded bounds stretch past 07:00/21:00 when busy data falls outside
-  // them, so every block the rails count is reachable by expanding.
-  const win = expandedWindow(busy)
+  // Expanded bounds stretch past 07:00/21:00 when data falls outside them,
+  // so every block the rails count is reachable by expanding (D10: task
+  // blocks count too).
+  const all = [...busy, ...scheduled.map((g) => g.block)]
+  const win = expandedWindow(all)
   const h0 = topExpanded ? win.start : PLANNER.winCollapsedStart
   const h1 = botExpanded ? win.end : PLANNER.winCollapsedEnd
   const gridH = ((h1 - h0) / 60) * PLANNER.hourH
-  const hidden = hiddenCounts(busy)
+  const hidden = hiddenCounts(all)
+
+  useEffect(() => {
+    onWindowChange?.({ h0, h1 })
+  }, [h0, h1, onWindowChange])
 
   const hours: number[] = []
   for (let m = h0; m <= h1; m += 60) hours.push(m)
 
-  const syncedAgoMin =
-    fetchedAt === null ? null : Math.floor((Date.now() - fetchedAt) / 60_000)
+  // Live resize preview lands on the block itself (prototype `displaySched`).
+  const displayed: GridTaskBlock[] =
+    drag?.kind === 'resize'
+      ? scheduled.map((g) =>
+          g.block.id === drag.block.id
+            ? { ...g, block: { ...g.block, endMin: drag.over.endMin } }
+            : g,
+        )
+      : scheduled
+  const draggingBlockId = drag?.kind === 'move' ? drag.block.id : null
+
+  // Drop preview for tray/move drags; conflict variant on busy overlap.
+  const dropOver = drag && drag.kind !== 'resize' && drag.over ? drag.over : null
+  const dropCat = drag && drag.kind !== 'resize' ? drag.catName : ''
+  const conflict = dropOver
+    ? overlapBusy(dropOver.day, dropOver.startMin, dropOver.endMin, busy)
+    : null
+  const conflictNote = conflict?.title
+    ? `OVERLAPS ${conflict.title.toUpperCase()} · ${conflict.mins}M`
+    : null
+
+  const emptyWeek =
+    busy.length === 0 && scheduled.length === 0 && !loading && !drag
 
   return (
     <div className={loading ? 'opacity-50' : undefined}>
@@ -182,6 +262,8 @@ export default function WeekGrid({
       />
 
       <div
+        ref={onGridRef}
+        data-testid="week-grid"
         className="relative grid border-t border-line-strong"
         style={{ gridTemplateColumns: COLS }}
         onClick={() => setOpenBusy(null)}
@@ -235,6 +317,11 @@ export default function WeekGrid({
                         block,
                         day: i,
                         top: Math.min(pos.top + pos.height + 4, gridH - 150),
+                        // Computed in the handler — `Date.now()` stays out of render.
+                        syncedAgoMin:
+                          fetchedAt === null
+                            ? null
+                            : Math.floor((Date.now() - fetchedAt) / 60_000),
                       })
                     }
                   />
@@ -247,12 +334,49 @@ export default function WeekGrid({
                   windowEndMin={h1}
                 />
               )}
+              {displayed
+                .filter((g) => g.block.day === i)
+                .map((g) => (
+                  <TaskBlock
+                    key={`${g.block.id}-${g.block.startMin}`}
+                    block={g.block}
+                    task={g.task}
+                    catName={g.catName}
+                    hourH={PLANNER.hourH}
+                    windowStartMin={h0}
+                    windowEndMin={h1}
+                    done={g.done}
+                    dimmed={g.block.id === draggingBlockId}
+                    touch={touch}
+                    onBodyPointerDown={
+                      onBlockPointerDown
+                        ? (e, block) => onBlockPointerDown(e, block, g.catName)
+                        : undefined
+                    }
+                    onResizePointerDown={onResizePointerDown}
+                    onToggleDone={onToggleDone}
+                    onUnschedule={onUnschedule}
+                    onOpenActions={onOpenActions}
+                  />
+                ))}
+              {dropOver && dropOver.day === i && (
+                <DropSlot
+                  startMin={dropOver.startMin}
+                  endMin={dropOver.endMin}
+                  catName={dropCat}
+                  kind={conflict ? 'conflict' : 'valid'}
+                  hourH={PLANNER.hourH}
+                  windowStartMin={h0}
+                  windowEndMin={h1}
+                  note={conflictNote}
+                />
+              )}
               {openBusy && openBusy.day === i && (
                 <BusyPopover
                   block={openBusy.block}
                   stale={stale}
                   staleTime={staleTime}
-                  syncedAgoMin={syncedAgoMin}
+                  syncedAgoMin={openBusy.syncedAgoMin}
                   top={openBusy.top}
                   alignRight={i >= 4}
                   onClose={() => setOpenBusy(null)}
@@ -261,6 +385,20 @@ export default function WeekGrid({
             </div>
           )
         })}
+
+        {emptyWeek && (
+          <div
+            className="pointer-events-none absolute right-0 text-center"
+            style={{ left: PLANNER.gutter, top: gridH * 0.38, zIndex: 5 }}
+          >
+            <div className="serif text-[17px]" style={{ color: 'var(--ink-2)' }}>
+              Nothing planned yet.
+            </div>
+            <div className="mt-[5px] text-[12px]" style={{ color: 'var(--ink-3)' }}>
+              Drag a task from the tray onto a time.
+            </div>
+          </div>
+        )}
       </div>
 
       <WindowRail

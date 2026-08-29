@@ -21,6 +21,7 @@ import type {
   PushSubscription,
   RoutineItem,
   RoutineLog,
+  ScheduledBlock,
   Settings,
   Subcategory,
   Task,
@@ -36,6 +37,7 @@ export class DashboardCacheDB extends Dexie {
   routine_logs!: EntityTable<RoutineLog, 'id'>
   settings!: EntityTable<Settings, 'userId'>
   push_subscriptions!: EntityTable<PushSubscription, 'id'>
+  scheduled_blocks!: EntityTable<ScheduledBlock, 'id'>
   outbox!: EntityTable<OutboxRow, 'id'>
   // Cache-only (not a Postgres mirror): one local day's busy ranges keyed by
   // dateKey, with a short TTL applied in lib/busyCache. camelCase name since
@@ -70,6 +72,14 @@ export class DashboardCacheDB extends Dexie {
     this.version(3)
       .stores({ outbox: '++id, createdAt, table, attempts' })
       .upgrade(upgradeToV3)
+    // v4: chunk 37 adds the `scheduled_blocks` mirror (planner slots). New
+    // store only — unchanged stores are inherited, so no .upgrade() is
+    // needed. `taskId` is indexed but NOT unique on purpose: uniqueness is
+    // enforced server-side (`unique (task_id)`), and a realtime echo racing
+    // an optimistic put must never throw in the cache.
+    this.version(4).stores({
+      scheduled_blocks: '&id, taskId, startAt, endAt',
+    })
   }
 }
 

@@ -92,6 +92,7 @@ async function clearDb() {
       db.routine_logs,
       db.settings,
       db.push_subscriptions,
+      db.scheduled_blocks,
       db.outbox,
     ],
     async () => {
@@ -102,6 +103,7 @@ async function clearDb() {
       await db.routine_logs.clear()
       await db.settings.clear()
       await db.push_subscriptions.clear()
+      await db.scheduled_blocks.clear()
       await db.outbox.clear()
     },
   )
@@ -770,6 +772,143 @@ describe('repo.routineLogs.deleteAllForUser', () => {
     )
     expect(fromMock).not.toHaveBeenCalled()
     expect(await db.routine_logs.count()).toBe(1)
+    expect(await db.outbox.count()).toBe(0)
+  })
+})
+
+// ============================================================
+// Chunk 37 — scheduled_blocks repo
+// ============================================================
+
+describe('repo.scheduledBlocks (chunk 37)', () => {
+  const blockRow = {
+    id: 'sb-1',
+    user_id: 'u-1',
+    task_id: 't-1',
+    start_at: '2026-05-06T13:15:00.000Z',
+    end_at: '2026-05-06T14:00:00.000Z',
+    done: false,
+    created_at: '2026-05-06T00:00:00.000Z',
+    updated_at: '2026-05-06T00:00:00.000Z',
+  }
+
+  it('online create returns the server echo and mirrors it into Dexie', async () => {
+    fromMock.mockReturnValue(
+      makeChain({ data: { ...blockRow, updated_at: '2099-01-01T00:00:00.000Z' }, error: null }),
+    )
+    const out = await repo.scheduledBlocks.create({
+      id: 'sb-1',
+      userId: 'u-1',
+      taskId: 't-1',
+      startAt: blockRow.start_at,
+      endAt: blockRow.end_at,
+    })
+    expect(fromMock).toHaveBeenCalledWith('scheduled_blocks')
+    expect(out).toMatchObject({ id: 'sb-1', taskId: 't-1', done: false })
+    expect(out.updatedAt).toBe('2099-01-01T00:00:00.000Z')
+    expect(await db.scheduled_blocks.get('sb-1')).toMatchObject({
+      updatedAt: '2099-01-01T00:00:00.000Z',
+    })
+    expect(await db.outbox.count()).toBe(0)
+  })
+
+  it('listByRange filters the Dexie mirror by overlap and queries start_at/end_at', async () => {
+    fromMock.mockReturnValue(makeChain({ data: [blockRow], error: null }))
+    const rows = await repo.scheduledBlocks.listByRange(
+      '2026-05-04T00:00:00.000Z',
+      '2026-05-11T00:00:00.000Z',
+    )
+    expect(rows).toHaveLength(1)
+    expect(chainCalls.find((c) => c.method === 'lt')?.args).toEqual([
+      'start_at',
+      '2026-05-11T00:00:00.000Z',
+    ])
+    expect(chainCalls.find((c) => c.method === 'gt')?.args).toEqual([
+      'end_at',
+      '2026-05-04T00:00:00.000Z',
+    ])
+    expect(await db.scheduled_blocks.count()).toBe(1)
+  })
+
+  describe('offline', () => {
+    beforeEach(() => {
+      isOnlineMock.mockReturnValue(false)
+    })
+
+    it('create → Dexie row + insert outbox row on scheduled_blocks', async () => {
+      const out = await repo.scheduledBlocks.create({
+        id: 'sb-off',
+        userId: 'u-1',
+        taskId: 't-1',
+        startAt: blockRow.start_at,
+        endAt: blockRow.end_at,
+      })
+      expect(out.done).toBe(false)
+      expect(await db.scheduled_blocks.get('sb-off')).toMatchObject({ taskId: 't-1' })
+      const rows = await db.outbox.toArray()
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ op: 'insert', table: 'scheduled_blocks' })
+      expect(useSyncStore.getState().state).toBe('offline')
+      expect(fromMock).not.toHaveBeenCalled()
+    })
+
+    it('update → Dexie row patched (updatedAt stamped) + update outbox row', async () => {
+      await db.scheduled_blocks.put({
+        id: 'sb-1',
+        userId: 'u-1',
+        taskId: 't-1',
+        startAt: blockRow.start_at,
+        endAt: blockRow.end_at,
+        done: false,
+        createdAt: blockRow.created_at,
+        updatedAt: blockRow.updated_at,
+      })
+      const out = await repo.scheduledBlocks.update('sb-1', { done: true })
+      expect(out.done).toBe(true)
+      expect(out.updatedAt).not.toBe(blockRow.updated_at)
+      expect((await db.scheduled_blocks.get('sb-1'))?.done).toBe(true)
+      const rows = await db.outbox.toArray()
+      expect(rows[0]).toMatchObject({ op: 'update', table: 'scheduled_blocks' })
+      expect((rows[0].payload as { done: boolean }).done).toBe(true)
+    })
+
+    it('delete → Dexie row removed + delete outbox row keyed by id', async () => {
+      await db.scheduled_blocks.put({
+        id: 'sb-1',
+        userId: 'u-1',
+        taskId: 't-1',
+        startAt: blockRow.start_at,
+        endAt: blockRow.end_at,
+        done: false,
+        createdAt: blockRow.created_at,
+        updatedAt: blockRow.updated_at,
+      })
+      await repo.scheduledBlocks.delete('sb-1')
+      expect(await db.scheduled_blocks.get('sb-1')).toBeUndefined()
+      const rows = await db.outbox.toArray()
+      expect(rows[0]).toMatchObject({
+        op: 'delete',
+        table: 'scheduled_blocks',
+        payload: { id: 'sb-1' },
+      })
+    })
+  })
+
+  it('a 4xx on create (e.g. unique(task_id) violation) throws and enqueues nothing', async () => {
+    fromMock.mockReturnValue(
+      makeChain({
+        data: null,
+        error: { message: 'duplicate key value violates unique constraint', status: 409 },
+      }),
+    )
+    await expect(
+      repo.scheduledBlocks.create({
+        userId: 'u-1',
+        taskId: 't-1',
+        startAt: blockRow.start_at,
+        endAt: blockRow.end_at,
+      }),
+    ).rejects.toThrow(/duplicate key/)
     expect(await db.outbox.count()).toBe(0)
   })
 })
