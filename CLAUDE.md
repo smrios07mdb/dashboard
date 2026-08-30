@@ -54,6 +54,18 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **Busy fixtures leave an iCloud event behind.** `createEvent` has no delete counterpart until chunk 39; every smoke that follows the busy-fixture rule must end with the operator deleting the event in Calendar.app. Record the uid in the results file.
 
+**Hover action rows land one tick late.** A `TaskBlock`'s hover action row (`→`/`✓`/`×`) is not in the DOM in the same `execute_javascript` call that dispatched the hover; dispatch the hover in one call and read/click the row in the next.
+
+**`execute_javascript` does not await promises.** A script that `fetch`es or awaits a repo call returns before the promise settles. Route results through hidden sink nodes the next call reads — and keep **two** sinks (one for PostgREST responses, one for the toast observer), since a single node gets overwritten mid-check.
+
+**The Supabase access token expires ~10 min in.** Don't cache it at the start of a smoke; read it from `localStorage['sb-<ref>-auth-token']` per request.
+
+**A future week exercises Fill-my-week off-schedule only.** With `todayIdx < 0` the button passes `fillable` and packing starts Monday 09:00, so a future-week run covers the packing/tray/Place-all paths but **not** the today-relative cursor (`ceil15(now+10)`); that branch needs a Mon–Thu run on the current week.
+
+**`proposal-block` is `aria-hidden`.** It has no accessible name; assert on `innerText` and geometry (`getBoundingClientRect()`), not on `getByRole`.
+
+**The device shell has no GitHub credentials.** Cowork commits smoke results locally; the operator pushes.
+
 ## Chunk prompt corrections
 
 `prompts/README.md` is an overlay doc capturing the cross-chunk substitutions, path corrections, and conventions that apply to every chunk prompt in this repo. Read it before starting any chunk. Authority order: `ARCHITECTURE.md` → `prompts/README.md` → the individual chunk prompt → the chunk-specific brief (if any).
