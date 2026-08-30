@@ -42,12 +42,15 @@ const COLS = `${PLANNER.gutter}px repeat(5, 1fr) repeat(2, .55fr)`
 const hourLines = (hourH: number) =>
   `repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px ${hourH}px)`
 
+/** Data-freshness phase shared by `WeekGrid` and `DayTimeline` (R3). */
+export type GridPhase = 'cold' | 'refreshing' | 'ready'
+
 /** A scheduled block joined with its task for rendering. */
 export type GridTaskBlock = {
   block: WeekScheduledBlock
   task: Task
   catName: string
-  /** `block.done || task.completedAt != null` (D5). */
+  /** `blockIsDone(task)` — from `task.completedAt` only (chunk 37 R1). */
   done: boolean
 }
 
@@ -133,7 +136,12 @@ export type WeekGridProps = {
   staleTime: string | null
   /** Epoch ms of the busy fetch (popover "Synced Xm ago"), null pre-fetch. */
   fetchedAt: number | null
-  loading: boolean
+  /**
+   * `cold` = no data yet for the visible week (dims to 50%); `refreshing`
+   * = a background refetch (realtime echo, TTL, focus) with current data
+   * still on screen at full opacity; `ready` = settled.
+   */
+  phase: GridPhase
   /** CalendarError message for the quiet inline notice; null when healthy. */
   errorMessage: string | null
   /** Per-day free minutes (Mon–Fri); null = past day, undefined = weekend
@@ -173,7 +181,7 @@ export default function WeekGrid({
   stale,
   staleTime,
   fetchedAt,
-  loading,
+  phase,
   errorMessage,
   dayFree,
   scheduled = [],
@@ -229,11 +237,13 @@ export default function WeekGrid({
     ? `OVERLAPS ${conflict.title.toUpperCase()} · ${conflict.mins}M`
     : null
 
-  const emptyWeek =
-    busy.length === 0 && scheduled.length === 0 && !loading && !drag
+  // Gated on scheduled blocks only (R4): a week of meetings with nothing
+  // planned still gets the nudge; the copy sits at z5 over the overlays.
+  const cold = phase === 'cold'
+  const emptyWeek = scheduled.length === 0 && !cold && !drag
 
   return (
-    <div className={loading ? 'opacity-50' : undefined}>
+    <div data-testid="week-grid-root" className={cold ? 'opacity-50' : undefined}>
       {errorMessage && (
         <p className="mb-2 text-[12px] text-ink-3">
           {errorMessage} The grid is shown without calendar overlays.

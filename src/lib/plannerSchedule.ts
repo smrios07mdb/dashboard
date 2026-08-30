@@ -229,6 +229,30 @@ export function gridPointToSlot(p: GridPoint): { day: number; minute: number } |
   return { day, minute }
 }
 
+// ── done (chunk 37 revisions, R1) ────────────────────────────────────────
+
+/**
+ * A scheduled block renders done iff its task is completed. `tasks.
+ * completed_at` is the single source of truth; `scheduled_blocks.done` is a
+ * trigger-maintained mirror the client never reads (migration 11).
+ */
+export function blockIsDone(task: Pick<Task, 'completedAt'>): boolean {
+  return task.completedAt != null
+}
+
+// ── busy freshness (chunk 37 revisions, R2) ──────────────────────────────
+
+/** Planner busy cache TTL — the ARCH §8 "every 5 minutes + on focus" model. */
+export const BUSY_TTL_MS = 5 * 60_000
+
+/** True while a cached per-week busy entry is inside the TTL. */
+export function isBusyEntryFresh(
+  entry: { fetchedAt: number } | null | undefined,
+  now: number,
+): boolean {
+  return entry != null && now - entry.fetchedAt < BUSY_TTL_MS
+}
+
 // ── tray ─────────────────────────────────────────────────────────────────
 
 /** Open tasks that have no scheduled block (the tray, D5). */

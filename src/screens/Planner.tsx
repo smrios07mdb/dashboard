@@ -19,7 +19,10 @@ import PlannerTray, {
 } from '@/components/planner/PlannerTray'
 import ScheduleSheet from '@/components/planner/ScheduleSheet'
 import { usePlannerDrag, type DropResult } from '@/components/planner/usePlannerDrag'
-import WeekGrid, { type GridTaskBlock } from '@/components/planner/WeekGrid'
+import WeekGrid, {
+  type GridPhase,
+  type GridTaskBlock,
+} from '@/components/planner/WeekGrid'
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { repo } from '@/db/repo'
@@ -49,6 +52,8 @@ import {
 } from '@/lib/plannerGeometry'
 import {
   blockDurationMin,
+  blockIsDone,
+  isBusyEntryFresh,
   overlapBusy,
   scheduledToWeekBlocks,
   splitTray,
@@ -71,11 +76,19 @@ import { useUIStore } from '@/state/uiStore'
  * day-selector strip + single-day timeline + tap-to-schedule rows.
  *
  * Busy overlays and scheduled blocks are both fetched per visible week
- * (Monday 00:00 → Sunday 24:00, local) with simple in-memory per-week
- * caches keyed on `dashboardRefreshKey`, so a realtime event on either
- * `tasks` or `scheduled_blocks` (bumping the key) refetches. Placement,
- * move, resize, done and unschedule are optimistic through the repo with
- * the normalized error toast + re-read on failure.
+ * (Monday 00:00 → Sunday 24:00, local) into in-memory per-week caches —
+ * with different freshness rules (chunk 37 revisions, R2): scheduled
+ * blocks (and the tasks read) follow `dashboardRefreshKey`, so a realtime
+ * event refetches them; busy is proxy-backed and follows the ARCH §8 model
+ * instead — 5-minute TTL + refetch on window focus, invalidated only by
+ * an explicit `busyRefreshKey` bump (sync pill, wipe, import, calendar
+ * connect/disconnect). A planner write therefore causes zero proxy
+ * requests. Either cache keeps its current rows on screen while a
+ * refetch is in flight; the grid dims only when a week has no data yet
+ * (R3). Placement, move, resize and unschedule are optimistic through the
+ * repo with the normalized error toast + re-read on failure; done is a
+ * single `tasks.markComplete` write (R1 — `scheduled_blocks.done` is a
+ * trigger-maintained mirror the client never reads).
  *
  * All day/time math is browser-local (D3/D6); `settings.timezone` stays a
  * routines/streak concern.
@@ -133,7 +146,7 @@ function StaleChip() {
   )
 }
 
-type BusyPhase = 'loading' | 'ready' | 'error' | 'not_configured'
+type BusyPhase = 'loading' | 'refreshing' | 'ready' | 'error' | 'not_configured'
 
 type BusyState = {
   phase: BusyPhase
@@ -142,10 +155,14 @@ type BusyState = {
   errorMessage: string | null
 }
 
+type BusyEntry = { busy: GetBusyResult; fetchedAt: number; refreshKey: number }
+type BlocksEntry = { rows: ScheduledBlock[]; key: string }
+
 export default function Planner() {
   const { user } = useSession()
   const userId = user?.id ?? null
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
+  const busyRefreshKey = useUIStore((s) => s.busyRefreshKey)
   const isTouch = useIsTouchDevice()
 
   // Local clock — re-ticks every minute for the now-line / capacity-from-now.
@@ -181,35 +198,73 @@ export default function Planner() {
     setSelectedDay(todayInWeek ? todayIdx : 0)
   }
 
-  // ── busy fetch (screen-level, per-week — D3) ───────────────────────────
+  // ── busy fetch (screen-level, per-week — D3; freshness per R2) ─────────
   const [busyState, setBusyState] = useState<BusyState>({
     phase: 'loading',
     busy: null,
     fetchedAt: null,
     errorMessage: null,
   })
-  const busyCacheRef = useRef(
-    new Map<string, { busy: GetBusyResult; fetchedAt: number }>(),
-  )
+  const busyCacheRef = useRef(new Map<string, BusyEntry>())
+  // Bumped by the focus listener when the visible week's entry is past TTL.
+  const [busyTick, setBusyTick] = useState(0)
+
+  useEffect(() => {
+    const onFocus = () => {
+      const entry = busyCacheRef.current.get(weekKey)
+      if (entry && !isBusyEntryFresh(entry, Date.now())) {
+        setBusyTick((t) => t + 1)
+      }
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [weekKey])
 
   useEffect(() => {
     let cancelled = false
-    // Refresh-key in the cache key ⇒ a Force-resync bump refetches.
-    const key = `${dashboardRefreshKey}:${weekKey}`
-    const cached = busyCacheRef.current.get(key)
-    if (cached) {
-      setBusyState({ phase: 'ready', ...cached, errorMessage: null })
+    const entry = busyCacheRef.current.get(weekKey)
+    const fresh =
+      entry !== undefined &&
+      entry.refreshKey === busyRefreshKey &&
+      isBusyEntryFresh(entry, Date.now())
+    if (entry && fresh) {
+      setBusyState({
+        phase: 'ready',
+        busy: entry.busy,
+        fetchedAt: entry.fetchedAt,
+        errorMessage: null,
+      })
       return
     }
-    setBusyState((s) => ({ ...s, phase: 'loading' }))
+    // Stale-while-refetch: keep the old week's overlays up (no dim) when we
+    // have them; only a never-fetched week is a cold load.
+    setBusyState(
+      entry
+        ? {
+            phase: 'refreshing',
+            busy: entry.busy,
+            fetchedAt: entry.fetchedAt,
+            errorMessage: null,
+          }
+        : { phase: 'loading', busy: null, fetchedAt: null, errorMessage: null },
+    )
     const from = weekStartDate.toISOString()
     const to = addDays(weekStartDate, 7).toISOString()
     withSessionRetry(() => getBusy({ from, to }))
       .then((busy) => {
         if (cancelled) return
-        const entry = { busy, fetchedAt: Date.now() }
-        busyCacheRef.current.set(key, entry)
-        setBusyState({ phase: 'ready', ...entry, errorMessage: null })
+        const next: BusyEntry = {
+          busy,
+          fetchedAt: Date.now(),
+          refreshKey: busyRefreshKey,
+        }
+        busyCacheRef.current.set(weekKey, next)
+        setBusyState({
+          phase: 'ready',
+          busy: next.busy,
+          fetchedAt: next.fetchedAt,
+          errorMessage: null,
+        })
       })
       .catch((e: unknown) => {
         if (cancelled) return
@@ -237,7 +292,7 @@ export default function Planner() {
     return () => {
       cancelled = true
     }
-  }, [weekKey, weekStartDate, dashboardRefreshKey])
+  }, [weekKey, weekStartDate, busyRefreshKey, busyTick])
 
   const sources: BusySources | undefined = busyState.busy?.sources
   const stale = sources?.outlook.status === 'stale'
@@ -250,56 +305,61 @@ export default function Planner() {
 
   // ── scheduled blocks (per-week, D14) ───────────────────────────────────
   const [blocks, setBlocks] = useState<ScheduledBlock[]>([])
-  const [blocksLoading, setBlocksLoading] = useState(true)
-  const blocksCacheRef = useRef(new Map<string, ScheduledBlock[]>())
+  // `cold` until the visible week has been read once; realtime-echo
+  // refetches keep the current rows on screen (`refreshing`, R3).
+  const [blocksPhase, setBlocksPhase] = useState<GridPhase>('cold')
+  const blocksCacheRef = useRef(new Map<string, BlocksEntry>())
   // Bumped after a failed write to force a re-read of the visible week.
   const [blocksReloadKey, setBlocksReloadKey] = useState(0)
-  const reloadBlocks = useCallback(() => {
-    blocksCacheRef.current.clear()
-    setBlocksReloadKey((k) => k + 1)
-  }, [])
+  const reloadBlocks = useCallback(() => setBlocksReloadKey((k) => k + 1), [])
+  const blocksKey = `${dashboardRefreshKey}:${blocksReloadKey}`
 
   useEffect(() => {
     if (!userId) return
     let cancelled = false
-    const key = `${dashboardRefreshKey}:${weekKey}`
-    const cached = blocksCacheRef.current.get(key)
-    if (cached) {
-      setBlocks(cached)
-      setBlocksLoading(false)
+    const entry = blocksCacheRef.current.get(weekKey)
+    if (entry && entry.key === blocksKey) {
+      setBlocks(entry.rows)
+      setBlocksPhase('ready')
       return
     }
-    setBlocksLoading(true)
+    if (entry) {
+      setBlocks(entry.rows)
+      setBlocksPhase('refreshing')
+    } else {
+      setBlocks([])
+      setBlocksPhase('cold')
+    }
     const from = weekStartDate.toISOString()
     const to = addDays(weekStartDate, 7).toISOString()
     repo.scheduledBlocks
       .listByRange(from, to)
       .then((rows) => {
         if (cancelled) return
-        blocksCacheRef.current.set(key, rows)
+        blocksCacheRef.current.set(weekKey, { rows, key: blocksKey })
         setBlocks(rows)
-        setBlocksLoading(false)
+        setBlocksPhase('ready')
       })
       .catch((e) => {
         if (cancelled) return
         console.error('Planner: load scheduled blocks failed', e)
-        setBlocksLoading(false)
+        setBlocksPhase('ready')
       })
     return () => {
       cancelled = true
     }
-  }, [userId, weekKey, weekStartDate, dashboardRefreshKey, blocksReloadKey])
+  }, [userId, weekKey, weekStartDate, blocksKey])
 
   /** Apply a local optimistic change and keep the per-week cache honest. */
   const patchBlocks = useCallback(
     (fn: (prev: ScheduledBlock[]) => ScheduledBlock[]) => {
       setBlocks((prev) => {
         const next = fn(prev)
-        blocksCacheRef.current.set(`${dashboardRefreshKey}:${weekKey}`, next)
+        blocksCacheRef.current.set(weekKey, { rows: next, key: blocksKey })
         return next
       })
     },
-    [dashboardRefreshKey, weekKey],
+    [weekKey, blocksKey],
   )
 
   const weekBlocks = useMemo(
@@ -412,7 +472,7 @@ export default function Planner() {
             block: b,
             task,
             catName: subToCat.get(task.subcategoryId) ?? 'Work',
-            done: b.done || task.completedAt !== null,
+            done: blockIsDone(task),
           },
         ]
       }),
@@ -507,27 +567,32 @@ export default function Planner() {
     [weekStartDate, patchBlocks, fail],
   )
 
+  // One write (R1): `tasks.completed_at` is authoritative; the DB trigger
+  // mirrors it into `scheduled_blocks.done`, which nothing here reads.
   const toggleDone = useCallback(
     async (wb: WeekScheduledBlock) => {
       const task = tasksById.get(wb.taskId)
-      const currentlyDone = wb.done || (task?.completedAt ?? null) !== null
-      const next = !currentlyDone
-      patchBlocks((prev) =>
-        prev.map((b) => (b.id === wb.id ? { ...b, done: next } : b)),
-      )
-      try {
-        const savedBlock = await repo.scheduledBlocks.update(wb.id, { done: next })
-        patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? savedBlock : b)))
-        const savedTask = await repo.tasks.markComplete(wb.taskId, next)
+      if (!task) return
+      const next = !blockIsDone(task)
+      const optimistic: Task = {
+        ...task,
+        completedAt: next ? new Date().toISOString() : null,
+      }
+      const apply = (t: Task) =>
         setTaskData((d) => ({
           ...d,
-          tasks: d.tasks.map((t) => (t.id === savedTask.id ? savedTask : t)),
+          tasks: d.tasks.map((x) => (x.id === t.id ? t : x)),
         }))
+      apply(optimistic)
+      try {
+        apply(await repo.tasks.markComplete(wb.taskId, next))
       } catch (e) {
-        fail(e)
+        apply(task)
+        console.error('Planner: write failed', e)
+        toast.error(SAVE_ERROR)
       }
     },
-    [tasksById, patchBlocks, fail],
+    [tasksById],
   )
 
   const unschedule = useCallback(
@@ -610,7 +675,18 @@ export default function Planner() {
   )
 
   // ── render ─────────────────────────────────────────────────────────────
-  const loading = busyState.phase === 'loading' || blocksLoading
+  const busyPhase: GridPhase =
+    busyState.phase === 'loading'
+      ? 'cold'
+      : busyState.phase === 'refreshing'
+        ? 'refreshing'
+        : 'ready'
+  const phase: GridPhase =
+    busyPhase === 'cold' || blocksPhase === 'cold'
+      ? 'cold'
+      : busyPhase === 'refreshing' || blocksPhase === 'refreshing'
+        ? 'refreshing'
+        : 'ready'
   const errorMessage =
     busyState.phase === 'error' ? busyState.errorMessage : null
 
@@ -667,7 +743,7 @@ export default function Planner() {
   return (
     <div>
       {/* Desktop / tablet ≥sm */}
-      <div className="hidden gap-6 sm:flex">
+      <div data-branch="desktop" className="hidden gap-6 sm:flex">
         <PlannerTray
           items={trayItems}
           sortKey={sortKey}
@@ -687,7 +763,7 @@ export default function Planner() {
             stale={!!stale}
             staleTime={staleTime}
             fetchedAt={busyState.fetchedAt}
-            loading={loading}
+            phase={phase}
             errorMessage={errorMessage}
             dayFree={dayFree}
             scheduled={gridBlocks}
@@ -705,7 +781,7 @@ export default function Planner() {
       </div>
 
       {/* Mobile <sm (AppShell already pads the page x-axis) */}
-      <div className="sm:hidden">
+      <div data-branch="mobile" className="sm:hidden">
         {header}
         <DayStrip
           days={days}
@@ -729,7 +805,7 @@ export default function Planner() {
           stale={!!stale}
           staleTime={staleTime}
           fetchedAt={busyState.fetchedAt}
-          loading={loading}
+          phase={phase}
           errorMessage={errorMessage}
           onOpenActions={setActionBlock}
           onToggleDone={toggleDone}

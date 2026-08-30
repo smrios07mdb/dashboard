@@ -65,3 +65,27 @@ format (check / PASS-FAIL / note), and commit it.
 | 13 | **Desktop keyboard path.** Back at desktop width: Tab to a tray card → Enter. | Same Schedule sheet opens with a 7-chip day selector (today selected when in the visible week, else MON); pick a day + slot → Add places the block. Then Tab to a task block → Enter → block action sheet opens; Escape closes. |
 | 14 | **Offline (one manual check).** DevTools → Network → Offline (or `window.dispatchEvent(new Event('offline'))` + `navigator.onLine` patch per chunk-15 methodology). Place a block via the sheet, then go back online. | Placed block renders immediately (Dexie + outbox); sync pill shows Offline; on reconnect the outbox drains (pill → Synced) and the DB has the row. |
 | 15 | **Console clean.** Review the console across all checks. | No errors; no React `validateDOMNesting` warnings; no Supabase error text surfaced in any toast (errors, if any, read `Could not save — retry`). |
+
+## Revisions re-run (chunk 37 revisions — done semantics, refetch dimming, empty-week copy, style warning)
+
+Run against the revisions commit (see PROGRESS row 37). Prerequisites: migration
+`11_scheduled_blocks_done_sync.sql` applied (verify `select tgname from
+pg_trigger where tgname in ('tasks_sync_scheduled_block_done',
+'scheduled_blocks_done_from_task')` returns 2 rows).
+
+Harness notes for this pass (details in CLAUDE.md "Smoke harness notes"):
+- **Check 15's console observer must be page-world-injected** (a `<script>`
+  element that wraps `console.error` and writes hits into a DOM attribute);
+  `execute_javascript` runs in an isolated world and will not see React's
+  warnings otherwise.
+- Scope all planner selectors with `[data-branch="desktop"]` /
+  `[data-branch="mobile"]` — both branches are mounted at every width.
+
+| # | Check | Expect |
+|---|---|---|
+| 5r | **Done, both directions.** (a) Planner: hover a block → done-check. (b) Dashboard: uncheck the same task. Return to the Planner **without any Planner action** (the realtime echo refetches). (c) Complete on the Dashboard → Planner shows done. | (a) block strikethrough/72%; Dashboard shows completed. (b) block back to not-done with no Planner click. (c) done. After **each** step: `select b.done, (t.completed_at is not null) as task_done from scheduled_blocks b join tasks t on t.id=b.task_id` agree on every row. |
+| 11r | **Mobile sheet opens on the strip's day.** ~570px wide; select THU on the day strip; page-world click on `[data-branch="mobile"] button` for an unscheduled row. | Sheet header `Open slots — THU n`, **no 7-chip day selector**. If a page-world click on the mobile row still opens MON with a selector, that is a real bug — stop and report. |
+| 15r | **Console clean on done toggle.** With the page-world `console.error` wrapper installed, toggle done on a block twice. | Zero `console.error` hits (previously one "conflicting style" warning per toggle). |
+| 16r | **Zero proxy requests after a drop; no dimming.** Clear the network log; drag a tray card onto the grid. | Block appears at once; grid stays at full opacity (root `[data-testid="week-grid-root"]` never gets `opacity-50`); network log shows **zero** requests to `/api/calendar/busy`. Then: change week with a cold cache → one dim + one busy request; Force-resync from the sync pill → one busy request. |
+| 17r | **Empty-week copy with busy present.** Navigate to a week that has busy blocks and no scheduled blocks. | `Nothing planned yet. / Drag a task from the tray onto a time.` renders over the overlays; hidden once a block is placed. Mobile: `Tap an unscheduled task to give it a time.` on a day with busy but no blocks. |
+| 1/6/13 | **Regression.** Re-run checks 1 (place via drag), 6 (unschedule), 13 (desktop keyboard path). | As specified above. |

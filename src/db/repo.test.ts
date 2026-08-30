@@ -30,6 +30,7 @@ import {
   categoryToRow,
   routineLogFromRow,
   routineLogToRow,
+  scheduledBlockToRow,
   settingsFromRow,
   settingsToRow,
   toCachedSettings,
@@ -40,6 +41,7 @@ import {
   type TaskRow,
 } from './mappers'
 import { repo } from './repo'
+import type { ScheduledBlock } from './types'
 import { useSyncStore } from './syncStore'
 
 // ---------- helpers ----------
@@ -852,7 +854,7 @@ describe('repo.scheduledBlocks (chunk 37)', () => {
       expect(fromMock).not.toHaveBeenCalled()
     })
 
-    it('update → Dexie row patched (updatedAt stamped) + update outbox row', async () => {
+    it('update → Dexie row patched (updatedAt stamped) + update outbox row; `done` is not a client-writable field', async () => {
       await db.scheduled_blocks.put({
         id: 'sb-1',
         userId: 'u-1',
@@ -863,13 +865,19 @@ describe('repo.scheduledBlocks (chunk 37)', () => {
         createdAt: blockRow.created_at,
         updatedAt: blockRow.updated_at,
       })
-      const out = await repo.scheduledBlocks.update('sb-1', { done: true })
-      expect(out.done).toBe(true)
+      const endAt = '2026-05-06T15:00:00.000Z'
+      const out = await repo.scheduledBlocks.update('sb-1', { endAt })
+      expect(out.endAt).toBe(endAt)
+      expect(out.done).toBe(false)
       expect(out.updatedAt).not.toBe(blockRow.updated_at)
-      expect((await db.scheduled_blocks.get('sb-1'))?.done).toBe(true)
+      expect((await db.scheduled_blocks.get('sb-1'))?.endAt).toBe(endAt)
       const rows = await db.outbox.toArray()
       expect(rows[0]).toMatchObject({ op: 'update', table: 'scheduled_blocks' })
-      expect((rows[0].payload as { done: boolean }).done).toBe(true)
+      const payload = rows[0].payload as Record<string, unknown>
+      expect(payload.endAt).toBe(endAt)
+      // R1: the mirror column is trigger-maintained; the row mapper never
+      // sends it, so an outbox replay of this payload carries no `done`.
+      expect(scheduledBlockToRow(payload as Partial<ScheduledBlock>)).not.toHaveProperty('done')
     })
 
     it('delete → Dexie row removed + delete outbox row keyed by id', async () => {

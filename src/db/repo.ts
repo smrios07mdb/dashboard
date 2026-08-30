@@ -953,7 +953,10 @@ const scheduledBlocksRepo = {
 
   async update(
     id: string,
-    changes: Partial<Pick<ScheduledBlock, 'startAt' | 'endAt' | 'done'>>,
+    // `done` is deliberately not writable: `tasks.completed_at` is the source
+    // of truth and a DB trigger keeps `scheduled_blocks.done` mirrored
+    // (migration 11, chunk 37 revisions R1).
+    changes: Partial<Pick<ScheduledBlock, 'startAt' | 'endAt'>>,
   ): Promise<ScheduledBlock> {
     const existing = await db.scheduled_blocks.get(id)
     const next: ScheduledBlock = {

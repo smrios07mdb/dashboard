@@ -3,7 +3,7 @@ import { useState } from 'react'
 import BusyBlock from '@/components/planner/BusyBlock'
 import BusyPopover from '@/components/planner/BusyPopover'
 import TaskBlock from '@/components/planner/TaskBlock'
-import type { GridTaskBlock } from '@/components/planner/WeekGrid'
+import type { GridPhase, GridTaskBlock } from '@/components/planner/WeekGrid'
 import WindowRail from '@/components/planner/WindowRail'
 import {
   expandedWindow,
@@ -31,7 +31,8 @@ export type DayTimelineProps = {
   stale: boolean
   staleTime: string | null
   fetchedAt: number | null
-  loading: boolean
+  /** See `WeekGridProps.phase` — only `cold` dims. */
+  phase: GridPhase
   errorMessage: string | null
   onOpenActions?: (block: WeekScheduledBlock) => void
   onToggleDone?: (block: WeekScheduledBlock) => void
@@ -45,7 +46,7 @@ export default function DayTimeline({
   stale,
   staleTime,
   fetchedAt,
-  loading,
+  phase,
   errorMessage,
   onOpenActions,
   onToggleDone,
@@ -72,10 +73,12 @@ export default function DayTimeline({
   const hours: number[] = []
   for (let m = h0; m <= h1; m += 60) hours.push(m)
 
-  const emptyDay = busy.length === 0 && scheduled.length === 0 && !loading
+  // Scheduled-only gating (R4), same rule as the desktop empty-week copy.
+  const cold = phase === 'cold'
+  const emptyDay = scheduled.length === 0 && !cold
 
   return (
-    <div className={loading ? 'opacity-50' : undefined}>
+    <div data-testid="day-timeline-root" className={cold ? 'opacity-50' : undefined}>
       {errorMessage && (
         <p className="pb-2 text-[12px] text-ink-3">
           {errorMessage} The timeline is shown without calendar overlays.

@@ -31,7 +31,7 @@ function renderGrid(overrides: Partial<WeekGridProps> = {}) {
       stale={false}
       staleTime={null}
       fetchedAt={Date.now()}
-      loading={false}
+      phase="ready"
       errorMessage={null}
       dayFree={[540, 540, 390, 540, 540, undefined, undefined]}
       {...overrides}
@@ -191,7 +191,7 @@ describe('WeekGrid (chunk 37 — task blocks)', () => {
     expect(block.style.opacity).toBe('0.72')
     expect(block).not.toHaveTextContent('P1')
     const title = screen.getByText('Draft launch brief') as HTMLElement
-    expect(title.style.textDecoration).toBe('line-through')
+    expect(title.style.textDecorationLine).toBe('line-through')
   })
 
   it('rails count includes a scheduled block past 19:00', () => {
@@ -225,8 +225,9 @@ describe('WeekGrid (chunk 37 — task blocks)', () => {
     expect(onOpenActions).toHaveBeenCalledWith(expect.objectContaining({ id: 'b-1' }))
   })
 
-  it('empty-week copy appears only when both busy and scheduled are empty', () => {
-    const { rerender } = renderGrid({ busy: [], scheduled: [] })
+  it('empty-week copy gates on scheduled blocks only — shows with busy present (R4)', () => {
+    const { rerender } = renderGrid({ scheduled: [] })
+    expect(screen.getByText('Standup')).toBeInTheDocument()
     expect(screen.getByText('Nothing planned yet.')).toBeInTheDocument()
     expect(
       screen.getByText('Drag a task from the tray onto a time.'),
@@ -240,13 +241,64 @@ describe('WeekGrid (chunk 37 — task blocks)', () => {
         stale={false}
         staleTime={null}
         fetchedAt={Date.now()}
-        loading={false}
+        phase="ready"
         errorMessage={null}
         dayFree={[540, 540, 390, 540, 540, undefined, undefined]}
         scheduled={[aGridBlock()]}
       />,
     )
     expect(screen.queryByText('Nothing planned yet.')).not.toBeInTheDocument()
+  })
+
+  it('empty-week copy is suppressed while cold (no data yet)', () => {
+    renderGrid({ busy: [], scheduled: [], phase: 'cold' })
+    expect(screen.queryByText('Nothing planned yet.')).not.toBeInTheDocument()
+  })
+
+  it('dims only when cold — a background refresh keeps full opacity (R3)', () => {
+    const { rerender } = renderGrid({ scheduled: [aGridBlock()], phase: 'refreshing' })
+    expect(screen.getByTestId('week-grid-root')).not.toHaveClass('opacity-50')
+    expect(screen.getByText('Draft launch brief')).toBeInTheDocument()
+    rerender(
+      <WeekGrid
+        days={week}
+        todayIdx={2}
+        nowMin={680}
+        busy={[]}
+        stale={false}
+        staleTime={null}
+        fetchedAt={null}
+        phase="cold"
+        errorMessage={null}
+        dayFree={[540, 540, 390, 540, 540, undefined, undefined]}
+      />,
+    )
+    expect(screen.getByTestId('week-grid-root')).toHaveClass('opacity-50')
+  })
+
+  it('done toggle re-render emits no React style warning (R6)', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { rerender } = renderGrid({ scheduled: [aGridBlock()] })
+      rerender(
+        <WeekGrid
+          days={week}
+          todayIdx={2}
+          nowMin={680}
+          busy={busy}
+          stale={false}
+          staleTime={null}
+          fetchedAt={Date.now()}
+          phase="ready"
+          errorMessage={null}
+          dayFree={[540, 540, 390, 540, 540, undefined, undefined]}
+          scheduled={[aGridBlock({ done: true })]}
+        />,
+      )
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('renders the drop preview for a live tray drag, destructive on busy overlap', () => {

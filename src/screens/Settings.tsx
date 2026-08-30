@@ -556,6 +556,7 @@ function CalendarSection() {
       // setting it optimistically — the proxy is the source of truth (resolution 4).
       await refetchSettings()
       setAppPassword('') // write-only: don't retain it in the form
+      useUIStore.getState().forceBusyRefresh() // Planner busy cache (R2)
       toast('Apple Calendar connected.')
     } catch (e) {
       await reportCalendarError(e, 'Could not save — retry.')
@@ -580,6 +581,7 @@ function CalendarSection() {
       setCalendarUrl('')
       setAppPassword('')
       await refetchSettings()
+      useUIStore.getState().forceBusyRefresh() // Planner busy cache (R2)
       toast('Apple Calendar disconnected.')
     } catch (e) {
       console.error('Disconnect failed', e)
@@ -834,6 +836,7 @@ function OutlookRows() {
       // The proxy wrote status/feedName/fetchedAt server-side; read back
       // rather than setting optimistically (same as the Apple save path).
       await refetchSettings()
+      useUIStore.getState().forceBusyRefresh() // Planner busy cache (R2)
       toast(
         `Connected — ${result.feedName ?? 'calendar'} · ${result.eventCount} events this week`,
       )
@@ -848,6 +851,7 @@ function OutlookRows() {
     try {
       await disconnectOutlookFeed()
       await refetchSettings()
+      useUIStore.getState().forceBusyRefresh() // Planner busy cache (R2)
       toast('Outlook feed disconnected.')
     } catch (e) {
       await reportCalendarError(e, SAVE_ERROR)
@@ -1120,6 +1124,7 @@ function DataSection() {
       const res = await importData(parsed, mode, userId)
       setImportOpen(false)
       useUIStore.getState().forceDashboardRefresh()
+      useUIStore.getState().forceBusyRefresh()
       const total = Object.values(res.counts).reduce((a, b) => a + b, 0)
       toast(
         mode === 'replace'
@@ -1144,6 +1149,7 @@ function DataSection() {
     try {
       await wipeLocalCache()
       useUIStore.getState().forceDashboardRefresh()
+      useUIStore.getState().forceBusyRefresh()
       setWipeOpen(false)
       setWipeConfirm('')
       toast('Local cache cleared — re-downloading from the server.')

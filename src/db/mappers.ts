@@ -161,7 +161,11 @@ export function scheduledBlockToRow(
   if (value.taskId !== undefined) row.task_id = value.taskId
   if (value.startAt !== undefined) row.start_at = value.startAt
   if (value.endAt !== undefined) row.end_at = value.endAt
-  if (value.done !== undefined) row.done = value.done
+  // `done` is intentionally never sent (chunk 37 revisions R1): it is a
+  // server-maintained mirror of `tasks.completed_at` (migration 11 stamps it
+  // on insert and re-syncs it on completion change). Skipping it here also
+  // keeps offline outbox replays — which re-send the full cached row — from
+  // clobbering the trigger's value with a stale local mirror.
   if (value.createdAt !== undefined) row.created_at = value.createdAt
   if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
   return row

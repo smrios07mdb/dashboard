@@ -36,6 +36,14 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **Screenshot persistence.** Chrome MCP returns screenshots inline in the conversation only — it does not write them to disk regardless of `save_to_disk: true` flags or `/tmp/*.png` path hints in smoke specs. Future smoke specs should reference "inline screenshots in the Cowork transcript" rather than promising filesystem paths.
 
+**Isolated-world JavaScript.** Chrome MCP's `execute_javascript` runs in an isolated world: the DOM is shared with the page, JS globals are not. Anything that must patch or observe page-world JS — `navigator.onLine`, a `console.error` wrapper for a "console clean" check, the `matchMedia` patch in the `(hover: none)` paragraph above — has to be injected via a `<script>` element appended to the document and report back through the DOM (e.g. write results into a `data-*` attribute or a hidden element the harness then reads). A patch applied directly from `execute_javascript` looks successful but never reaches the app's code.
+
+**Synthesized pointer drags need a separate `pointerup` call.** The planner's native pointer-drag hook (chunk 37) activates after ≥5px of accumulated `pointermove` travel and commits on `pointerup`. Dispatching the `pointerdown` + `pointermove`s in one `execute_javascript` call and the `pointerup` in a second call is what works; putting the `pointerup` in the same synchronous batch as the moves drops the drop.
+
+**Both breakpoint branches are always mounted.** The Planner (chunk 36 decision) renders its desktop (`hidden sm:flex`) and mobile (`sm:hidden`) branches at every width and hides one with CSS. `display:none` elements still fire programmatic `.click()`, so an unscoped selector like `button:has-text("Schedule")` can land on the hidden branch and produce a confusing result (chunk-37 smoke check 11 opened the desktop sheet from the "mobile" test). Scope selectors with `[data-branch="desktop"]` / `[data-branch="mobile"]`.
+
+**Busy fixtures.** Create test calendar events through the app's own `createEvent` (`POST /api/calendar/events` on the proxy), not in Calendar.app. Locally created Calendar.app events may never reach iCloud's CalDAV server (observed 40+ minutes with no propagation), so a fixture made that way never shows up as busy.
+
 ## Chunk prompt corrections
 
 `prompts/README.md` is an overlay doc capturing the cross-chunk substitutions, path corrections, and conventions that apply to every chunk prompt in this repo. Read it before starting any chunk. Authority order: `ARCHITECTURE.md` → `prompts/README.md` → the individual chunk prompt → the chunk-specific brief (if any).

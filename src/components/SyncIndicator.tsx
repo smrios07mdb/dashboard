@@ -63,6 +63,9 @@ export default function SyncIndicator() {
       // Bump the dashboard refresh counter; the Dashboard's effect subscribes
       // and re-runs the repo reads (online-first), re-hydrating Dexie.
       useUIStore.getState().forceDashboardRefresh()
+      // The Planner's busy cache runs on its own key (TTL + focus, R2);
+      // an explicit resync drops it too.
+      useUIStore.getState().forceBusyRefresh()
     } finally {
       setResyncing(false)
     }

@@ -40,7 +40,7 @@ export type TaskBlockProps = {
   hourH: number
   windowStartMin: number
   windowEndMin: number
-  /** `block.done || task.completedAt != null` — the screen decides (D5). */
+  /** `blockIsDone(task)` — derived from `task.completedAt` only (R1). */
   done: boolean
   /** The block currently being moved (rendered at 30%). */
   dimmed?: boolean
@@ -131,7 +131,9 @@ export default function TaskBlock({
           className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] font-medium leading-[1.25]"
           style={{
             color: done ? 'var(--ink-3)' : 'var(--ink)',
-            textDecoration: done ? 'line-through' : 'none',
+            // Longhands only — mixing the `textDecoration` shorthand with
+            // `textDecorationColor` trips React's conflicting-style warning.
+            textDecorationLine: done ? 'line-through' : 'none',
             textDecorationColor: 'var(--ink-3)',
           }}
         >

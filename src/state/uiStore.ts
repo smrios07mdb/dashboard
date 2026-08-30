@@ -28,6 +28,19 @@ type UIStoreState = {
    */
   dashboardRefreshKey: number
   forceDashboardRefresh: () => void
+  /**
+   * Monotonic counter the Planner's busy fetch subscribes to (chunk 37
+   * revisions, R2).
+   *
+   * Busy is proxy-backed and expensive, so its per-week cache runs on a
+   * 5-minute TTL + window focus instead of `dashboardRefreshKey` (which
+   * every planner write bumps through its realtime echo). Explicit
+   * resyncs — the sync pill, cache wipe, import, calendar connect /
+   * disconnect — call `forceBusyRefresh()` alongside
+   * `forceDashboardRefresh()` to drop that cache.
+   */
+  busyRefreshKey: number
+  forceBusyRefresh: () => void
 }
 
 export const useUIStore = create<UIStoreState>((set) => ({
@@ -36,4 +49,7 @@ export const useUIStore = create<UIStoreState>((set) => ({
   dashboardRefreshKey: 0,
   forceDashboardRefresh: () =>
     set((s) => ({ ...s, dashboardRefreshKey: s.dashboardRefreshKey + 1 })),
+  busyRefreshKey: 0,
+  forceBusyRefresh: () =>
+    set((s) => ({ ...s, busyRefreshKey: s.busyRefreshKey + 1 })),
 }))

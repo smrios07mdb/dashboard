@@ -4,6 +4,9 @@ import type { ScheduledBlock, Task } from '@/db/types'
 import { PLANNER, type WeekBusyBlock } from '@/lib/plannerGeometry'
 import {
   blockDurationMin,
+  blockIsDone,
+  BUSY_TTL_MS,
+  isBusyEntryFresh,
   findOpenSlots,
   gridPointToSlot,
   overlapBusy,
@@ -260,5 +263,26 @@ describe('splitTray', () => {
     ]
     const out = splitTray(tasks, [aBlock({ taskId: 'blocked' })])
     expect(out.map((t) => t.id)).toEqual(['open'])
+  })
+})
+
+describe('blockIsDone (chunk 37 revisions R1)', () => {
+  it('derives done from task.completedAt only — a stale block.done never wins', () => {
+    // Smoke check 5: block.done=true left behind after a Dashboard uncheck.
+    const block = aBlock({ done: true })
+    expect(block.done).toBe(true)
+    expect(blockIsDone(aTask({ completedAt: null }))).toBe(false)
+    expect(blockIsDone(aTask({ completedAt: '2026-05-01T09:00:00.000Z' }))).toBe(true)
+  })
+})
+
+describe('isBusyEntryFresh (chunk 37 revisions R2)', () => {
+  it('is fresh inside the 5-minute TTL and stale at/after it or when absent', () => {
+    const now = 1_000_000_000
+    expect(isBusyEntryFresh({ fetchedAt: now - 1 }, now)).toBe(true)
+    expect(isBusyEntryFresh({ fetchedAt: now - BUSY_TTL_MS + 1 }, now)).toBe(true)
+    expect(isBusyEntryFresh({ fetchedAt: now - BUSY_TTL_MS }, now)).toBe(false)
+    expect(isBusyEntryFresh(null, now)).toBe(false)
+    expect(isBusyEntryFresh(undefined, now)).toBe(false)
   })
 })
