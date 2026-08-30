@@ -143,15 +143,7 @@ any done-toggle this run (counter stayed 0 across two toggles in both branches).
 
 # Re-run (checks 1–5, 2026-08-30)
 
-**Needs manual deletion:** the **chunk-37** `Smoke Busy` (uid
-`25d58a32-2ea6-4cec-9fab-46a5beeee1f6`, WED Sep 2 10:00–11:00 local) is **still
-on iCloud** — it renders on WEEK 36 and holds WED Sep 2 at `8h free` instead of
-`9h`. The first run never checked precondition §0.5 and its header line "No
-manual deletion required" is therefore too broad — it was true only of the event
-that run created (none), not of this pre-existing one. The operator must
-delete it in Calendar.app before any run that uses week 36, or check 1's packing
-derivation there will be wrong. **No new calendar event was created by this
-re-run.**
+Deleted via Calendar.app on 2026-08-30 11:22 ET; confirmed absent from /busy after Force resync.
 
 Run 2026-08-30 (Sunday) ~10:15–10:25 ET against local dev
 `http://localhost:5173/dashboard/`, signed in as smrios07@gmail.com.
