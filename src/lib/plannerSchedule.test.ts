@@ -3,8 +3,11 @@ import { describe, expect, it } from 'vitest'
 import type { ScheduledBlock, Task } from '@/db/types'
 import { PLANNER, type WeekBusyBlock } from '@/lib/plannerGeometry'
 import {
+  autoFill,
   blockDurationMin,
   blockIsDone,
+  isPastBlock,
+  nextOpenSlot,
   BUSY_TTL_MS,
   isBusyEntryFresh,
   findOpenSlots,
@@ -284,5 +287,149 @@ describe('isBusyEntryFresh (chunk 37 revisions R2)', () => {
     expect(isBusyEntryFresh({ fetchedAt: now - BUSY_TTL_MS }, now)).toBe(false)
     expect(isBusyEntryFresh(null, now)).toBe(false)
     expect(isBusyEntryFresh(undefined, now)).toBe(false)
+  })
+})
+
+// ============================================================
+// Chunk 38 — carryover + Fill my week
+// ============================================================
+
+describe('isPastBlock (chunk 38 D6)', () => {
+  const todayIdx = 2
+  const nowMin = 680
+  it('past day → true; today ended → true; today running → false; future → false', () => {
+    expect(isPastBlock({ day: 1, endMin: 600 }, todayIdx, nowMin)).toBe(true)
+    expect(isPastBlock({ day: 2, endMin: 680 }, todayIdx, nowMin)).toBe(true)
+    expect(isPastBlock({ day: 2, endMin: 700 }, todayIdx, nowMin)).toBe(false)
+    expect(isPastBlock({ day: 3, endMin: 600 }, todayIdx, nowMin)).toBe(false)
+  })
+  it('todayIdx out of range: a past week is all past, a future week none', () => {
+    expect(isPastBlock({ day: 6, endMin: 1439 }, 9, 0)).toBe(true)
+    expect(isPastBlock({ day: 0, endMin: 540 }, -1, 1439)).toBe(false)
+  })
+})
+
+describe('nextOpenSlot (chunk 38 D4)', () => {
+  it('today starts at ceil15(now + 10)', () => {
+    expect(nextOpenSlot(30, [], [], 2, 680)).toEqual({ day: 2, startMin: 690 })
+  })
+  it('skips busy and scheduled ranges, snapping the cursor to 15m', () => {
+    const slot = nextOpenSlot(
+      30,
+      [busy(2, 690, 750)],
+      [sched(2, 750, 842)],
+      2,
+      680,
+    )
+    expect(slot).toEqual({ day: 2, startMin: 855 })
+  })
+  it('falls to the next day at 09:00 when today is full', () => {
+    expect(nextOpenSlot(30, [busy(2, 690, 1080)], [], 2, 680)).toEqual({
+      day: 3,
+      startMin: 540,
+    })
+  })
+  it('allows weekend days (today → Sunday)', () => {
+    expect(nextOpenSlot(30, [], [], 5, 600)).toEqual({ day: 5, startMin: 615 })
+    expect(nextOpenSlot(60, [busy(5, 540, 1080)], [], 5, 0)).toEqual({
+      day: 6,
+      startMin: 540,
+    })
+  })
+  it('returns null when todayIdx > 6 (past week) or nothing fits', () => {
+    expect(nextOpenSlot(30, [], [], 7, 0)).toBeNull()
+    const full = [0, 1, 2, 3, 4, 5, 6].map((d) => busy(d, 540, 1080))
+    expect(nextOpenSlot(15, full, [], 0, 0)).toBeNull()
+    // A 10h block never fits the 9h window.
+    expect(nextOpenSlot(600, [], [], 0, 0)).toBeNull()
+  })
+})
+
+describe('autoFill (chunk 38 D3)', () => {
+  const p1 = (id: string, over: Partial<Task> = {}) =>
+    aTask({ id, priority: 1, estimateMinutes: 30, ...over })
+  const p2 = (id: string, over: Partial<Task> = {}) =>
+    aTask({ id, priority: 2, estimateMinutes: 30, ...over })
+
+  it('P1 before P2, packed sequentially from Monday 09:00 on a future week', () => {
+    const out = autoFill([p2('b'), p1('a')], [], [], -7, 1000)
+    expect(out).toEqual([
+      { taskId: 'a', day: 0, startMin: 540, endMin: 570 },
+      { taskId: 'b', day: 0, startMin: 570, endMin: 600 },
+    ])
+  })
+  it('ties break by due date then created_at via compareTasks', () => {
+    const out = autoFill(
+      [
+        p1('late', { dueAt: '2026-05-10T00:00:00.000Z' }),
+        p1('none'),
+        p1('early', { dueAt: '2026-05-05T00:00:00.000Z' }),
+      ],
+      [],
+      [],
+      0,
+      0,
+    )
+    expect(out.map((p) => p.taskId)).toEqual(['early', 'late', 'none'])
+  })
+  it('excludes P3 and no-priority tasks', () => {
+    const out = autoFill(
+      [aTask({ id: 'p3', priority: 3 }), aTask({ id: 'np', priority: null }), p1('a')],
+      [],
+      [],
+      0,
+      0,
+    )
+    expect(out.map((p) => p.taskId)).toEqual(['a'])
+  })
+  it('a 0-estimate task proposes 30m (blockDurationMin, deviation from the prototype)', () => {
+    const out = autoFill([p1('z', { estimateMinutes: 0 })], [], [], 0, 0)
+    expect(out[0].endMin - out[0].startMin).toBe(30)
+  })
+  it('earlier proposals occupy for later candidates and spill to the next day', () => {
+    const out = autoFill(
+      [p1('big', { estimateMinutes: 480 }), p2('small', { estimateMinutes: 60 })],
+      [],
+      [],
+      0,
+      0,
+    )
+    expect(out).toEqual([
+      { taskId: 'big', day: 0, startMin: 540, endMin: 1020 },
+      { taskId: 'small', day: 0, startMin: 1020, endMin: 1080 },
+    ])
+    const out2 = autoFill(
+      [p1('big', { estimateMinutes: 480 }), p2('mid', { estimateMinutes: 90 })],
+      [],
+      [],
+      0,
+      0,
+    )
+    expect(out2[1]).toEqual({ taskId: 'mid', day: 1, startMin: 540, endMin: 630 })
+  })
+  it('weekend of the current week or a past week → []', () => {
+    expect(autoFill([p1('a')], [], [], 5, 600)).toEqual([])
+    expect(autoFill([p1('a')], [], [], 6, 600)).toEqual([])
+    expect(autoFill([p1('a')], [], [], 8, 600)).toEqual([])
+  })
+  it('today starts at ceil15(now + 10); honors busy + scheduled', () => {
+    expect(autoFill([p1('a')], [], [], 2, 680)).toEqual([
+      { taskId: 'a', day: 2, startMin: 690, endMin: 720 },
+    ])
+    const out = autoFill(
+      [p1('a')],
+      [busy(2, 690, 750)],
+      [sched(2, 750, 840)],
+      2,
+      680,
+    )
+    expect(out).toEqual([{ taskId: 'a', day: 2, startMin: 840, endMin: 870 }])
+  })
+  it('never proposes past Friday — a task that fits nowhere is skipped', () => {
+    const full = [0, 1, 2, 3, 4].map((d) => busy(d, 540, 1080))
+    expect(autoFill([p1('a')], full, [], 0, 0)).toEqual([])
+    // A task too long for any day is skipped while a shorter one still lands.
+    const out = autoFill([p1('huge', { estimateMinutes: 600 }), p2('ok')], [], [], 0, 0)
+    expect(out.map((p) => p.taskId)).toEqual(['ok'])
   })
 })

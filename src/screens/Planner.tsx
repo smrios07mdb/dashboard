@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 
-import { ChevronLeft, ChevronRight } from '@/components/icons'
+import { ChevronLeft, ChevronRight, Sparkles } from '@/components/icons'
 import BlockActionSheet from '@/components/planner/BlockActionSheet'
 import DayStrip from '@/components/planner/DayStrip'
 import DayTimeline from '@/components/planner/DayTimeline'
@@ -21,6 +21,7 @@ import ScheduleSheet from '@/components/planner/ScheduleSheet'
 import { usePlannerDrag, type DropResult } from '@/components/planner/usePlannerDrag'
 import WeekGrid, {
   type GridPhase,
+  type GridProposal,
   type GridTaskBlock,
 } from '@/components/planner/WeekGrid'
 import { Button } from '@/components/ui/button'
@@ -49,15 +50,20 @@ import {
   weekMetaLabel,
   weekRangeLabel,
   weekStart,
+  type WeekBusyBlock,
 } from '@/lib/plannerGeometry'
 import {
+  autoFill,
   blockDurationMin,
   blockIsDone,
   isBusyEntryFresh,
+  isPastBlock,
+  nextOpenSlot,
   overlapBusy,
   scheduledToWeekBlocks,
   splitTray,
   toInstant,
+  type Proposal,
   type WeekScheduledBlock,
 } from '@/lib/plannerSchedule'
 import { withSessionRetry } from '@/lib/session'
@@ -70,7 +76,8 @@ import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useUIStore } from '@/state/uiStore'
 
 /*
- * Week Planner (chunk 36 grid + chunk 37 scheduling).
+ * Week Planner (chunk 36 grid + chunk 37 scheduling + chunk 38 fill /
+ * carryover).
  *
  * Desktop ≥sm: 300px unscheduled tray + 7-column week grid. Mobile <sm:
  * day-selector strip + single-day timeline + tap-to-schedule rows.
@@ -92,9 +99,16 @@ import { useUIStore } from '@/state/uiStore'
  *
  * All day/time math is browser-local (D3/D6); `settings.timezone` stays a
  * routines/streak concern.
+ *
+ * Chunk 38: Fill-my-week proposals are local, ephemeral state — a snapshot
+ * of occupancy that any mutation, drag activation or week change drops
+ * (D2); nothing is written until `Place all` (D13). Carryover ("move to
+ * next open slot") always scans the **current** week, fetching its data on
+ * demand when a past week is visible (D5).
  */
 
 const SAVE_ERROR = 'Could not save — retry'
+const BUSY_LOAD_ERROR = 'Could not load busy times — retry'
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 const MONTH_SHORT = [
@@ -192,10 +206,16 @@ export default function Planner() {
   const [selectedDay, setSelectedDay] = useState(() =>
     todayInWeek ? todayIdx : 0,
   )
+  // Fill-my-week proposals (chunk 38, D2): a snapshot of the visible
+  // week's occupancy, dropped on week change, Clear/Place all, any block
+  // mutation, and drag activation. Never persisted, never counted.
+  const [proposals, setProposals] = useState<Proposal[]>([])
+  const clearProposals = useCallback(() => setProposals([]), [])
   const [prevWeekKey, setPrevWeekKey] = useState(weekKey)
   if (prevWeekKey !== weekKey) {
     setPrevWeekKey(weekKey)
     setSelectedDay(todayInWeek ? todayIdx : 0)
+    setProposals([])
   }
 
   // ── busy fetch (screen-level, per-week — D3; freshness per R2) ─────────
@@ -473,10 +493,14 @@ export default function Planner() {
             task,
             catName: subToCat.get(task.subcategoryId) ?? 'Work',
             done: blockIsDone(task),
+            // Hollow carryover (D6): the segment has ended and the task is
+            // still open. Each midnight-split segment is judged on its own
+            // `endMin`, so only the final segment can flip to carry.
+            carry: isPastBlock(b, todayIdx, nowMin) && !blockIsDone(task),
           },
         ]
       }),
-    [weekBlocks, tasksById, subToCat],
+    [weekBlocks, tasksById, subToCat, todayIdx, nowMin],
   )
 
   // ── mutations (optimistic via repo; error → toast + re-read) ──────────
@@ -498,6 +522,7 @@ export default function Planner() {
       via: 'drag' | 'sheet',
     ) => {
       if (!userId) return
+      setProposals([])
       const endMin = Math.min(startMin + durationMin, 24 * 60)
       const ol = overlapBusy(day, startMin, endMin, busyBlocks)
       try {
@@ -529,6 +554,7 @@ export default function Planner() {
 
   const move = useCallback(
     async (wb: WeekScheduledBlock, day: number, startMin: number) => {
+      setProposals([])
       const full = blocks.find((b) => b.id === wb.id)
       if (!full) return
       const durMin =
@@ -553,6 +579,7 @@ export default function Planner() {
 
   const resize = useCallback(
     async (wb: WeekScheduledBlock, endMin: number) => {
+      setProposals([])
       const endAt = toInstant(weekStartDate, wb.day, endMin)
       patchBlocks((prev) =>
         prev.map((b) => (b.id === wb.id ? { ...b, endAt } : b)),
@@ -597,6 +624,7 @@ export default function Planner() {
 
   const unschedule = useCallback(
     async (wb: WeekScheduledBlock) => {
+      setProposals([])
       patchBlocks((prev) => prev.filter((b) => b.id !== wb.id))
       try {
         await repo.scheduledBlocks.delete(wb.id)
@@ -606,6 +634,213 @@ export default function Planner() {
       }
     },
     [patchBlocks, fail],
+  )
+
+  // ── carryover (chunk 38, D5) ───────────────────────────────────────────
+  /**
+   * Busy + scheduled occupancy for an arbitrary week (the current week
+   * when a past week is visible). Busy goes through `busyCacheRef` (fresh
+   * entry reused, fetched result stored so the later navigation is warm);
+   * blocks are a plain `listByRange`. Null = a load failed (toasted here).
+   */
+  const loadWeekOccupancy = useCallback(
+    async (
+      ws: Date,
+    ): Promise<{ busy: WeekBusyBlock[]; scheduled: WeekScheduledBlock[] } | null> => {
+      const key = ws.toISOString().slice(0, 10)
+      const from = ws.toISOString()
+      const to = addDays(ws, 7).toISOString()
+      let busyRes: GetBusyResult | null = null
+      const entry = busyCacheRef.current.get(key)
+      if (
+        entry &&
+        entry.refreshKey === busyRefreshKey &&
+        isBusyEntryFresh(entry, Date.now())
+      ) {
+        busyRes = entry.busy
+      } else {
+        try {
+          busyRes = await withSessionRetry(() => getBusy({ from, to }))
+          busyCacheRef.current.set(key, {
+            busy: busyRes,
+            fetchedAt: Date.now(),
+            refreshKey: busyRefreshKey,
+          })
+        } catch (e) {
+          if (!(e instanceof CalendarError && e.kind === 'not_configured')) {
+            console.error('Planner: load busy failed', e)
+            toast.error(BUSY_LOAD_ERROR)
+            return null
+          }
+        }
+      }
+      let rows: ScheduledBlock[]
+      try {
+        rows = await repo.scheduledBlocks.listByRange(from, to)
+      } catch (e) {
+        console.error('Planner: load scheduled blocks failed', e)
+        toast.error(BUSY_LOAD_ERROR)
+        return null
+      }
+      return {
+        busy: busyToWeekBlocks(busyRes ?? [], ws),
+        scheduled: scheduledToWeekBlocks(rows, ws),
+      }
+    },
+    [busyRefreshKey],
+  )
+
+  /**
+   * Move a carry block to the next open slot of the **current** week
+   * (today → Sunday, 09–18), whichever week is visible. From a past week
+   * the block leaves the visible grid; on the current week it moves in
+   * place. Duration = the block's full instant duration (chunk-37 move
+   * semantics).
+   */
+  const carryMove = useCallback(
+    async (wb: WeekScheduledBlock) => {
+      setProposals([])
+      const full = blocks.find((b) => b.id === wb.id)
+      if (!full) return
+      const durMin =
+        (new Date(full.endAt).getTime() - new Date(full.startAt).getTime()) /
+        60_000
+      const curStart = weekStart(now)
+      const curKey = curStart.toISOString().slice(0, 10)
+      const isCurrent = curKey === weekKey
+      let busyW: WeekBusyBlock[]
+      let schedW: WeekScheduledBlock[]
+      if (isCurrent) {
+        busyW = busyBlocks
+        schedW = weekBlocks
+      } else {
+        const occ = await loadWeekOccupancy(curStart)
+        if (!occ) return
+        busyW = occ.busy
+        schedW = occ.scheduled
+      }
+      const slot = nextOpenSlot(
+        durMin,
+        busyW,
+        schedW.filter((b) => b.id !== wb.id),
+        todayIndex(curStart, now),
+        nowMin,
+      )
+      if (!slot) {
+        toast('No open slot left this week.')
+        return
+      }
+      const startAt = toInstant(curStart, slot.day, slot.startMin)
+      const endAt = new Date(
+        new Date(startAt).getTime() + durMin * 60_000,
+      ).toISOString()
+      if (isCurrent) {
+        patchBlocks((prev) =>
+          prev.map((b) => (b.id === wb.id ? { ...b, startAt, endAt } : b)),
+        )
+      } else {
+        // Belongs to another week now; drop it from the visible past week.
+        patchBlocks((prev) => prev.filter((b) => b.id !== wb.id))
+      }
+      try {
+        const saved = await repo.scheduledBlocks.update(wb.id, { startAt, endAt })
+        if (isCurrent) {
+          patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? saved : b)))
+        } else {
+          // The current week's cached rows (if any) predate this write.
+          blocksCacheRef.current.delete(curKey)
+        }
+        toast(
+          `Moved to ${DAY_LABELS[slot.day]} ${addDays(curStart, slot.day).getDate()}, ${fmtClock(slot.startMin)}.`,
+        )
+      } catch (e) {
+        fail(e)
+      }
+    },
+    [
+      blocks,
+      now,
+      nowMin,
+      weekKey,
+      busyBlocks,
+      weekBlocks,
+      loadWeekOccupancy,
+      patchBlocks,
+      fail,
+    ],
+  )
+
+  // ── Fill my week (chunk 38, D9/D13) ────────────────────────────────────
+  const fillable =
+    todayIdx <= 4 &&
+    trayItems.some((i) => i.task.priority === 1 || i.task.priority === 2)
+
+  const fill = useCallback(() => {
+    const next = autoFill(
+      trayItems.map((i) => i.task),
+      busyBlocks,
+      weekBlocks,
+      todayIdx,
+      nowMin,
+    )
+    if (next.length === 0) {
+      toast('No open weekday slots for P1–P2 tasks.')
+      return
+    }
+    setProposals(next)
+  }, [trayItems, busyBlocks, weekBlocks, todayIdx, nowMin])
+
+  // Sequential creates keep outbox ordering deterministic; the first
+  // failure stops the run (blocks already created stay) and drops the rest.
+  const acceptFill = useCallback(async () => {
+    if (!userId) return
+    const batch = proposals
+    let placed = 0
+    for (const p of batch) {
+      try {
+        const created = await repo.scheduledBlocks.create({
+          userId,
+          taskId: p.taskId,
+          startAt: toInstant(weekStartDate, p.day, p.startMin),
+          endAt: toInstant(weekStartDate, p.day, p.endMin),
+        })
+        patchBlocks((prev) => [
+          ...prev.filter((b) => b.taskId !== p.taskId),
+          created,
+        ])
+        placed++
+      } catch (e) {
+        setProposals([])
+        fail(e)
+        return
+      }
+    }
+    setProposals([])
+    toast(placed === 1 ? '1 task placed.' : `${placed} tasks placed.`)
+  }, [userId, proposals, weekStartDate, patchBlocks, fail])
+
+  const gridProposals: GridProposal[] = useMemo(
+    () =>
+      proposals.flatMap((p) => {
+        const task = tasksById.get(p.taskId)
+        if (!task) return []
+        return [{ ...p, task, catName: subToCat.get(task.subcategoryId) ?? 'Work' }]
+      }),
+    [proposals, tasksById, subToCat],
+  )
+  const proposedByTask = useMemo(
+    () =>
+      new Map(
+        proposals.map((p) => [
+          p.taskId,
+          `${DAY_LABELS[p.day]} ${fmtClock(p.startMin)}`,
+        ]),
+      ),
+    [proposals],
+  )
+  const proposalsTotalMin = proposals.reduce(
+    (sum, p) => sum + (p.endMin - p.startMin),
+    0,
   )
 
   // ── sheets (mounted once, shared by both breakpoints) ─────────────────
@@ -662,6 +897,9 @@ export default function Planner() {
     enabled: !isTouch,
     onDrop,
   })
+  // D2: a drag that activates (≥5px, not the pointerdown) invalidates the
+  // proposal snapshot — adjust-state-during-render, converges in one pass.
+  if (drag !== null && proposals.length > 0) setProposals([])
 
   const onCardPointerDown = useCallback(
     (e: PointerEvent<HTMLElement>, item: TrayItem) =>
@@ -690,7 +928,9 @@ export default function Planner() {
   const errorMessage =
     busyState.phase === 'error' ? busyState.errorMessage : null
 
-  const header = (
+  // `withFill` is true only for the desktop caller (D9: no Fill my week on
+  // mobile); everything else is identical across the two branches.
+  const header = (withFill: boolean) => (
     <header className="mb-3.5 flex flex-wrap items-center gap-3.5">
       <div>
         <h1 className="title m-0 text-[27px]">{weekRangeLabel(weekStartDate)}</h1>
@@ -719,6 +959,12 @@ export default function Planner() {
       </div>
       <span className="ml-auto" />
       {stale && <StaleChip />}
+      {withFill && proposals.length === 0 && (
+        <Button variant="outline" size="sm" onClick={fill} disabled={!fillable}>
+          <Sparkles size={13} aria-hidden />
+          Fill my week
+        </Button>
+      )}
       <span className="num mono text-[11.5px] text-ink-3">
         <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>
           {fmtMin(capacity.planned)} planned
@@ -752,9 +998,34 @@ export default function Planner() {
           onCardPointerDown={onCardPointerDown}
           draggingTaskId={drag?.kind === 'tray' ? drag.task.id : null}
           touch={isTouch}
+          proposedByTask={proposedByTask}
         />
         <main className="min-w-0 flex-1">
-          {header}
+          {header(true)}
+          {proposals.length > 0 && (
+            <div
+              data-testid="proposals-bar"
+              className="mb-3 flex items-center gap-[10px] rounded bg-accent-soft px-3 py-2"
+              style={{
+                border: '1px solid color-mix(in srgb, hsl(var(--accent)) 22%, transparent)',
+              }}
+            >
+              <Sparkles size={13} className="text-accent-ink" aria-hidden />
+              <span className="num mono text-[11.5px] font-semibold text-accent-ink">
+                {proposals.length} proposals · {fmtMin(proposalsTotalMin)}
+              </span>
+              <span className="text-[12px] text-ink-2">
+                P1–P2 tasks into the earliest open weekday slots.
+              </span>
+              <span className="ml-auto" />
+              <Button size="sm" onClick={() => void acceptFill()}>
+                Place all
+              </Button>
+              <Button variant="ghost" size="sm" onClick={clearProposals}>
+                Clear
+              </Button>
+            </div>
+          )}
           <WeekGrid
             days={days}
             todayIdx={todayIdx}
@@ -767,6 +1038,7 @@ export default function Planner() {
             errorMessage={errorMessage}
             dayFree={dayFree}
             scheduled={gridBlocks}
+            proposals={gridProposals}
             drag={drag}
             touch={isTouch}
             onGridRef={onGridRef}
@@ -775,6 +1047,7 @@ export default function Planner() {
             onResizePointerDown={startResize}
             onToggleDone={toggleDone}
             onUnschedule={unschedule}
+            onCarryMove={(b) => void carryMove(b)}
             onOpenActions={setActionBlock}
           />
         </main>
@@ -782,7 +1055,7 @@ export default function Planner() {
 
       {/* Mobile <sm (AppShell already pads the page x-axis) */}
       <div data-branch="mobile" className="sm:hidden">
-        {header}
+        {header(false)}
         <DayStrip
           days={days}
           selected={selectedDay}
@@ -809,6 +1082,7 @@ export default function Planner() {
           errorMessage={errorMessage}
           onOpenActions={setActionBlock}
           onToggleDone={toggleDone}
+          onCarryMove={(b) => void carryMove(b)}
         />
         <MobileUnscheduledList
           items={trayItems}
@@ -870,6 +1144,11 @@ export default function Planner() {
             : ''
         }
         done={actionEntry?.done ?? false}
+        carry={actionEntry?.carry ?? false}
+        onCarryMove={() => {
+          if (actionEntry) void carryMove(actionEntry.block)
+          setActionBlock(null)
+        }}
         onToggleDone={() => {
           if (actionEntry) void toggleDone(actionEntry.block)
           setActionBlock(null)

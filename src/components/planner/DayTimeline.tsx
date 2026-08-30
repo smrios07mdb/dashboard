@@ -36,6 +36,8 @@ export type DayTimelineProps = {
   errorMessage: string | null
   onOpenActions?: (block: WeekScheduledBlock) => void
   onToggleDone?: (block: WeekScheduledBlock) => void
+  /** Carry block → next open slot (chunk 38); the sheet is the main path. */
+  onCarryMove?: (block: WeekScheduledBlock) => void
 }
 
 export default function DayTimeline({
@@ -50,6 +52,7 @@ export default function DayTimeline({
   errorMessage,
   onOpenActions,
   onToggleDone,
+  onCarryMove,
 }: DayTimelineProps) {
   const [topExpanded, setTopExpanded] = useState(false)
   const [botExpanded, setBotExpanded] = useState(false)
@@ -179,9 +182,11 @@ export default function DayTimeline({
               windowStartMin={h0}
               windowEndMin={h1}
               done={g.done}
+              carry={g.carry}
               touch
               onOpenActions={onOpenActions}
               onToggleDone={onToggleDone}
+              onCarryMove={onCarryMove}
             />
           ))}
           {openBusy && (

@@ -3,6 +3,7 @@ import { useEffect, useState, type PointerEvent } from 'react'
 import BusyBlock from '@/components/planner/BusyBlock'
 import BusyPopover from '@/components/planner/BusyPopover'
 import DropSlot from '@/components/planner/DropSlot'
+import ProposalBlock from '@/components/planner/ProposalBlock'
 import TaskBlock from '@/components/planner/TaskBlock'
 import type { DragState } from '@/components/planner/usePlannerDrag'
 import WindowRail from '@/components/planner/WindowRail'
@@ -16,7 +17,11 @@ import {
   PLANNER,
   type WeekBusyBlock,
 } from '@/lib/plannerGeometry'
-import { overlapBusy, type WeekScheduledBlock } from '@/lib/plannerSchedule'
+import {
+  overlapBusy,
+  type Proposal,
+  type WeekScheduledBlock,
+} from '@/lib/plannerSchedule'
 
 /*
  * Desktop week grid (chunk 36 geometry, chunk 37 scheduling).
@@ -26,8 +31,10 @@ import { overlapBusy, type WeekScheduledBlock } from '@/lib/plannerSchedule'
  * `--line-strong` header separator, weekend 45% `--bg-alt` wash, today
  * 60% `--surface` lift + emerald dot, SHOW/HIDE collapsed-hour rails.
  *
- * Z-order per DESIGN_NOTES: busy (z1) → now-line (z2) → task blocks (z3)
- * → drop slot (z4) → empty-week copy (z5). Rails and the expanded window
+ * Z-order per DESIGN_NOTES: busy (z1) → now-line (z2) → task blocks and
+ * Fill-my-week proposal previews (z3, chunk 38) → drop slot (z4) →
+ * empty-week copy (z5). Proposals are presentational only — the rails,
+ * expanded window and capacity never see them (D14). Rails and the expanded window
  * count task blocks as well as busy (D10). The drag state comes from the
  * screen's `usePlannerDrag`: a resize previews live on the block itself,
  * a tray/move drag renders the dashed `DropSlot` (destructive when the
@@ -52,7 +59,12 @@ export type GridTaskBlock = {
   catName: string
   /** `blockIsDone(task)` — from `task.completedAt` only (chunk 37 R1). */
   done: boolean
+  /** `isPastBlock(segment) && !done` — hollow carryover (chunk 38 D6). */
+  carry: boolean
 }
+
+/** A Fill-my-week proposal joined with its task for rendering (chunk 38). */
+export type GridProposal = Proposal & { task: Task; catName: string }
 
 function DayHeader({
   date,
@@ -149,6 +161,8 @@ export type WeekGridProps = {
   dayFree: Array<number | null | undefined>
   /** Scheduled blocks joined with their tasks (chunk 37). */
   scheduled?: GridTaskBlock[]
+  /** Fill-my-week proposal previews (chunk 38) — desktop only, not controls. */
+  proposals?: GridProposal[]
   /** Live drag state from `usePlannerDrag`; null when idle. */
   drag?: DragState | null
   /** Touch device — blocks get tap-to-open-actions, no drag handlers. */
@@ -163,6 +177,7 @@ export type WeekGridProps = {
   onResizePointerDown?: (e: PointerEvent<HTMLElement>, block: WeekScheduledBlock) => void
   onToggleDone?: (block: WeekScheduledBlock) => void
   onUnschedule?: (block: WeekScheduledBlock) => void
+  onCarryMove?: (block: WeekScheduledBlock) => void
   onOpenActions?: (block: WeekScheduledBlock) => void
 }
 
@@ -185,6 +200,7 @@ export default function WeekGrid({
   errorMessage,
   dayFree,
   scheduled = [],
+  proposals = [],
   drag = null,
   touch = false,
   onGridRef,
@@ -193,6 +209,7 @@ export default function WeekGrid({
   onResizePointerDown,
   onToggleDone,
   onUnschedule,
+  onCarryMove,
   onOpenActions,
 }: WeekGridProps) {
   const [topExpanded, setTopExpanded] = useState(false)
@@ -240,7 +257,8 @@ export default function WeekGrid({
   // Gated on scheduled blocks only (R4): a week of meetings with nothing
   // planned still gets the nudge; the copy sits at z5 over the overlays.
   const cold = phase === 'cold'
-  const emptyWeek = scheduled.length === 0 && !cold && !drag
+  const emptyWeek =
+    scheduled.length === 0 && proposals.length === 0 && !cold && !drag
 
   return (
     <div data-testid="week-grid-root" className={cold ? 'opacity-50' : undefined}>
@@ -356,6 +374,7 @@ export default function WeekGrid({
                     windowStartMin={h0}
                     windowEndMin={h1}
                     done={g.done}
+                    carry={g.carry}
                     dimmed={g.block.id === draggingBlockId}
                     touch={touch}
                     onBodyPointerDown={
@@ -366,7 +385,19 @@ export default function WeekGrid({
                     onResizePointerDown={onResizePointerDown}
                     onToggleDone={onToggleDone}
                     onUnschedule={onUnschedule}
+                    onCarryMove={onCarryMove}
                     onOpenActions={onOpenActions}
+                  />
+                ))}
+              {proposals
+                .filter((p) => p.day === i)
+                .map((p) => (
+                  <ProposalBlock
+                    key={p.taskId}
+                    proposal={p}
+                    hourH={PLANNER.hourH}
+                    windowStartMin={h0}
+                    windowEndMin={h1}
                   />
                 ))}
               {dropOver && dropOver.day === i && (

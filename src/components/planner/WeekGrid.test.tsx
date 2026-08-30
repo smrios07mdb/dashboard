@@ -171,6 +171,7 @@ const aGridBlock = (
   task: aTask(),
   catName: 'Work',
   done: false,
+  carry: false,
   ...overrides,
 })
 
@@ -335,5 +336,107 @@ describe('WeekGrid (chunk 37 — task blocks)', () => {
     expect(
       screen.getByRole('button', { name: 'Draft launch brief, 10:00–11:30' }),
     ).toBeInTheDocument()
+  })
+})
+
+// ============================================================
+// Chunk 38 — proposals + carryover
+// ============================================================
+
+describe('WeekGrid (chunk 38 — proposals)', () => {
+  const proposal = (startMin: number, endMin: number) => ({
+    taskId: 't-1',
+    day: 0,
+    startMin,
+    endMin,
+    task: aTask(),
+    catName: 'Work',
+  })
+
+  it('renders a proposal preview with title and "· proposed" at ≥40px', () => {
+    renderGrid({ proposals: [proposal(600, 660)] })
+    const block = screen.getByTestId('proposal-block')
+    expect(block).toHaveTextContent('Draft launch brief')
+    expect(block).toHaveTextContent('10:00–11:00 · proposed')
+    expect(block).toHaveAttribute('aria-hidden', 'true')
+    // Only the `border` shorthand, no longhand next to it.
+    expect(block.style.borderLeft).toBe('')
+  })
+
+  it('shows the title only under 40px', () => {
+    renderGrid({ proposals: [proposal(600, 630)] })
+    const block = screen.getByTestId('proposal-block')
+    expect(block).toHaveTextContent('Draft launch brief')
+    expect(block).not.toHaveTextContent('proposed')
+  })
+
+  it('hides the empty-week copy when only proposals exist', () => {
+    renderGrid({ proposals: [proposal(600, 660)] })
+    expect(screen.queryByText('Nothing planned yet.')).not.toBeInTheDocument()
+  })
+})
+
+describe('WeekGrid (chunk 38 — carryover)', () => {
+  it('carry block: hollow, dashed, "· unfinished", → on hover fires onCarryMove', () => {
+    const onCarryMove = vi.fn()
+    const g = aGridBlock({ carry: true })
+    renderGrid({ scheduled: [g], onCarryMove })
+    const block = screen.getByRole('button', {
+      name: 'Draft launch brief, 10:00–11:00, unfinished',
+    })
+    expect(block).toHaveTextContent('10:00–11:00 · unfinished')
+    expect(block.className).toContain('border-dashed')
+    expect(block.style.opacity).toBe('1')
+    expect(block.style.boxShadow).toBe('none')
+    expect(block.style.border).toBe('')
+    expect(
+      screen.queryByRole('button', { name: 'Move to next open slot' }),
+    ).not.toBeInTheDocument()
+    fireEvent.mouseEnter(block)
+    fireEvent.click(screen.getByRole('button', { name: 'Move to next open slot' }))
+    expect(onCarryMove).toHaveBeenCalledWith(g.block)
+  })
+
+  it('done beats carry: strikethrough, no → control, "done" in the label', () => {
+    renderGrid({ scheduled: [aGridBlock({ carry: true, done: true })], onCarryMove: vi.fn() })
+    const block = screen.getByRole('button', {
+      name: 'Draft launch brief, 10:00–11:00, done',
+    })
+    fireEvent.mouseEnter(block)
+    expect(
+      screen.queryByRole('button', { name: 'Move to next open slot' }),
+    ).not.toBeInTheDocument()
+    expect(block).not.toHaveTextContent('unfinished')
+    const title = screen.getByText('Draft launch brief') as HTMLElement
+    expect(title.style.textDecorationLine).toBe('line-through')
+  })
+
+  it('D15: toggling plain → carry → done logs no conflicting-style console.error', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const { rerender } = renderGrid({ scheduled: [aGridBlock()] })
+      const again = (g: GridTaskBlock) =>
+        rerender(
+          <WeekGrid
+            days={week}
+            todayIdx={2}
+            nowMin={680}
+            busy={busy}
+            stale={false}
+            staleTime={null}
+            fetchedAt={Date.now()}
+            phase="ready"
+            errorMessage={null}
+            dayFree={[540, 540, 390, 540, 540, undefined, undefined]}
+            scheduled={[g]}
+          />,
+        )
+      again(aGridBlock({ carry: true }))
+      again(aGridBlock({ carry: true, done: true }))
+      again(aGridBlock())
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

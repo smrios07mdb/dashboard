@@ -60,6 +60,8 @@ export type TrayCardProps = {
   onClick?: (item: TrayItem) => void
   /** Presentational twin (floating card): no handlers, not focusable. */
   inert?: boolean
+  /** `WED 11:45` while a Fill-my-week proposal targets this task (chunk 38, D12). */
+  proposedLabel?: string
 }
 
 export function TrayCard({
@@ -69,6 +71,7 @@ export function TrayCard({
   onPointerDown,
   onClick,
   inert = false,
+  proposedLabel,
 }: TrayCardProps) {
   const { task, catName, overdue, dueText, dueToday } = item
   const body = (
@@ -87,7 +90,14 @@ export function TrayCard({
           className="shrink-0 rounded-[3px]"
           style={{ width: 8, height: 8, background: catColor(catName) }}
         />
-        {dueText && (
+        {proposedLabel ? (
+          <span
+            data-testid="tray-proposed"
+            className="num mono text-[10.5px] font-semibold text-accent-ink"
+          >
+            → {proposedLabel}
+          </span>
+        ) : dueText && (
           <span
             className="text-[11px]"
             style={{
@@ -117,7 +127,7 @@ export function TrayCard({
   const style = {
     borderLeft: overdue && !ghost ? '3px solid hsl(var(--destructive))' : undefined,
     padding: overdue && !ghost ? '10px 12px 10px 10px' : '10px 12px',
-    opacity: ghost ? 0.45 : 1,
+    opacity: ghost ? 0.45 : proposedLabel ? 0.6 : 1,
     boxShadow: ghost ? 'none' : undefined,
     cursor: inert ? 'grabbing' : touch ? 'default' : 'grab',
     userSelect: 'none' as const,
@@ -160,6 +170,8 @@ export type PlannerTrayProps = {
   /** Task id currently being dragged — its card renders as a ghost. */
   draggingTaskId?: string | null
   touch?: boolean
+  /** Fill-my-week proposals: taskId → `WED 11:45` (chunk 38, D12). */
+  proposedByTask?: Map<string, string>
 }
 
 /** Desktop left tray: 300px, 1px right rule. */
@@ -171,6 +183,7 @@ export default function PlannerTray({
   onCardPointerDown,
   draggingTaskId = null,
   touch = false,
+  proposedByTask,
 }: PlannerTrayProps) {
   const sorted = sortItems(items, sortKey)
   const overdueN = items.filter((i) => i.overdue).length
@@ -227,6 +240,7 @@ export default function PlannerTray({
                   item={item}
                   ghost={item.task.id === draggingTaskId}
                   touch={touch}
+                  proposedLabel={proposedByTask?.get(item.task.id)}
                   onPointerDown={touch ? undefined : onCardPointerDown}
                   onClick={onSchedule}
                 />

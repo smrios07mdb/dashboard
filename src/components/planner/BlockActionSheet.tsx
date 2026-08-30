@@ -9,9 +9,10 @@ import {
 
 /*
  * Block action sheet (chunk 37, D6/D7) — the touch + keyboard equivalent
- * of the desktop hover row: Mark done / Mark not done · Unschedule ·
- * Cancel. Opened by tapping a block on mobile or pressing Enter/Space on
- * a block anywhere. One component for both breakpoints (bottom side).
+ * of the desktop hover row: [Move to next open slot — carry only, chunk
+ * 38] · Mark done / Mark not done · Unschedule · Cancel. Opened by tapping
+ * a block on mobile or pressing Enter/Space on a block anywhere. One
+ * component for both breakpoints (bottom side).
  */
 
 export type BlockActionSheetProps = {
@@ -20,6 +21,9 @@ export type BlockActionSheetProps = {
   /** Mono `HH:MM–HH:MM` range for the description line. */
   rangeText: string
   done: boolean
+  /** Past + not done — adds the leading "Move to next open slot" button. */
+  carry?: boolean
+  onCarryMove?: () => void
   onToggleDone: () => void
   onUnschedule: () => void
   onClose: () => void
@@ -30,6 +34,8 @@ export default function BlockActionSheet({
   title,
   rangeText,
   done,
+  carry = false,
+  onCarryMove,
   onToggleDone,
   onUnschedule,
   onClose,
@@ -50,6 +56,11 @@ export default function BlockActionSheet({
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-col gap-2">
+          {carry && onCarryMove && (
+            <Button variant="outline" onClick={onCarryMove}>
+              Move to next open slot
+            </Button>
+          )}
           <Button variant="outline" onClick={onToggleDone}>
             {done ? 'Mark not done' : 'Mark done'}
           </Button>

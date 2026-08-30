@@ -5,8 +5,9 @@
  * for everything the scheduling chunk adds: scheduled-block ↔ grid
  * mapping, slot finding, overlap, pointer→slot hit-testing, tray split.
  * Ported from the handoff prototype's `planner-primitives.jsx`
- * (`findOpenSlots`, `dayOcc`, `overlapBusy`, `snap15`) and
- * `WeekPlannerDesktop.jsx` (`posFromEvent`).
+ * (`findOpenSlots`, `dayOcc`, `overlapBusy`, `snap15`, and — chunk 38 —
+ * `isPastBlock`, `nextOpenSlot`, `autoFill`) and `WeekPlannerDesktop.jsx`
+ * (`posFromEvent`).
  *
  * All day/time math is browser-local (chunk-36 D6 / chunk-37 D3):
  * instants → local `day/startMin/endMin`, and placement converts local
@@ -19,8 +20,10 @@ import {
   addDays,
   ceil15,
   minutesOfDay,
+  PLANNER,
   type WeekBusyBlock,
 } from '@/lib/plannerGeometry'
+import { compareTasks } from '@/lib/taskSort'
 
 /** A scheduled block placed on the week grid, in local wall-clock minutes. */
 export type WeekScheduledBlock = {
@@ -108,13 +111,18 @@ export function toInstant(weekStart: Date, day: number, minute: number): string 
 
 // ── slot finding (Schedule sheet) ────────────────────────────────────────
 
-/** Merged occupied ranges for a day, sorted by start (prototype `dayOcc`). */
-function dayOcc(
+/**
+ * Merged occupied ranges for a day, sorted by start (prototype `dayOcc`).
+ * `extra` = proposals placed so far by `autoFill` (chunk 38) — they occupy
+ * exactly like scheduled blocks for the candidates that follow.
+ */
+export function dayOcc(
   day: number,
   busy: DayInterval[],
   scheduled: DayInterval[],
+  extra: DayInterval[] = [],
 ): Array<[number, number]> {
-  return [...busy, ...scheduled]
+  return [...busy, ...scheduled, ...extra]
     .filter((o) => o.day === day)
     .map((o): [number, number] => [o.startMin, o.endMin])
     .sort((a, b) => a[0] - b[0])
@@ -155,6 +163,118 @@ export function findOpenSlots(
     cur += Math.max(dur, 60) + 60
   }
   return out.slice(0, 3)
+}
+
+// ── carryover + fill (chunk 38) ──────────────────────────────────────────
+
+/**
+ * A block whose segment has already ended: an earlier day of the visible
+ * week, or today with `endMin <= nowMin`. Past + not-done = carryover
+ * (hollow block with a "move to next open slot" control). `todayIdx` may
+ * fall outside 0–6 — a past week makes every block past, a future week
+ * none. For a midnight-split block the caller passes the last segment.
+ */
+export function isPastBlock(
+  b: { day: number; endMin: number },
+  todayIdx: number,
+  nowMin: number,
+): boolean {
+  return b.day < todayIdx || (b.day === todayIdx && b.endMin <= nowMin)
+}
+
+/**
+ * Earliest 09:00–18:00 gap of `dur` minutes on `day` at or after `cursor`
+ * (the shared inner loop of `nextOpenSlot` / `autoFill`), or null.
+ */
+function firstGap(
+  occ: Array<[number, number]>,
+  cursor: number,
+  dur: number,
+): number | null {
+  let cur = cursor
+  for (const [s, e] of occ) {
+    if (s - cur >= dur) return cur
+    cur = ceil15(Math.max(cur, e))
+  }
+  return PLANNER.workEnd - cur >= dur ? cur : null
+}
+
+/** Day cursor: today starts at `ceil15(now + 10)`, other days at 09:00. */
+function dayCursor(day: number, todayIdx: number, nowMin: number): number {
+  return day === todayIdx
+    ? Math.max(PLANNER.workStart, ceil15(nowMin + 10))
+    : PLANNER.workStart
+}
+
+/**
+ * First open slot of `dur` minutes from today → Sunday (weekends included,
+ * as the prototype) inside the 09:00–18:00 window, around busy + scheduled.
+ * Null when `todayIdx > 6` or nothing fits. Exact port of the prototype's
+ * `nextOpenSlot`; the caller decides which week's data to scan (D5: always
+ * the current week).
+ */
+export function nextOpenSlot(
+  dur: number,
+  busy: DayInterval[],
+  scheduled: DayInterval[],
+  todayIdx: number,
+  nowMin: number,
+): { day: number; startMin: number } | null {
+  for (let d = Math.max(todayIdx, 0); d < 7; d++) {
+    const start = firstGap(
+      dayOcc(d, busy, scheduled),
+      dayCursor(d, todayIdx, nowMin),
+      dur,
+    )
+    if (start !== null) return { day: d, startMin: start }
+  }
+  return null
+}
+
+/** A Fill-my-week proposal — client-only, never persisted (D2). */
+export type Proposal = {
+  taskId: string
+  day: number
+  startMin: number
+  endMin: number
+}
+
+/**
+ * Fill my week: propose the earliest open weekday slot for every P1/P2
+ * tray task, scanning `max(todayIdx, 0)` → Friday inside 09:00–18:00 and
+ * packing sequentially — earlier proposals occupy for later candidates.
+ * A weekend (`todayIdx >= 5`) or past week (`todayIdx > 6`) yields `[]`;
+ * a future week starts at Monday. Port of the prototype's `autoFill` with
+ * two deliberate substitutions: the sort is `compareTasks('priority')`
+ * (priority → due asc nulls last → created_at) and the duration is
+ * `blockDurationMin` so a 0-estimate task proposes 30m, not 0.
+ */
+export function autoFill(
+  tray: Task[],
+  busy: DayInterval[],
+  scheduled: DayInterval[],
+  todayIdx: number,
+  nowMin: number,
+): Proposal[] {
+  const cands = tray
+    .filter((t) => t.priority === 1 || t.priority === 2)
+    .sort(compareTasks('priority'))
+  const placed: Proposal[] = []
+  for (const t of cands) {
+    const dur = blockDurationMin(t.estimateMinutes)
+    for (let d = Math.max(todayIdx, 0); d < 5; d++) {
+      const start = firstGap(
+        dayOcc(d, busy, scheduled, placed),
+        dayCursor(d, todayIdx, nowMin),
+        dur,
+      )
+      if (start !== null) {
+        placed.push({ taskId: t.id, day: d, startMin: start, endMin: start + dur })
+        break
+      }
+    }
+  }
+  return placed
 }
 
 // ── overlap (advisory, never blocking — D8) ──────────────────────────────

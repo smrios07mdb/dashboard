@@ -1,6 +1,6 @@
 import { useState, type CSSProperties, type PointerEvent } from 'react'
 
-import { Check, X } from '@/components/icons'
+import { ArrowRight, Check, X } from '@/components/icons'
 import PriorityChip from '@/components/PriorityChip'
 import type { Task } from '@/db/types'
 import { catColor } from '@/lib/cat'
@@ -8,16 +8,24 @@ import { blockPos, fmtClock, fmtRange } from '@/lib/plannerGeometry'
 import type { WeekScheduledBlock } from '@/lib/plannerSchedule'
 
 /*
- * Scheduled task block (chunk 37, prototype `SchedBlock` minus carryover —
- * hollow past-blocks and "move to next open slot" are chunk 38).
+ * Scheduled task block (chunk 37 + chunk 38 carryover, prototype
+ * `SchedBlock`).
  *
  * The real content on the grid: white `--surface` card, 3px category edge
- * (45% mix when done), `--shadow-sm` (none when done), title + P1 chip +
- * mono range (title only under 40px), `↓ HH:MM` clip stamp, 72% opacity
- * when done, 30% while it is the block being moved.
+ * (45% mix when done or carry), `--shadow-sm` (none when done/carry),
+ * title + P1 chip + mono range (title only under 40px), `↓ HH:MM` clip
+ * stamp, 72% opacity when done, 30% while it is the block being moved.
+ * Carry (past + not done, chunk 38): hollow — 55% surface wash, dashed
+ * border via class, `--ink-2` title, ` · unfinished` range suffix. Done
+ * styling wins over carry.
  *
- * Hover (or `touch` + done) reveals the 16px action row: done-check and
- * `×` unschedule. A 7px bottom strip starts a resize (hidden when done).
+ * Hover (or `touch` + done/carry) reveals the 16px action row: `→` move
+ * to next open slot (carry only), done-check and `×` unschedule. A 7px
+ * bottom strip starts a resize (hidden when done).
+ *
+ * Style rule (chunk 37 closeout): no inline shorthand next to its
+ * longhand — the border variants live in class names, `borderLeft` is
+ * the only border key inline, text decoration uses longhands.
  *
  * The root is a focusable `role="button"` div rather than a `<button>`:
  * the action controls inside it are real buttons, and a button may not
@@ -42,6 +50,8 @@ export type TaskBlockProps = {
   windowEndMin: number
   /** `blockIsDone(task)` — derived from `task.completedAt` only (R1). */
   done: boolean
+  /** Past + not done (`isPastBlock && !done`, chunk 38) — hollow carryover. */
+  carry?: boolean
   /** The block currently being moved (rendered at 30%). */
   dimmed?: boolean
   /** Touch device: no hover row (unless done), no drag handlers. */
@@ -50,6 +60,8 @@ export type TaskBlockProps = {
   onResizePointerDown?: (e: PointerEvent<HTMLElement>, block: WeekScheduledBlock) => void
   onToggleDone?: (block: WeekScheduledBlock) => void
   onUnschedule?: (block: WeekScheduledBlock) => void
+  /** Carry block → move to the next open slot (chunk 38). */
+  onCarryMove?: (block: WeekScheduledBlock) => void
   /** Enter/Space (any device) or tap (touch) → block action sheet. */
   onOpenActions?: (block: WeekScheduledBlock) => void
 }
@@ -62,12 +74,14 @@ export default function TaskBlock({
   windowStartMin,
   windowEndMin,
   done,
+  carry: carryProp = false,
   dimmed = false,
   touch = false,
   onBodyPointerDown,
   onResizePointerDown,
   onToggleDone,
   onUnschedule,
+  onCarryMove,
   onOpenActions,
 }: TaskBlockProps) {
   const [hover, setHover] = useState(false)
@@ -81,8 +95,11 @@ export default function TaskBlock({
   if (!pos) return null
 
   const c = catColor(catName)
+  // Done wins over carry: a completed block is never "unfinished".
+  const carry = carryProp && !done
   const tight = pos.height < 40
-  const showActions = pos.height >= 24 && (touch ? done : hover || done)
+  const showActions =
+    pos.height >= 24 && (touch ? done || carry : hover || done)
   const range = fmtRange(block.startMin, block.endMin)
   const canDrag = !touch && !done && !!onBodyPointerDown
 
@@ -90,7 +107,7 @@ export default function TaskBlock({
     <div
       role="button"
       tabIndex={0}
-      aria-label={`${task.title}, ${range}${done ? ', done' : ''}`}
+      aria-label={`${task.title}, ${range}${done ? ', done' : carry ? ', unfinished' : ''}`}
       data-testid="task-block"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -112,14 +129,19 @@ export default function TaskBlock({
           onOpenActions?.(block)
         }
       }}
-      className="absolute inset-x-[3px] flex flex-col gap-px overflow-hidden rounded border border-line bg-surface text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={`absolute inset-x-[3px] flex flex-col gap-px overflow-hidden rounded border text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        carry ? 'border-dashed border-line-strong' : 'border-line'
+      }`}
       style={{
         top: pos.top,
         height: pos.height,
         zIndex: 3,
-        borderLeft: `3px solid ${done ? `color-mix(in srgb, ${c} 45%, transparent)` : c}`,
+        background: carry
+          ? 'color-mix(in srgb, var(--surface) 55%, transparent)'
+          : 'var(--surface)',
+        borderLeft: `3px solid ${done || carry ? `color-mix(in srgb, ${c} 45%, transparent)` : c}`,
         opacity: dimmed ? 0.3 : done ? 0.72 : 1,
-        boxShadow: done ? 'none' : 'var(--shadow-sm)',
+        boxShadow: done || carry ? 'none' : 'var(--shadow-sm)',
         padding: tight ? '3px 7px' : '5px 8px',
         cursor: canDrag ? 'grab' : 'default',
         userSelect: 'none',
@@ -130,7 +152,7 @@ export default function TaskBlock({
         <span
           className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[11.5px] font-medium leading-[1.25]"
           style={{
-            color: done ? 'var(--ink-3)' : 'var(--ink)',
+            color: done ? 'var(--ink-3)' : carry ? 'var(--ink-2)' : 'var(--ink)',
             // Longhands only — mixing the `textDecoration` shorthand with
             // `textDecorationColor` trips React's conflicting-style warning.
             textDecorationLine: done ? 'line-through' : 'none',
@@ -141,6 +163,21 @@ export default function TaskBlock({
         </span>
         {task.priority === 1 && !tight && !done && (
           <PriorityChip priority={1} className="px-1 py-px text-[9px]" />
+        )}
+        {showActions && carry && onCarryMove && (
+          <button
+            type="button"
+            title="Move to next open slot"
+            aria-label="Move to next open slot"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onCarryMove(block)
+            }}
+            className="inline-flex size-4 shrink-0 items-center justify-center rounded border border-line-strong bg-surface text-ink-2"
+          >
+            <ArrowRight size={10} aria-hidden />
+          </button>
         )}
         {showActions && onToggleDone && (
           <button
@@ -181,6 +218,7 @@ export default function TaskBlock({
       {!tight && (
         <span className="num mono text-[9.5px]" style={{ color: 'var(--ink-3)' }}>
           {range}
+          {carry ? ' · unfinished' : ''}
         </span>
       )}
       {pos.clipBottom && (

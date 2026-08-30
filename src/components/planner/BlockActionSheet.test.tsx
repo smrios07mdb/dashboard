@@ -43,4 +43,43 @@ describe('BlockActionSheet (chunk 37)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('carry: "Move to next open slot" renders first and fires onCarryMove (chunk 38)', () => {
+    const onCarryMove = vi.fn()
+    render(
+      <BlockActionSheet
+        open
+        title="Draft launch brief"
+        rangeText="10:00–10:45"
+        done={false}
+        carry
+        onCarryMove={onCarryMove}
+        onToggleDone={() => {}}
+        onUnschedule={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    const names = screen.getAllByRole('button').map((b) => b.textContent)
+    expect(names.indexOf('Move to next open slot')).toBeLessThan(names.indexOf('Mark done'))
+    fireEvent.click(screen.getByRole('button', { name: 'Move to next open slot' }))
+    expect(onCarryMove).toHaveBeenCalledTimes(1)
+  })
+
+  it('no carry: no move button', () => {
+    render(
+      <BlockActionSheet
+        open
+        title="x"
+        rangeText="10:00–10:45"
+        done={false}
+        onCarryMove={() => {}}
+        onToggleDone={() => {}}
+        onUnschedule={() => {}}
+        onClose={() => {}}
+      />,
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Move to next open slot' }),
+    ).not.toBeInTheDocument()
+  })
 })
