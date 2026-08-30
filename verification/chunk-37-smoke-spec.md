@@ -37,8 +37,10 @@ Data setup:
   `Smoke P1` (priority P1, estimate 45m, Work) and `Smoke zero` (no priority,
   estimate 0, Personal). Create them on the Dashboard first.
 - One known timed busy block in the visible week on the dev iCloud calendar:
-  `Smoke Busy` WED 10:00–11:00 local (create in Apple Calendar; delete at the
-  end). All-day items no longer appear as busy (proxy `d9ca515`).
+  `Smoke Busy` WED 10:00–11:00 local (create through the app's `createEvent` /
+  `POST /api/calendar/events` per CLAUDE.md; **cannot be deleted from the app
+  until chunk 39** — delete it by hand in Calendar.app afterwards and record
+  the uid in the results). All-day items no longer appear as busy (proxy `d9ca515`).
 - Clean up: unschedule/delete the smoke tasks at the end; confirm
   `select count(*) from public.scheduled_blocks` on dev project
   `dctfspcbkqvvyptddtif` returns to its pre-smoke value.
@@ -50,7 +52,7 @@ format (check / PASS-FAIL / note), and commit it.
 
 | # | Check | Expect |
 |---|---|---|
-| 1 | **Place via drag.** Synthesized drag of the `Smoke P1` tray card onto WED 14:00. | While dragging: floating tilted card follows the pointer, source card goes ghost (dashed, 45%), dashed category-colored preview shows `14:00–14:45`. On drop: block renders at WED 14:00–14:45 with the P1 chip and mono range; toast `Placed WED 14:00.`; card gone from the tray; `select task_id, start_at, end_at from scheduled_blocks` shows the row with the local-14:00 instant. |
+| 1 | **Place via drag.** Synthesized drag of the `Smoke P1` tray card onto WED 14:00. | While dragging: floating tilted card follows the pointer, source card goes ghost (dashed, 45%), dashed category-colored preview shows `14:00–14:45`. On drop: block renders at WED 14:00–14:45, title only — a 45m block is 37px at the 52px hour and `TaskBlock` suppresses the chip and range under 40px (`tight`); the range is exposed via the accessible name `Smoke P1, 14:00–14:45`; toast `Placed WED 14:00.`; card gone from the tray; `select task_id, start_at, end_at from scheduled_blocks` shows the row with the local-14:00 instant. |
 | 2 | **Move.** Synthesized drag of the block body from WED 14:00 to THU 09:15 (grab 10 minutes into the block). | Original block dims to 30% during the drag; preview follows; on drop the block is THU 09:15–10:00 (duration preserved, 15m snap); DB `start_at`/`end_at` updated; `updated_at` advanced. |
 | 3 | **Resize to the 15m minimum.** Synthesized drag of the block's bottom resize strip upward past the block start. | Cursor `ns-resize`; range label updates live; block ends at 09:30 (start + 15) — never shorter; DB `end_at` updated. Then resize down to 10:30 and confirm it snaps to 15m. |
 | 4 | **Overlap is advisory.** Drag `Smoke zero` onto WED 10:15. | Preview flips destructive with `OVERLAPS SMOKE BUSY · 30M`; the drop lands anyway (block 10:15–10:45 — 0-estimate ⇒ 30m); toast `Placed WED 10:15 — overlaps Smoke Busy by 30m.` |
@@ -67,6 +69,8 @@ format (check / PASS-FAIL / note), and commit it.
 | 15 | **Console clean.** Review the console across all checks. | No errors; no React `validateDOMNesting` warnings; no Supabase error text surfaced in any toast (errors, if any, read `Could not save — retry`). |
 
 ## Revisions re-run (chunk 37 revisions — done semantics, refetch dimming, empty-week copy, style warning)
+
+Results: `verification/chunk-37-smoke-revisions.md` — 8/8 PASS; residual `PlannerTray` style warning fixed in the chunk-37 closeout commit.
 
 Run against the revisions commit (see PROGRESS row 37). Prerequisites: migration
 `11_scheduled_blocks_done_sync.sql` applied (verify `select tgname from

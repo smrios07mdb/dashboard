@@ -109,8 +109,12 @@ export function TrayCard({
       </div>
     </>
   )
+  // Never put a CSS shorthand and one of its longhands in the same inline
+  // style object (`border`/`borderLeft`, `textDecoration`/
+  // `textDecorationColor`, …): React 19 logs a conflicting-style
+  // `console.error` when both flip in one commit. Variant borders go
+  // through class names; `borderLeft` is the only border key inline.
   const style = {
-    border: ghost ? '1px dashed var(--line-strong)' : undefined,
     borderLeft: overdue && !ghost ? '3px solid hsl(var(--destructive))' : undefined,
     padding: overdue && !ghost ? '10px 12px 10px 10px' : '10px 12px',
     opacity: ghost ? 0.45 : 1,
@@ -119,8 +123,11 @@ export function TrayCard({
     userSelect: 'none' as const,
     touchAction: 'none' as const,
   }
-  const cls =
-    'w-full rounded border border-line bg-surface text-left shadow-sm transition-colors hover:border-line-strong'
+  const cls = `w-full rounded border bg-surface text-left transition-colors ${
+    ghost
+      ? 'border-dashed border-line-strong'
+      : 'border-line shadow-sm hover:border-line-strong'
+  }`
   if (inert) {
     return (
       <div className={cls} style={style} aria-hidden>

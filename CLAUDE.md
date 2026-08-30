@@ -44,6 +44,16 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **Busy fixtures.** Create test calendar events through the app's own `createEvent` (`POST /api/calendar/events` on the proxy), not in Calendar.app. Locally created Calendar.app events may never reach iCloud's CalDAV server (observed 40+ minutes with no propagation), so a fixture made that way never shows up as busy.
 
+**Mobile branch via a same-origin iframe.** A 570px-wide same-origin `<iframe>` gives a real media-query layout (564px inner), authenticates from the shared origin's `localStorage`, and its document is scriptable from the parent, including page-world `<script>` injection into the iframe's own document. `window.open` with a size hint is popup-blocked without a user gesture and Chrome MCP exposes no `resize_window`; use the iframe.
+
+**`.focus()` scrolls the page and silently breaks the next synthesized drag.** After focusing a tray card the page can sit at `scrollY ≈ 1900` with the grid off-screen; the drag then starts (ghost + floating card) but never produces `[data-testid="drop-slot"]`. Assert `window.scrollY === 0` and re-read `getBoundingClientRect()` immediately before dispatching pointer coordinates.
+
+**The drop preview lands one tick late.** `[data-testid="drop-slot"]` is `null` inside the same script that dispatched the `pointermove`s and present on the next call. Don't read that as a failed drag.
+
+**Dashboard row selection.** To reach a task's checkbox, walk up from the title leaf to the **nearest** ancestor holding exactly one `button[aria-label^="Mark task"]`. Walking a fixed number of levels can escape the row and toggle a sibling task (the chunk-37 re-run completed and reverted a real task this way).
+
+**Busy fixtures leave an iCloud event behind.** `createEvent` has no delete counterpart until chunk 39; every smoke that follows the busy-fixture rule must end with the operator deleting the event in Calendar.app. Record the uid in the results file.
+
 ## Chunk prompt corrections
 
 `prompts/README.md` is an overlay doc capturing the cross-chunk substitutions, path corrections, and conventions that apply to every chunk prompt in this repo. Read it before starting any chunk. Authority order: `ARCHITECTURE.md` → `prompts/README.md` → the individual chunk prompt → the chunk-specific brief (if any).
