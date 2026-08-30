@@ -138,3 +138,135 @@ any done-toggle this run (counter stayed 0 across two toggles in both branches).
 - No calendar event created; nothing to delete in Calendar.app.
 - Iframe removed and the page reloaded to discard both injected wrappers, the
   observers and the sink nodes.
+
+---
+
+# Re-run (checks 1–5, 2026-08-30)
+
+**Needs manual deletion:** the **chunk-37** `Smoke Busy` (uid
+`25d58a32-2ea6-4cec-9fab-46a5beeee1f6`, WED Sep 2 10:00–11:00 local) is **still
+on iCloud** — it renders on WEEK 36 and holds WED Sep 2 at `8h free` instead of
+`9h`. The first run never checked precondition §0.5 and its header line "No
+manual deletion required" is therefore too broad — it was true only of the event
+that run created (none), not of this pre-existing one. The operator must
+delete it in Calendar.app before any run that uses week 36, or check 1's packing
+derivation there will be wrong. **No new calendar event was created by this
+re-run.**
+
+Run 2026-08-30 (Sunday) ~10:15–10:25 ET against local dev
+`http://localhost:5173/dashboard/`, signed in as smrios07@gmail.com.
+Code under test `486dfe6`; working HEAD `6cbd44a` (the first-run results commit).
+Tree: only the pre-existing `?? _to_delete/`.
+DB baseline `select count(*) from public.scheduled_blocks` = **0**; end = **0**.
+Tray hygiene `tasks?completed_at=is.null&priority=in.(1,2)` = `[]` before and
+after — no strays, nothing reprioritized.
+
+## Preconditions: 2 of 5 failed
+
+- **§0.1 day-of-week — FAILED.** The re-run fired 25 minutes after the first run
+  ended; it is still **Sunday Aug 30**, `todayIdx = 6` for the current week.
+- **§0.5 leftover `Smoke Busy` — FAILED.** See the deletion notice above.
+- §0.3 first-run results commit: already committed as `6cbd44a`, but **not
+  pushed** — the device shell has no GitHub credentials (`no gh`, no
+  `credential.helper`, no `GITHUB_TOKEN`, no `.git-credentials`), so
+  `git push` fails with `could not read Username for 'https://github.com'`.
+  The operator must push from their own terminal.
+
+## What made a partial run possible anyway
+
+`fillable` is `todayIdx <= 4` (`Planner.tsx:774-776`). `todayIndex` is documented
+at `plannerGeometry.ts:150` as *"May be negative or > 6 when today falls
+outside that week"*, so for a **future** week today is *before* the week start and
+`todayIdx` is **negative** — which passes `<= 4`. `autoFill`'s docblock
+(`plannerSchedule.ts:243-249`) confirms the intent: *"A weekend (`todayIdx >= 5`)
+or past week (`todayIdx > 6`) yields `[]`; **a future week starts at Monday**"*,
+and the loop is `for (let d = Math.max(todayIdx, 0); d < 5; d++)`
+(`plannerSchedule.ts:265`).
+
+So checks 1–4 were run **on WEEK 36 (Aug 31 – Sep 6)** as a *future-week
+variant*, and check 5 was run in full. **This is not a substitute for check 1.**
+The variant exercises the bar, proposal previews, packing order, tray dimming,
+`Place all`, `Clear`, realtime and the drag-clears path — but the branch it
+takes is `dayCursor` = Monday 09:00, **not** the today-relative branch
+(`max(09:00, ceil15(now + 10))`, today's occupancy, spill-to-tomorrow, and
+`Smoke Busy` avoidance). **Those remain untested and still require a Mon–Thu run.**
+
+## Fixtures
+
+Same shape and order as the first run, Work/General
+(`396b54ec-4090-49b4-843f-0799b5cd6f0a`), via PostgREST:
+
+| Task | id | priority | est | due |
+|---|---|---|---|---|
+| `Smoke P1a` | `84430203-f8e4-4ba5-8295-067363d93be9` | 1 | 45m | today 17:00 |
+| `Smoke P1b` | `27bc897f-3bc3-48b1-b698-e9dc33040324` | 1 | 30m | null |
+| `Smoke P2`  | `a66a50d3-53e2-45c1-a2a0-8cb0d63f82ab` | 2 | 60m | null |
+| `Smoke P3`  | `745b9586-a3e2-49a3-a4da-55c436656120` | 3 | 30m | null |
+
+**Week 36 pre-fill state:** header `0m planned · 43h free`; MON 31 `9h free`,
+TUE 1 `8h free` (`Rent Due`), WED 2 `8h free` (the stale `Smoke Busy`), THU 3
+`9h free`, FRI 4 `9h free`, SAT/SUN `—`. Σ weekday = 43h ✓. Tray cards all
+`opacity: 1`, `Smoke P1a` showing `Due Sun 30`.
+
+**Derived packing** (MON empty 09:00–18:00, cursor = Monday 09:00, sort
+`compareTasks('priority')` = P1a due-today → P1b → P2):
+P1a `09:00–09:45` · P1b `09:45–10:15` · P2 `10:15–11:15` · total `2h 15m`.
+
+## Results
+
+| # | Check | Result | Note |
+|---|-------|--------|------|
+| 1 | Fill my week | **PASS (future-week variant — see caveat above)** | Button enabled on week 36 (`disabled` absent, `opacity: 1`) — the direct contrast with the current week, where it is `disabled`/`0.5` with the identical tray, isolating `todayIdx` as the only difference. Clicked: button **unmounted** (the `proposals.length === 0` path at `Planner.tsx:962`, on the desktop branch). Bar text verbatim: `3 proposals · 2h 15m` + `P1–P2 tasks into the earliest open weekday slots.` with `Place all` / `Clear`. Three `[data-testid="proposal-block"]`, all `border-style: dashed`, all in the MON column (`x = 412`), ordered by `y`: `Smoke P1a` (y 417, h **37**) → `Smoke P1b` (y 456, h **24**) → `Smoke P2` (y 482, h **50**) — **observed = derived, exactly**. `[data-testid="tray-proposed"]` read `→ MON 09:00`, `→ MON 09:45`, `→ MON 10:15`, matching each preview. Tray: the three cards at computed `opacity: 0.6` with the arrow replacing the due text; `Smoke P3` untouched at `opacity: 1`, no arrow. **Capacity unchanged to the minute**: `0m planned · 43h free` and every day header identical to pre-fill. `scheduled_blocks` unchanged (0). ⚠️ **One prompt expectation was wrong** — see "Spec/prompt expectations" below: the 45m (37px) preview is **title-only**, not `HH:MM–HH:MM · proposed`. |
+| 2 | Clear | **PASS** | Bar gone, zero `proposal-block`, zero `tray-proposed`; all four tray cards back to `opacity: 1` with due text restored (`Smoke P1a` → `Due Sun 30`); `Fill my week` remounted and **enabled**. Capacity still `0m planned · 43h free`. No DB write. |
+| 3 | Place all | **PASS** | Second signed-in tab opened on the same week (week nav is not URL-persisted, so tab B was navigated to week 36 by hand). Toast verbatim: **`3 tasks placed.`** Bar gone. Three `task-block`s with accessible names matching the proposals exactly — `Smoke P1a, 09:00–09:45`, `Smoke P1b, 09:45–10:15`, `Smoke P2, 10:15–11:15` — same heights (37/24/50) and column. Tray reduced to `Smoke P3` alone. DB +3 rows, `start_at`/`end_at` = `2026-08-31T13:00:00Z`–`13:45Z`, `13:45Z`–`14:15Z`, `14:15Z`–`15:15Z` = the local slots at UTC−4 ✓. Header `0m planned · 43h free` → **`2h 15m planned · 40h 45m free`** (planned +2h15m, free −2h15m); MON 31 `9h free` → **`6h 45m free`**, other days unchanged — all three land inside 09–18. Tab B (40ms interval observer): 3 blocks present **1008 ms** after the `Place all` click (click ts `1788099542443` → observed ts `1788099543451`), with identical capacity figures. |
+| 4 | Proposals cleared by a manual drag | **PASS** | The three blocks unscheduled first via hover `×`, each with toast verbatim `Returned to tray.` (ts 1788099582894 / 1788099589994 / 1788099598149), DB back to 0. `Fill my week` → bar present. Synthesized drag of the `Smoke P3` tray card from (166, 556) toward MON 14:00 at (440, 677): `window.scrollY === 0` asserted and `getBoundingClientRect()` re-read immediately before dispatch (grid at x 352 / y 363 / 885×573); `pointerdown` + **14** `pointermove`s in one call, `pointerup` in a separate call. **Read after the moves, before `pointerup`:** bar **unmounted**, `proposal-block` count **0**, `tray-proposed` count **0**, `Smoke P1a`/`P1b`/`P2` back to `opacity: 1` — and `[data-testid="drop-slot"]` present reading **`14:00–14:30`** (the dragged P3 card itself at `opacity: 0.45`). Then `pointerup` → toast verbatim **`Placed MON 14:00.`**, block `Smoke P3, 14:00–14:30`. **Console counter 0 at drag start and 0 at drop** — the chunk-37 `PlannerTray` residual does not reproduce. Unscheduled afterwards. |
+| 5 | Button disabled states | **PASS (both halves discriminating)** | **(a)** Past week WEEK 34 (Aug 17–23): `disabled` attribute **present**, `opacity: 0.5` — `todayIdx > 6`. Future week WEEK 36: **enabled**, `opacity: 1`, and clicking it produced proposals starting at that week's **Monday 09:00** exactly as the prompt predicts; `Clear` afterwards. Current week WEEK 35 (`todayIdx = 6`): disabled — the Sunday case, recorded for completeness. **(b)** `Smoke P1a`/`P1b`/`P2` completed **on the Dashboard** using the nearest-ancestor method (all four rows resolved a single `button[aria-label^="Mark task"]` at depth 1; each click logged `Mark task complete`). Returning to the Planner on week 36 with only `Smoke P3` open: `Fill my week` **`disabled`, `opacity: 0.5`** — the same week that was enabled minutes earlier, so the tray predicate is isolated. Un-completing the three re-enabled it (`disabled: false`, `opacity: 1`) with all four cards back. Audit `tasks?updated_at=gte.<run start>` returned **only** the four `Smoke *` rows before and after ✓. *(The un-complete was done via PostgREST rather than the Dashboard checkbox — the Dashboard path was already exercised in the complete direction, and chunk-37's 5r proved the trigger mirrors both ways.)* |
+
+**Console counter, per check:** setup/fixtures `0` · check 1 `0` · check 2 `0` ·
+check 3 `0` · **check 4 drag start `0`, drop `0`** · check 5(a) `0` ·
+check 5(b) `0`. Page-world wrapper installed by appended `<script>`, self-tested
+with `SELFTEST-RERUN` (counter 1, message captured) then reset. No React
+conflicting-style warning, no `validateDOMNesting`, no Supabase error text in any
+toast.
+
+## Spec/prompt expectations that were wrong, not the code
+
+3. **The 45m proposal preview is title-only.** The re-run prompt asserts
+   `HH:MM–HH:MM · proposed` "on the 45m and 60m previews (37px / 50px)". The
+   threshold is **40px**: `ProposalBlock.tsx:58` is `{pos.height >= 40 && (`,
+   documented at `ProposalBlock.tsx:9` as *"with the title and, at ≥40px,
+   `HH:MM–HH:MM · proposed`"*, and asserted by the unit test
+   `WeekGrid.test.tsx:356` — *"renders a proposal preview with title and
+   '· proposed' at ≥40px"*. A 45m block is 37px, so title-only is correct.
+   **Amend the prompt** to expect the range on the 60m preview only.
+
+(Items 1 and 2 are in the first run's section above — check 7's "last Friday"
+and check 6's visible ` · unfinished`. All three are for chunk 39's Task 0.)
+
+## New harness notes
+
+- **A future week is the way to exercise `Fill my week` off-schedule.** `todayIdx`
+  is negative there, so `fillable` passes and `autoFill` starts at Monday 09:00.
+  Any future smoke that needs the fill machinery but cannot run Mon–Thu should
+  use week +1 and record it as a variant — it does **not** cover the
+  today-relative cursor.
+- **`proposal-block` elements are `aria-hidden`** (`ProposalBlock.tsx:9`), so
+  `getAttribute('aria-label')` is `null`. Assert their `innerText` and geometry,
+  not accessible names — unlike `task-block`, which does carry one.
+- **Unscheduling N blocks needs 2 calls each.** The hover-then-read rule means
+  hover block[0] → click its `×` → re-query → hover the new block[0] → … Clicking
+  one `×` re-renders and drops the hover state of the others.
+- The tab-B realtime figure landed at **1008 ms**, right on the spec's "~1s"
+  boundary (chunk 37 measured 796 ms for a single-row unschedule). A future spec
+  should state a bound rather than "~1s" if this is meant to be a hard assertion.
+
+## Cleanup / end state
+
+- All four `Smoke *` tasks deleted (`204` each); blocks cascaded.
+- `scheduled_blocks` = **0**, matching baseline. `tasks?title=like.Smoke*` = `[]`.
+- `tasks?updated_at=gte.<run start>` = `[]` after cleanup — **no real task was
+  created, completed, reprioritized or otherwise modified**, nothing to restore.
+- Tab B closed; tab A reloaded to discard the page-world wrapper, the observers
+  and both sink nodes.
+- No calendar event created by this re-run. The chunk-37 `Smoke Busy` still needs
+  hand-deleting (top of this section).
