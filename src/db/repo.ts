@@ -928,7 +928,7 @@ const scheduledBlocksRepo = {
       taskId: input.taskId,
       startAt: input.startAt,
       endAt: input.endAt,
-      done: false,
+      calendarUid: null,
       createdAt: now,
       updatedAt: now,
     }
@@ -953,10 +953,10 @@ const scheduledBlocksRepo = {
 
   async update(
     id: string,
-    // `done` is deliberately not writable: `tasks.completed_at` is the source
-    // of truth and a DB trigger keeps `scheduled_blocks.done` mirrored
-    // (migration 11, chunk 37 revisions R1).
-    changes: Partial<Pick<ScheduledBlock, 'startAt' | 'endAt'>>,
+    // Done is not a block field (`tasks.completed_at` is the source of
+    // truth); `calendarUid` is stamped by the calendar mirror after a
+    // successful iCloud create (chunk 39).
+    changes: Partial<Pick<ScheduledBlock, 'startAt' | 'endAt' | 'calendarUid'>>,
   ): Promise<ScheduledBlock> {
     const existing = await db.scheduled_blocks.get(id)
     const next: ScheduledBlock = {
@@ -1048,6 +1048,7 @@ const settingsRepo = {
       outlookStatus: 'unconfigured',
       outlookFeedName: null,
       outlookFetchedAt: null,
+      plannerWriteout: false,
       timezone: 'America/New_York',
       lastDailyReset: null,
     }

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 
-import type { WeekBusyBlock } from '@/lib/plannerGeometry'
+import type { GetBusyResult } from '@/lib/calendarApi'
+import { busyToWeekBlocks, type WeekBusyBlock } from '@/lib/plannerGeometry'
 import WeekGrid, { type WeekGridProps } from './WeekGrid'
 
 /*
@@ -165,7 +166,6 @@ const aGridBlock = (
     day: 0,
     startMin: 600,
     endMin: 660,
-    done: false,
     ...blockOverrides,
   },
   task: aTask(),
@@ -438,5 +438,39 @@ describe('WeekGrid (chunk 38 — carryover)', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+describe('WeekGrid (chunk 39 — planner mirror)', () => {
+  it('a plannerEvents entry from getBusy is never rendered as a BusyBlock', () => {
+    // The proxy keeps hupo-block- events out of `busy` and reports them on
+    // the side; the client feeds only the array through busyToWeekBlocks.
+    const fromProxy: GetBusyResult = Object.assign(
+      [
+        {
+          start: new Date(2026, 4, 6, 9, 0).toISOString(),
+          end: new Date(2026, 4, 6, 10, 30).toISOString(),
+          source: 'icloud' as const,
+          title: 'Dentist',
+        },
+      ],
+      {
+        plannerEvents: [
+          {
+            uid: 'hupo-block-1',
+            start: new Date(2026, 4, 6, 14, 0).toISOString(),
+            end: new Date(2026, 4, 6, 15, 0).toISOString(),
+          },
+        ],
+      },
+    )
+    const week0 = new Date(2026, 4, 4)
+    const weekBusy = busyToWeekBlocks(fromProxy, week0)
+    expect(weekBusy).toHaveLength(1)
+    renderGrid({ busy: weekBusy, scheduled: [] })
+    expect(screen.getByText('Dentist')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /dentist/i })).toHaveLength(1)
+    // Nothing on the grid for the mirror's 14:00–15:00.
+    expect(screen.queryByText(/14:00–15:00/)).toBeNull()
   })
 })

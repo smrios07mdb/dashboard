@@ -56,6 +56,7 @@ function settings(): Settings {
     outlookStatus: 'unconfigured',
     outlookFeedName: null,
     outlookFetchedAt: null,
+    plannerWriteout: false,
     timezone: 'America/New_York',
     lastDailyReset: null,
   }

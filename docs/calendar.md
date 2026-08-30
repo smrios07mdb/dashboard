@@ -105,6 +105,22 @@ Apple ID and to anyone you share that calendar with. That's why notes are
 unless you choose to include them. (The "What's next?" AI triage likewise never
 sends notes — see `docs/security.md`.)
 
+## Planner blocks on your calendar (opt-in)
+
+Settings → Calendars → **Write planner blocks to Apple Calendar** mirrors every
+block you schedule on the Week Planner to the selected iCloud calendar (title
+= the task's title, description `Planned in Hupomnemata`). Moving, resizing
+or carrying a block updates the event; unscheduling deletes it. The planner is
+the source of truth — if the calendar write fails you see
+`Saved — Apple Calendar not updated` and the block stays; the next time you
+open that week the planner repairs the mirror (creates missing events, deletes
+events whose block is gone, fixes moved times).
+
+Mirrored events don't count as busy on the planner — the proxy tags them and
+keeps them out of busy time so a block is never counted twice. Edits you make
+in Calendar.app do **not** flow back. Turning the toggle off (or disconnecting)
+leaves the events already on your calendar in place.
+
 ## Privacy
 
 - The app-specific password is sent to the proxy only over HTTPS and stored

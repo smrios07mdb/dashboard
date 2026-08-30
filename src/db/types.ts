@@ -46,8 +46,11 @@ export type Task = {
 
 /**
  * A task's slot on the Week Planner (chunk 37, ARCHITECTURE.md §4). One
- * block per task (server-side `unique (task_id)`); `done` mirrors task
- * completion. ISO instants — all grid math is browser-local on the client.
+ * block per task (server-side `unique (task_id)`); done derives from
+ * `tasks.completed_at` (the `done` mirror column was dropped in chunk 39).
+ * `calendarUid` is the iCloud VEVENT this block is mirrored to (chunk 39,
+ * `hupo-block-…`); null = not written yet — the planner's per-week
+ * reconcile backfills it. ISO instants — all grid math is browser-local.
  */
 export type ScheduledBlock = {
   id: string
@@ -55,7 +58,7 @@ export type ScheduledBlock = {
   taskId: string
   startAt: string
   endAt: string
-  done: boolean
+  calendarUid: string | null
   createdAt: string
   updatedAt: string
 }
@@ -93,6 +96,8 @@ export type Settings = {
   outlookStatus: OutlookStatus
   outlookFeedName: string | null
   outlookFetchedAt: string | null
+  /** Opt-in: mirror planner blocks to the selected Apple calendar (chunk 39). */
+  plannerWriteout: boolean
   timezone: string
   lastDailyReset: string | null
 }

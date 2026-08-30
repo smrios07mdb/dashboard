@@ -134,7 +134,7 @@ export type ScheduledBlockRow = {
   task_id: string
   start_at: string
   end_at: string
-  done: boolean
+  calendar_uid: string | null
   created_at: string
   updated_at: string
 }
@@ -146,7 +146,8 @@ export function scheduledBlockFromRow(row: ScheduledBlockRow): ScheduledBlock {
     taskId: row.task_id,
     startAt: row.start_at,
     endAt: row.end_at,
-    done: row.done,
+    // Rows cached before migration 12 predate the column.
+    calendarUid: row.calendar_uid ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -161,11 +162,7 @@ export function scheduledBlockToRow(
   if (value.taskId !== undefined) row.task_id = value.taskId
   if (value.startAt !== undefined) row.start_at = value.startAt
   if (value.endAt !== undefined) row.end_at = value.endAt
-  // `done` is intentionally never sent (chunk 37 revisions R1): it is a
-  // server-maintained mirror of `tasks.completed_at` (migration 11 stamps it
-  // on insert and re-syncs it on completion change). Skipping it here also
-  // keeps offline outbox replays — which re-send the full cached row — from
-  // clobbering the trigger's value with a stale local mirror.
+  if (value.calendarUid !== undefined) row.calendar_uid = value.calendarUid
   if (value.createdAt !== undefined) row.created_at = value.createdAt
   if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
   return row
@@ -255,6 +252,7 @@ export type SettingsRow = {
   outlook_status: Settings['outlookStatus']
   outlook_feed_name: string | null
   outlook_fetched_at: string | null
+  planner_writeout?: boolean
   timezone: string
   last_daily_reset: string | null
 }
@@ -271,6 +269,8 @@ export function settingsFromRow(row: SettingsRow): Settings {
     outlookStatus: row.outlook_status ?? 'unconfigured',
     outlookFeedName: row.outlook_feed_name ?? null,
     outlookFetchedAt: row.outlook_fetched_at ?? null,
+    // Same for migration 12's column.
+    plannerWriteout: row.planner_writeout ?? false,
     timezone: row.timezone,
     lastDailyReset: row.last_daily_reset,
   }
@@ -316,6 +316,8 @@ export function settingsToRow(
     row.outlook_feed_name = value.outlookFeedName
   if (value.outlookFetchedAt !== undefined)
     row.outlook_fetched_at = value.outlookFetchedAt
+  if (value.plannerWriteout !== undefined)
+    row.planner_writeout = value.plannerWriteout
   if (value.timezone !== undefined) row.timezone = value.timezone
   if (value.lastDailyReset !== undefined)
     row.last_daily_reset = value.lastDailyReset

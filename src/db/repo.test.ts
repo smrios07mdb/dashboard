@@ -30,6 +30,7 @@ import {
   categoryToRow,
   routineLogFromRow,
   routineLogToRow,
+  scheduledBlockFromRow,
   scheduledBlockToRow,
   settingsFromRow,
   settingsToRow,
@@ -195,10 +196,49 @@ describe('mappers', () => {
       outlook_status: 'unconfigured' as const,
       outlook_feed_name: null,
       outlook_fetched_at: null,
+      planner_writeout: false,
       timezone: 'America/New_York',
       last_daily_reset: null,
     }
     expect(settingsToRow(settingsFromRow(row))).toEqual(row)
+  })
+
+  it('settings: planner_writeout defaults to false on rows that predate migration 12', () => {
+    const row = {
+      user_id: 'u-1',
+      ai_api_key: null,
+      caldav_apple_id: null,
+      caldav_calendar_url: null,
+      caldav_status: 'ok' as const,
+      outlook_status: 'unconfigured' as const,
+      outlook_feed_name: null,
+      outlook_fetched_at: null,
+      timezone: 'America/New_York',
+      last_daily_reset: null,
+    }
+    expect(settingsFromRow(row).plannerWriteout).toBe(false)
+    expect(settingsToRow({ plannerWriteout: true })).toEqual({ planner_writeout: true })
+  })
+
+  it('scheduled block round-trips calendar_uid and carries no done (chunk 39)', () => {
+    const row = {
+      id: 'sb-1',
+      user_id: 'u-1',
+      task_id: 't-1',
+      start_at: '2026-05-06T13:15:00.000Z',
+      end_at: '2026-05-06T14:00:00.000Z',
+      calendar_uid: 'hupo-block-abc',
+      created_at: '2026-05-06T00:00:00.000Z',
+      updated_at: '2026-05-06T00:00:00.000Z',
+    }
+    const mapped = scheduledBlockFromRow(row)
+    expect(mapped.calendarUid).toBe('hupo-block-abc')
+    expect(mapped).not.toHaveProperty('done')
+    expect(scheduledBlockToRow(mapped)).toEqual(row)
+    // A cached row from before migration 12 maps to null, not undefined.
+    const { calendar_uid: _dropped, ...legacy } = row
+    void _dropped
+    expect(scheduledBlockFromRow(legacy as typeof row).calendarUid).toBeNull()
   })
 
   it('routine log round-trips', () => {
@@ -789,7 +829,7 @@ describe('repo.scheduledBlocks (chunk 37)', () => {
     task_id: 't-1',
     start_at: '2026-05-06T13:15:00.000Z',
     end_at: '2026-05-06T14:00:00.000Z',
-    done: false,
+    calendar_uid: null,
     created_at: '2026-05-06T00:00:00.000Z',
     updated_at: '2026-05-06T00:00:00.000Z',
   }
@@ -806,7 +846,7 @@ describe('repo.scheduledBlocks (chunk 37)', () => {
       endAt: blockRow.end_at,
     })
     expect(fromMock).toHaveBeenCalledWith('scheduled_blocks')
-    expect(out).toMatchObject({ id: 'sb-1', taskId: 't-1', done: false })
+    expect(out).toMatchObject({ id: 'sb-1', taskId: 't-1', calendarUid: null })
     expect(out.updatedAt).toBe('2099-01-01T00:00:00.000Z')
     expect(await db.scheduled_blocks.get('sb-1')).toMatchObject({
       updatedAt: '2099-01-01T00:00:00.000Z',
@@ -845,7 +885,7 @@ describe('repo.scheduledBlocks (chunk 37)', () => {
         startAt: blockRow.start_at,
         endAt: blockRow.end_at,
       })
-      expect(out.done).toBe(false)
+      expect(out.calendarUid).toBeNull()
       expect(await db.scheduled_blocks.get('sb-off')).toMatchObject({ taskId: 't-1' })
       const rows = await db.outbox.toArray()
       expect(rows).toHaveLength(1)
@@ -854,30 +894,51 @@ describe('repo.scheduledBlocks (chunk 37)', () => {
       expect(fromMock).not.toHaveBeenCalled()
     })
 
-    it('update → Dexie row patched (updatedAt stamped) + update outbox row; `done` is not a client-writable field', async () => {
+    it('update → Dexie row patched (updatedAt stamped) + update outbox row; no `done` on the row', async () => {
       await db.scheduled_blocks.put({
         id: 'sb-1',
         userId: 'u-1',
         taskId: 't-1',
         startAt: blockRow.start_at,
         endAt: blockRow.end_at,
-        done: false,
+        calendarUid: null,
         createdAt: blockRow.created_at,
         updatedAt: blockRow.updated_at,
       })
       const endAt = '2026-05-06T15:00:00.000Z'
       const out = await repo.scheduledBlocks.update('sb-1', { endAt })
       expect(out.endAt).toBe(endAt)
-      expect(out.done).toBe(false)
+      expect(out).not.toHaveProperty('done')
       expect(out.updatedAt).not.toBe(blockRow.updated_at)
       expect((await db.scheduled_blocks.get('sb-1'))?.endAt).toBe(endAt)
       const rows = await db.outbox.toArray()
       expect(rows[0]).toMatchObject({ op: 'update', table: 'scheduled_blocks' })
       const payload = rows[0].payload as Record<string, unknown>
       expect(payload.endAt).toBe(endAt)
-      // R1: the mirror column is trigger-maintained; the row mapper never
-      // sends it, so an outbox replay of this payload carries no `done`.
+      // Chunk 39 dropped the `done` mirror column: an outbox replay of this
+      // payload carries no `done` (the column no longer exists server-side).
       expect(scheduledBlockToRow(payload as Partial<ScheduledBlock>)).not.toHaveProperty('done')
+    })
+
+    it('update with calendarUid stamps calendar_uid (chunk 39 mirror handle)', async () => {
+      await db.scheduled_blocks.put({
+        id: 'sb-1',
+        userId: 'u-1',
+        taskId: 't-1',
+        startAt: blockRow.start_at,
+        endAt: blockRow.end_at,
+        calendarUid: null,
+        createdAt: blockRow.created_at,
+        updatedAt: blockRow.updated_at,
+      })
+      const out = await repo.scheduledBlocks.update('sb-1', { calendarUid: 'hupo-block-1' })
+      expect(out.calendarUid).toBe('hupo-block-1')
+      expect((await db.scheduled_blocks.get('sb-1'))?.calendarUid).toBe('hupo-block-1')
+      const rows = await db.outbox.toArray()
+      const payload = rows[0].payload as Record<string, unknown>
+      expect(scheduledBlockToRow(payload as Partial<ScheduledBlock>)).toMatchObject({
+        calendar_uid: 'hupo-block-1',
+      })
     })
 
     it('delete → Dexie row removed + delete outbox row keyed by id', async () => {
@@ -887,7 +948,7 @@ describe('repo.scheduledBlocks (chunk 37)', () => {
         taskId: 't-1',
         startAt: blockRow.start_at,
         endAt: blockRow.end_at,
-        done: false,
+        calendarUid: null,
         createdAt: blockRow.created_at,
         updatedAt: blockRow.updated_at,
       })

@@ -33,7 +33,6 @@ export type WeekScheduledBlock = {
   day: number
   startMin: number
   endMin: number
-  done: boolean
 }
 
 /** Any interval on a week-day index (busy or scheduled). */
@@ -91,7 +90,6 @@ export function scheduledToWeekBlocks(
         day: i,
         startMin,
         endMin,
-        done: b.done,
       })
     }
   }

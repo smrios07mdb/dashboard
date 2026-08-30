@@ -80,6 +80,15 @@ export class DashboardCacheDB extends Dexie {
     this.version(4).stores({
       scheduled_blocks: '&id, taskId, startAt, endAt',
     })
+    // v5: chunk 39 changes the `scheduled_blocks` row shape — `done` is gone
+    // (dropped server-side, migration 12) and `calendarUid` arrives. Neither
+    // is an index, so the `.stores()` string is unchanged; per the header
+    // rule (new fields → new version + upgrade) the bump backfills cached
+    // rows to `calendarUid: null` and drops the stale `done` mirror so the
+    // cache matches `ScheduledBlock` without waiting for the next refetch.
+    this.version(5)
+      .stores({ scheduled_blocks: '&id, taskId, startAt, endAt' })
+      .upgrade(upgradeToV5)
   }
 }
 
@@ -95,6 +104,21 @@ export async function upgradeToV3(tx: Transaction): Promise<void> {
     .toCollection()
     .modify((row: { lastAttemptAt?: string | null }) => {
       if (row.lastAttemptAt === undefined) row.lastAttemptAt = null
+    })
+}
+
+/**
+ * Dexie v4→v5 upgrade (chunk 39). Backfills `calendarUid = null` on cached
+ * scheduled blocks that predate the field and removes the dropped `done`
+ * mirror. Idempotent. Exported so tests can run it against a populated DB.
+ */
+export async function upgradeToV5(tx: Transaction): Promise<void> {
+  await tx
+    .table('scheduled_blocks')
+    .toCollection()
+    .modify((row: { calendarUid?: string | null; done?: boolean }) => {
+      if (row.calendarUid === undefined) row.calendarUid = null
+      delete row.done
     })
 }
 

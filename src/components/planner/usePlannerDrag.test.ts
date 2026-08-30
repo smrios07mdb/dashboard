@@ -146,7 +146,7 @@ describe('usePlannerDrag (chunk 37)', () => {
 
   it('move keeps the block duration and the grab offset; no-op drop when unchanged', () => {
     const { hook, onDrop } = setup()
-    const block = { id: 'b', taskId: 't-1', day: 1, startMin: 600, endMin: 660, done: false }
+    const block = { id: 'b', taskId: 't-1', day: 1, startMin: 600, endMin: 660 }
     // Grab 15 minutes into the block (y for 10:15 = 2.25h × 52 = 117px).
     act(() => hook.result.current.startMove(pointerDownEvent(200, 117), block, 'Work'))
     act(() => up())
@@ -164,7 +164,7 @@ describe('usePlannerDrag (chunk 37)', () => {
 
   it('resize snaps to 15m and never goes under the 15m minimum', () => {
     const { hook, onDrop } = setup()
-    const block = { id: 'b', taskId: 't-1', day: 1, startMin: 600, endMin: 660, done: false }
+    const block = { id: 'b', taskId: 't-1', day: 1, startMin: 600, endMin: 660 }
     act(() => hook.result.current.startResize(pointerDownEvent(200, 169), block))
     // Drag way above the block start → clamps to start + 15.
     act(() => moveTo(200, 50))

@@ -17,7 +17,7 @@ vi.mock('@/lib/network', () => ({
   isOnline: isOnlineMock,
 }))
 
-import { db, upgradeToV3 } from './dexie'
+import { db, upgradeToV3, upgradeToV5 } from './dexie'
 import { taskFromRow, type TaskRow } from './mappers'
 import {
   discardAllFailed,
@@ -818,7 +818,7 @@ describe('drainOutbox — scheduled_blocks (chunk 37)', () => {
     taskId: 't-1',
     startAt: '2026-05-06T13:15:00.000Z',
     endAt: '2026-05-06T14:00:00.000Z',
-    done: false,
+    calendarUid: null,
     createdAt: '2026-05-06T00:00:00.000Z',
     updatedAt: '2026-05-06T00:00:00.000Z',
   }
@@ -828,7 +828,7 @@ describe('drainOutbox — scheduled_blocks (chunk 37)', () => {
     task_id: 't-1',
     start_at: '2026-05-06T13:15:00.000Z',
     end_at: '2026-05-06T14:00:00.000Z',
-    done: false,
+    calendar_uid: null,
     created_at: '2026-05-06T00:00:00.000Z',
     updated_at: '2099-01-01T00:00:00.000Z',
   }
@@ -917,8 +917,42 @@ describe('Dexie v4 (chunk 37)', () => {
     await Dexie.delete(NAME)
   })
 
-  it('the real DashboardCacheDB is at v4 with scheduled_blocks', () => {
-    expect(db.verno).toBe(4)
+  it('the real DashboardCacheDB is at v5 with scheduled_blocks', () => {
+    expect(db.verno).toBe(5)
     expect(db.tables.map((t) => t.name)).toContain('scheduled_blocks')
+  })
+})
+
+describe('Dexie v5 migration (chunk 39)', () => {
+  it('backfills calendarUid = null and drops the stale done mirror on cached blocks', async () => {
+    const NAME = 'dexie-v5-test'
+    await Dexie.delete(NAME)
+
+    const oldDb = new Dexie(NAME)
+    oldDb.version(4).stores({ scheduled_blocks: '&id, taskId, startAt, endAt' })
+    await oldDb.open()
+    await oldDb.table('scheduled_blocks').bulkAdd([
+      { id: 'a', taskId: 't-1', startAt: 'x', endAt: 'y', done: true },
+      { id: 'b', taskId: 't-2', startAt: 'x', endAt: 'y', done: false, calendarUid: 'hupo-block-b' },
+    ])
+    oldDb.close()
+
+    const newDb = new Dexie(NAME)
+    newDb.version(4).stores({ scheduled_blocks: '&id, taskId, startAt, endAt' })
+    newDb
+      .version(5)
+      .stores({ scheduled_blocks: '&id, taskId, startAt, endAt' })
+      .upgrade(upgradeToV5)
+    await newDb.open()
+
+    expect(newDb.verno).toBe(5)
+    const a = await newDb.table('scheduled_blocks').get('a')
+    expect(a).toEqual({ id: 'a', taskId: 't-1', startAt: 'x', endAt: 'y', calendarUid: null })
+    const b = await newDb.table('scheduled_blocks').get('b')
+    expect(b).not.toHaveProperty('done')
+    expect(b.calendarUid).toBe('hupo-block-b')
+
+    newDb.close()
+    await Dexie.delete(NAME)
   })
 })

@@ -485,6 +485,8 @@ function CalendarSection() {
   const [calendarUrl, setCalendarUrl] = useState('')
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Chunk 39: mirror planner blocks to the selected calendar (opt-in).
+  const [plannerWriteout, setPlannerWriteout] = useState(false)
 
   // Load the saved config. The app-specific password is intentionally NOT
   // loaded — it's write-only from the client (db/types.ts), so the field
@@ -499,6 +501,7 @@ function CalendarSection() {
         setCaldavStatus(settings?.caldavStatus ?? 'unconfigured')
         setAppleId(settings?.caldavAppleId ?? '')
         setCalendarUrl(settings?.caldavCalendarUrl ?? '')
+        setPlannerWriteout(settings?.plannerWriteout ?? false)
       })
       .catch((e) => {
         console.error('Load calendar settings failed', e)
@@ -515,6 +518,30 @@ function CalendarSection() {
     setCaldavStatus(settings.caldavStatus)
     setAppleId(settings.caldavAppleId ?? '')
     setCalendarUrl(settings.caldavCalendarUrl ?? '')
+    setPlannerWriteout(settings.plannerWriteout ?? false)
+  }
+
+  /**
+   * Toggle the planner mirror (chunk 39, D10). Turning it on bumps the
+   * busy cache so the next Planner load reconciles — backfilling events for
+   * blocks that already exist. Turning it off leaves existing events in
+   * place on purpose (no mass delete; see Decisions log).
+   */
+  async function setWriteout(next: boolean) {
+    if (!userId || next === plannerWriteout) return
+    try {
+      await repo.settings.update(userId, { plannerWriteout: next })
+      setPlannerWriteout(next)
+      if (next) useUIStore.getState().forceBusyRefresh()
+      toast(
+        next
+          ? 'Planner blocks will sync to Apple Calendar.'
+          : 'Planner sync off. Existing events were left in place.',
+      )
+    } catch (e) {
+      console.error('Planner write-out toggle failed', e)
+      toast.error(SAVE_ERROR)
+    }
   }
 
   async function testConnection() {
@@ -575,6 +602,8 @@ function CalendarSection() {
         caldavAppleId: null,
         caldavCalendarUrl: null,
         caldavStatus: 'unconfigured',
+        // No calendar to write to any more; existing events stay (D10).
+        plannerWriteout: false,
       })
       clearVerified()
       setCalendars([])
@@ -590,6 +619,8 @@ function CalendarSection() {
   }
 
   const isConnected = caldavStatus === 'ok' || caldavStatus === 'auth_failed'
+  // The mirror needs a calendar that currently accepts writes.
+  const canWriteout = isConnected && caldavStatus === 'ok'
 
   return (
     <SettingsSection kicker="02" title="Calendars">
@@ -714,6 +745,44 @@ function CalendarSection() {
             />
           </div>
         )}
+      </SettingsRow>
+
+      <SettingsRow
+        title="Write planner blocks to Apple Calendar"
+        hint="Blocks you schedule on the Planner appear as events on the selected calendar. They are excluded from busy time so they aren't counted twice."
+        align="center"
+      >
+        <div
+          role="group"
+          aria-label="Write planner blocks to Apple Calendar"
+          className="flex items-center gap-2"
+        >
+          <Button
+            type="button"
+            size="sm"
+            variant={plannerWriteout ? 'default' : 'outline'}
+            aria-pressed={plannerWriteout}
+            disabled={!canWriteout}
+            onClick={() => void setWriteout(true)}
+          >
+            On
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant={plannerWriteout ? 'outline' : 'default'}
+            aria-pressed={!plannerWriteout}
+            disabled={!canWriteout}
+            onClick={() => void setWriteout(false)}
+          >
+            Off
+          </Button>
+          {!canWriteout && (
+            <span className="text-[12px] text-ink-3">
+              Connect Apple Calendar to enable.
+            </span>
+          )}
+        </div>
       </SettingsRow>
 
       <OutlookRows />

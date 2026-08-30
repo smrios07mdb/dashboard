@@ -31,11 +31,16 @@ import type { Category, ScheduledBlock, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
 import {
   CalendarError,
+  createEvent,
+  deleteEvent,
   getBusy,
+  updateEvent,
   type BusySources,
   type GetBusyResult,
 } from '@/lib/calendarApi'
 import { fmtMin } from '@/lib/cat'
+import { isOnline } from '@/lib/network'
+import { createCalendarMirror } from '@/lib/plannerCalendarMirror'
 import { computeCapacity, computeDayFree } from '@/lib/plannerCapacity'
 import {
   addDays,
@@ -105,9 +110,19 @@ import { useUIStore } from '@/state/uiStore'
  * (D2); nothing is written until `Place all` (D13). Carryover ("move to
  * next open slot") always scans the **current** week, fetching its data on
  * demand when a past week is visible (D5).
+ *
+ * Chunk 39: with `settings.plannerWriteout` on (and Apple Calendar ok +
+ * online) every block write is mirrored to iCloud AFTER its Supabase
+ * write, fire-and-forget through `lib/plannerCalendarMirror` — the
+ * handlers below never await iCloud and a mirror failure never rolls a
+ * block back (one `Saved — Apple Calendar not updated` toast). The proxy
+ * keeps the mirror out of busy and reports it as `plannerEvents`; once
+ * per week load (`weekKey:busyRefreshKey`) `mirror.reconcile` deletes
+ * orphans, backfills null uids and fixes time drift.
  */
 
 const SAVE_ERROR = 'Could not save — retry'
+const MIRROR_FAILED = 'Saved — Apple Calendar not updated'
 const BUSY_LOAD_ERROR = 'Could not load busy times — retry'
 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
@@ -178,6 +193,27 @@ export default function Planner() {
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
   const busyRefreshKey = useUIStore((s) => s.busyRefreshKey)
   const isTouch = useIsTouchDevice()
+
+  // ── Apple Calendar mirror opt-in (chunk 39) ────────────────────────────
+  // Re-read on `dashboardRefreshKey` so a Settings toggle (realtime settings
+  // echo) takes effect without a reload. Online-ness is checked per call.
+  const [writeoutOn, setWriteoutOn] = useState(false)
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    repo.settings
+      .get(userId)
+      .then((s) => {
+        if (cancelled) return
+        setWriteoutOn(Boolean(s?.plannerWriteout && s.caldavStatus === 'ok'))
+      })
+      .catch((e) => {
+        console.error('Planner: load settings failed', e)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [userId, dashboardRefreshKey])
 
   // Local clock — re-ticks every minute for the now-line / capacity-from-now.
   const [now, setNow] = useState(() => new Date())
@@ -387,6 +423,33 @@ export default function Planner() {
     [blocks, weekStartDate],
   )
 
+  // One mirror for the screen's lifetime; the enabled flag and the local
+  // patcher are read through refs so the instance (and its once-per-key
+  // reconcile guard) survives re-renders.
+  const writeoutRef = useRef(false)
+  const patchBlocksRef = useRef(patchBlocks)
+  useEffect(() => {
+    writeoutRef.current = writeoutOn
+    patchBlocksRef.current = patchBlocks
+  }, [writeoutOn, patchBlocks])
+  const mirror = useMemo(
+    () =>
+      createCalendarMirror({
+        enabled: () => writeoutRef.current && isOnline(),
+        createEvent,
+        updateEvent,
+        deleteEvent,
+        stampUid: async (id, uid) => {
+          await repo.scheduledBlocks.update(id, { calendarUid: uid })
+          patchBlocksRef.current((prev) =>
+            prev.map((b) => (b.id === id ? { ...b, calendarUid: uid } : b)),
+          )
+        },
+        onWriteFailed: () => toast(MIRROR_FAILED),
+      }),
+    [],
+  )
+
   // ── capacity (scheduled is real now — chunk 37) ────────────────────────
   const capacity = useMemo(
     () => computeCapacity(busyBlocks, weekBlocks),
@@ -416,6 +479,8 @@ export default function Planner() {
     tasks: Task[]
   }>({ categories: [], subcategories: [], tasks: [] })
 
+  const [tasksLoaded, setTasksLoaded] = useState(false)
+
   useEffect(() => {
     if (!userId) return
     let cancelled = false
@@ -425,7 +490,9 @@ export default function Planner() {
       repo.tasks.list(),
     ])
       .then(([categories, subcategories, tasks]) => {
-        if (!cancelled) setTaskData({ categories, subcategories, tasks })
+        if (cancelled) return
+        setTaskData({ categories, subcategories, tasks })
+        setTasksLoaded(true)
       })
       .catch((e) => {
         console.error('Planner: load tasks failed', e)
@@ -503,6 +570,36 @@ export default function Planner() {
     [weekBlocks, tasksById, subToCat, todayIdx, nowMin],
   )
 
+  // ── calendar reconcile (chunk 39, D9) ──────────────────────────────────
+  // Once per `weekKey:busyRefreshKey`, when the week's busy (with the
+  // proxy's `plannerEvents` — absent on a pre-chunk-39 proxy), blocks and
+  // tasks are all loaded. Background: warns only, never blocks render.
+  useEffect(() => {
+    if (!writeoutOn || !tasksLoaded) return
+    if (blocksPhase !== 'ready' || busyState.phase !== 'ready') return
+    const plannerEvents = busyState.busy?.plannerEvents
+    if (!plannerEvents) return
+    void mirror.reconcile({
+      key: `${weekKey}:${busyRefreshKey}`,
+      blocks,
+      plannerEvents,
+      titleOf: (id) => {
+        const b = blocks.find((x) => x.id === id)
+        return b ? tasksById.get(b.taskId)?.title : undefined
+      },
+    })
+  }, [
+    writeoutOn,
+    tasksLoaded,
+    blocksPhase,
+    busyState,
+    blocks,
+    weekKey,
+    busyRefreshKey,
+    tasksById,
+    mirror,
+  ])
+
   // ── mutations (optimistic via repo; error → toast + re-read) ──────────
   const fail = useCallback(
     (e: unknown) => {
@@ -536,6 +633,7 @@ export default function Planner() {
           ...prev.filter((b) => b.taskId !== task.id),
           created,
         ])
+        void mirror.afterCreate(created, task.title)
         const where =
           via === 'drag'
             ? `Placed ${DAY_LABELS[day]} ${fmtClock(startMin)}`
@@ -549,7 +647,12 @@ export default function Planner() {
         fail(e)
       }
     },
-    [userId, busyBlocks, weekStartDate, patchBlocks, fail],
+    [userId, busyBlocks, weekStartDate, patchBlocks, fail, mirror],
+  )
+
+  const titleFor = useCallback(
+    (taskId: string) => tasksById.get(taskId)?.title,
+    [tasksById],
   )
 
   const move = useCallback(
@@ -570,11 +673,13 @@ export default function Planner() {
       try {
         const saved = await repo.scheduledBlocks.update(wb.id, { startAt, endAt })
         patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? saved : b)))
+        const title = titleFor(wb.taskId)
+        if (title) void mirror.afterUpdate(saved, title)
       } catch (e) {
         fail(e)
       }
     },
-    [blocks, weekStartDate, patchBlocks, fail],
+    [blocks, weekStartDate, patchBlocks, fail, titleFor, mirror],
   )
 
   const resize = useCallback(
@@ -587,11 +692,13 @@ export default function Planner() {
       try {
         const saved = await repo.scheduledBlocks.update(wb.id, { endAt })
         patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? saved : b)))
+        const title = titleFor(wb.taskId)
+        if (title) void mirror.afterUpdate(saved, title)
       } catch (e) {
         fail(e)
       }
     },
-    [weekStartDate, patchBlocks, fail],
+    [weekStartDate, patchBlocks, fail, titleFor, mirror],
   )
 
   // One write (R1): `tasks.completed_at` is authoritative; the DB trigger
@@ -625,15 +732,17 @@ export default function Planner() {
   const unschedule = useCallback(
     async (wb: WeekScheduledBlock) => {
       setProposals([])
+      const calendarUid = blocks.find((b) => b.id === wb.id)?.calendarUid ?? null
       patchBlocks((prev) => prev.filter((b) => b.id !== wb.id))
       try {
         await repo.scheduledBlocks.delete(wb.id)
+        void mirror.afterDelete(calendarUid)
         toast('Returned to tray.')
       } catch (e) {
         fail(e)
       }
     },
-    [patchBlocks, fail],
+    [blocks, patchBlocks, fail, mirror],
   )
 
   // ── carryover (chunk 38, D5) ───────────────────────────────────────────
@@ -750,6 +859,8 @@ export default function Planner() {
           // The current week's cached rows (if any) predate this write.
           blocksCacheRef.current.delete(curKey)
         }
+        const title = titleFor(wb.taskId)
+        if (title) void mirror.afterUpdate(saved, title)
         toast(
           `Moved to ${DAY_LABELS[slot.day]} ${addDays(curStart, slot.day).getDate()}, ${fmtClock(slot.startMin)}.`,
         )
@@ -767,6 +878,8 @@ export default function Planner() {
       loadWeekOccupancy,
       patchBlocks,
       fail,
+      titleFor,
+      mirror,
     ],
   )
 
@@ -808,6 +921,8 @@ export default function Planner() {
           ...prev.filter((b) => b.taskId !== p.taskId),
           created,
         ])
+        const title = titleFor(p.taskId)
+        if (title) void mirror.afterCreate(created, title)
         placed++
       } catch (e) {
         setProposals([])
@@ -817,7 +932,7 @@ export default function Planner() {
     }
     setProposals([])
     toast(placed === 1 ? '1 task placed.' : `${placed} tasks placed.`)
-  }, [userId, proposals, weekStartDate, patchBlocks, fail])
+  }, [userId, proposals, weekStartDate, patchBlocks, fail, titleFor, mirror])
 
   const gridProposals: GridProposal[] = useMemo(
     () =>

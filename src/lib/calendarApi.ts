@@ -252,12 +252,27 @@ export interface BusySources {
 }
 
 /**
+ * A planner-block mirror on the iCloud calendar (chunk 39). The proxy keeps
+ * these out of `busy` (the planner already counts the block as scheduled)
+ * and lists them here so the app can reconcile orphans and time drift.
+ */
+export interface PlannerEvent {
+  uid: string
+  start: string
+  end: string
+}
+
+/**
  * An array of busy intervals (assignable to `BusyRange[]`, so pre-chunk-35
  * consumers like `busyCache` compile untouched) with the proxy's per-source
- * health attached as an optional `sources` property. Optional so plain-array
- * mocks and older callsites stay valid.
+ * health attached as an optional `sources` property, and — chunk 39 — the
+ * optional `plannerEvents` side channel. Both optional so plain-array
+ * mocks, older callsites, and a pre-chunk-39 proxy stay valid.
  */
-export type GetBusyResult = BusySource[] & { sources?: BusySources }
+export type GetBusyResult = BusySource[] & {
+  sources?: BusySources
+  plannerEvents?: PlannerEvent[]
+}
 
 /** Merged busy intervals between two ISO instants, across both sources. */
 export async function getBusy(args: {
@@ -272,6 +287,16 @@ export async function getBusy(args: {
     : []
   if (body.sources && typeof body.sources === 'object') {
     result.sources = body.sources as BusySources
+  }
+  if (Array.isArray(body.plannerEvents)) {
+    result.plannerEvents = body.plannerEvents.filter(
+      (e): e is PlannerEvent =>
+        typeof e === 'object' &&
+        e !== null &&
+        typeof (e as PlannerEvent).uid === 'string' &&
+        typeof (e as PlannerEvent).start === 'string' &&
+        typeof (e as PlannerEvent).end === 'string',
+    )
   }
   return result
 }
@@ -307,12 +332,17 @@ export async function disconnectOutlookFeed(): Promise<void> {
   })
 }
 
-/** Create a VEVENT on the saved calendar; returns the generated UID. */
+/**
+ * Create a VEVENT on the saved calendar; returns the generated UID.
+ * `source: 'planner'` (chunk 39) makes the proxy tag the uid `hupo-block-…`
+ * so `busy` excludes it; the Block Time sheet omits it and stays busy.
+ */
 export async function createEvent(args: {
   title: string
   start: string
   end: string
   description?: string
+  source?: 'planner'
 }): Promise<{ uid: string }> {
   const body = await callProxy('/api/calendar/events', {
     method: 'POST',
@@ -322,7 +352,44 @@ export async function createEvent(args: {
       start: args.start,
       end: args.end,
       description: args.description,
+      source: args.source,
     }),
   })
   return { uid: typeof body.uid === 'string' ? body.uid : '' }
+}
+
+/**
+ * Rebuild the VEVENT at `uid` (chunk 39). The proxy rewrites the whole
+ * object from these fields — all three of title/start/end are required.
+ */
+export async function updateEvent(args: {
+  uid: string
+  title: string
+  start: string
+  end: string
+  description?: string
+}): Promise<void> {
+  await callProxy('/api/calendar/events', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      uid: args.uid,
+      title: args.title,
+      start: args.start,
+      end: args.end,
+      description: args.description,
+    }),
+  })
+}
+
+/**
+ * Delete the VEVENT at `uid` (chunk 39). Idempotent: `missing: true` means
+ * iCloud no longer had it — callers treat that as deleted.
+ */
+export async function deleteEvent(uid: string): Promise<{ missing: boolean }> {
+  const qs = new URLSearchParams({ uid }).toString()
+  const body = await callProxy(`/api/calendar/events?${qs}`, {
+    method: 'DELETE',
+  })
+  return { missing: body.missing === true }
 }

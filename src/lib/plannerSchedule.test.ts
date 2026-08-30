@@ -44,7 +44,7 @@ function aBlock(overrides: Partial<ScheduledBlock> = {}): ScheduledBlock {
     taskId: 't-1',
     startAt: new Date(2026, 4, 6, 13, 15).toISOString(),
     endAt: new Date(2026, 4, 6, 14, 0).toISOString(),
-    done: false,
+    calendarUid: null,
     createdAt: '2026-05-01T00:00:00.000Z',
     updatedAt: '2026-05-01T00:00:00.000Z',
     ...overrides,
@@ -163,15 +163,14 @@ describe('overlapBusy', () => {
 })
 
 describe('scheduledToWeekBlocks / toInstant', () => {
-  it('maps a single-day block to local minutes and carries done', () => {
-    const [b] = scheduledToWeekBlocks([aBlock({ done: true })], weekStart)
+  it('maps a single-day block to local minutes (no done on the grid shape)', () => {
+    const [b] = scheduledToWeekBlocks([aBlock()], weekStart)
     expect(b).toEqual({
       id: 'b-1',
       taskId: 't-1',
       day: 2,
       startMin: 795,
       endMin: 840,
-      done: true,
     })
   })
 
@@ -270,10 +269,8 @@ describe('splitTray', () => {
 })
 
 describe('blockIsDone (chunk 37 revisions R1)', () => {
-  it('derives done from task.completedAt only — a stale block.done never wins', () => {
-    // Smoke check 5: block.done=true left behind after a Dashboard uncheck.
-    const block = aBlock({ done: true })
-    expect(block.done).toBe(true)
+  it('derives done from task.completedAt only (the block carries no done since chunk 39)', () => {
+    expect(aBlock()).not.toHaveProperty('done')
     expect(blockIsDone(aTask({ completedAt: null }))).toBe(false)
     expect(blockIsDone(aTask({ completedAt: '2026-05-01T09:00:00.000Z' }))).toBe(true)
   })
