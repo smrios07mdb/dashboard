@@ -118,7 +118,7 @@ describe('todayReason', () => {
 
   it('ignores priority values other than 1', () => {
     expect(todayReason(task({ id: 't', priority: 2 }), NOW)).toBeNull()
-    expect(todayReason(task({ id: 't', priority: 0 }), NOW)).toBeNull()
+    expect(todayReason(task({ id: 't', priority: 3 }), NOW)).toBeNull()
   })
 })
 

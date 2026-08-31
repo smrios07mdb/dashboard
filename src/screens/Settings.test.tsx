@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 const { settingsGetMock, settingsUpdateMock } = vi.hoisted(() => ({
@@ -274,8 +274,10 @@ describe('Settings — planner write-out row (chunk 39)', () => {
 
   const group = () =>
     screen.getByRole('group', { name: 'Write planner blocks to Apple Calendar' })
-  const onBtn = () => screen.getByRole('button', { name: 'On' })
-  const offBtn = () => screen.getByRole('button', { name: 'Off' })
+  // Scoped inside the write-out group: the Today-list layout pills (merged in
+  // from main) also expose a button named "Off" at the screen level.
+  const onBtn = () => within(group()).getByRole('button', { name: 'On' })
+  const offBtn = () => within(group()).getByRole('button', { name: 'Off' })
 
   it('is disabled with a hint when Apple Calendar is not connected', async () => {
     mockSettings()

@@ -1,4 +1,5 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -6,6 +7,7 @@ const {
   categoriesList,
   subcategoriesList,
   tasksList,
+  tasksUpdate,
   routineLogsList,
   routineItemsList,
   settingsGet,
@@ -13,6 +15,7 @@ const {
   categoriesList: vi.fn(),
   subcategoriesList: vi.fn(),
   tasksList: vi.fn(),
+  tasksUpdate: vi.fn(),
   routineLogsList: vi.fn(),
   routineItemsList: vi.fn(),
   settingsGet: vi.fn(),
@@ -22,7 +25,7 @@ vi.mock('@/db/repo', () => ({
   repo: {
     categories: { list: categoriesList },
     subcategories: { list: subcategoriesList },
-    tasks: { list: tasksList },
+    tasks: { list: tasksList, update: tasksUpdate },
     // The hero's streak is the canonical routines streak — it loads routine
     // items + logs + settings (timezone), mirroring Routines.tsx's sourcing.
     routineLogs: { listByRange: routineLogsList },
@@ -68,7 +71,7 @@ function mkSub(
 function mkTask(
   id: string,
   subcategoryId: string,
-  opts: { completedAt?: string | null } = {},
+  opts: { completedAt?: string | null; priority?: 1 | 2 | 3 | null } = {},
 ) {
   return {
     id,
@@ -80,7 +83,7 @@ function mkTask(
     dueAt: null,
     remindAt: null,
     notified: false,
-    priority: null,
+    priority: opts.priority ?? null,
     completedAt: opts.completedAt ?? null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -118,6 +121,7 @@ describe('Dashboard', () => {
     categoriesList.mockReset()
     subcategoriesList.mockReset()
     tasksList.mockReset()
+    tasksUpdate.mockReset()
     routineLogsList.mockReset()
     routineItemsList.mockReset()
     settingsGet.mockReset()
@@ -455,5 +459,63 @@ describe('Dashboard', () => {
     const chevronCount = (container.textContent?.match(/›/g) ?? []).length
     // 2 category headers + 6 subcategory headers = 8 chevrons minimum.
     expect(chevronCount).toBeGreaterThanOrEqual(8)
+  })
+
+  it('threads the chunk-33 sort + priority wiring through CategoryColumn (chunk-41 merge regression)', async () => {
+    // Guards the auto-merge loss found in chunk 41: adopting main's refactored
+    // `columns` block silently dropped `onSetTaskPriority` / `sortKey` /
+    // `onChangeSortKey` from the CategoryColumn call. Neither branch's suite
+    // exercised the dashboard-level threading, so the drop was test-invisible.
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([mkTask('t-p2', 'sw1', { priority: 2 })])
+    tasksUpdate.mockImplementation(async (id: string, patch: object) => ({
+      ...mkTask('t-p2', 'sw1', { priority: 2 }),
+      id,
+      ...patch,
+    }))
+
+    renderDashboard()
+    await screen.findByText('t-p2')
+
+    // sortKey/onChangeSortKey threading: each column header mounts the shared
+    // TaskSortControl only when the props arrive.
+    expect(
+      screen.getAllByRole('button', { name: /^Sort tasks/ }).length,
+    ).toBeGreaterThanOrEqual(1)
+
+    // onSetTaskPriority threading: chip → picker → pick must reach the repo.
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Priority 2 — change priority' }),
+    )
+    await userEvent.click(await screen.findByRole('button', { name: /Urgent/ }))
+    await waitFor(() =>
+      expect(tasksUpdate).toHaveBeenCalledWith('t-p2', { priority: 1 }),
+    )
+  })
+
+  it('renders both the priority chip and the Today sun toggle on one dashboard row', async () => {
+    // The combined chunk-33 × Today row — neither branch's suite covered a row
+    // receiving both `onSetPriority` (redesign) and `onToggleToday` (main).
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([mkTask('t-both', 'sw1', { priority: 2 })])
+
+    renderDashboard()
+    await screen.findByText('t-both')
+
+    expect(
+      screen.getByRole('button', { name: 'Priority 2 — change priority' }),
+    ).toBeInTheDocument()
+    // Membership label flips Add/Remove; either proves the sun slot rendered.
+    expect(
+      screen.getByRole('button', { name: /"t-both" (to|from) Today/ }),
+    ).toBeInTheDocument()
   })
 })
