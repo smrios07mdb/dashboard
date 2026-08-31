@@ -480,3 +480,142 @@ describe('reconcile: orphan sweep vs. the mirror’s own deletes (chunk 46)', ()
     expect(deps.deleteEvent).toHaveBeenLastCalledWith('hupo-block-other')
   })
 })
+
+/*
+ * Chunk 47, D8/D9. Two things chunk 46 left open, both reproduced against its
+ * committed module:
+ *
+ *  - D8: the delete guard was populated *after* the network await, so it was
+ *    still empty when the concurrent sweep read it. Live on 2026-08-31 the
+ *    sweep's delete started at +184 ms while the mirror's own was still in
+ *    flight until ~+594 ms — the sequential case the chunk-46 tests cover is
+ *    the one the implementation already handled.
+ *  - D9: `plannerEvents` winning unconditionally made a single drag-move fire
+ *    two identical PATCHes, because the post-move reconcile compared the moved
+ *    block against a snapshot that predates the mirror's own write. The newer
+ *    observation wins instead; D3's purpose is untouched.
+ */
+describe('afterDelete: the guard fires while the delete is in flight (chunk 47)', () => {
+  const titleOf = () => 'One'
+
+  it('the concurrent sweep does not re-delete a uid whose delete is still pending', async () => {
+    const resolvers: Array<() => void> = []
+    const deleteEvent = vi.fn<MirrorDeps['deleteEvent']>(
+      () =>
+        new Promise((res) => {
+          resolvers.push(() => res({ missing: false }))
+        }),
+    )
+    const deps = makeDeps({ deleteEvent })
+    const m = createCalendarMirror(deps)
+
+    // Deliberately NOT awaited: this is the window the live run measured.
+    const pendingDelete = m.afterDelete('hupo-block-1')
+    await Promise.resolve()
+    expect(deleteEvent).toHaveBeenCalledTimes(1)
+
+    const pendingReconcile = m.reconcile({
+      key: 'k',
+      blocks: [],
+      plannerEvents: [{ uid: 'hupo-block-1', start: 'a', end: 'b' }],
+      titleOf,
+    })
+    await Promise.resolve()
+    expect(deleteEvent).toHaveBeenCalledTimes(1)
+
+    for (const resolve of resolvers) resolve()
+    await Promise.all([pendingDelete, pendingReconcile])
+    expect(deleteEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed delete leaves the uid sweepable, and still toasts once', async () => {
+    const deleteEvent = vi.fn<MirrorDeps['deleteEvent']>(async () => {
+      throw new Error('502')
+    })
+    const deps = makeDeps({ deleteEvent })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const m = createCalendarMirror(deps)
+
+    await m.afterDelete('hupo-block-1')
+    expect(deps.onWriteFailed).toHaveBeenCalledTimes(1)
+
+    deleteEvent.mockResolvedValue({ missing: false })
+    await m.reconcile({
+      key: 'k',
+      blocks: [],
+      plannerEvents: [{ uid: 'hupo-block-1', start: 'a', end: 'b' }],
+      titleOf,
+    })
+    expect(deleteEvent).toHaveBeenCalledTimes(2)
+    expect(deleteEvent).toHaveBeenLastCalledWith('hupo-block-1')
+    expect(deps.onWriteFailed).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+})
+
+describe('reconcile: the newer observation wins (chunk 47, D9)', () => {
+  const titleOf = () => 'One'
+
+  const moved = block({
+    id: 'b-1',
+    calendarUid: 'hupo-block-1',
+    startAt: '2026-05-06T15:00:00.000Z',
+    endAt: '2026-05-06T16:00:00.000Z',
+  })
+
+  it('a drag-move fires exactly one updateEvent when the snapshot predates the write', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    const fetchedAt = Date.now() - 5_000
+
+    await m.afterUpdate(moved, 'One')
+    expect(deps.updateEvent).toHaveBeenCalledTimes(1)
+
+    // The blocks refetch that follows the move is a new content signature, so
+    // the reconcile runs — against the pre-move `/busy` snapshot.
+    await m.reconcile({
+      key: 'k',
+      blocks: [moved],
+      plannerEvents: [
+        {
+          uid: 'hupo-block-1',
+          start: '2026-05-06T13:00:00.000Z',
+          end: '2026-05-06T14:00:00.000Z',
+        },
+      ],
+      plannerEventsAt: fetchedAt,
+      titleOf,
+    })
+    expect(deps.updateEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('a snapshot fetched after the write still wins — Calendar.app edits repaired', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+
+    // The mirror wrote 13:00–14:00; a later `/busy` reports 18:00 (the event
+    // was edited in Calendar.app). That is drift and must be rewritten to the
+    // DB time, one-way, exactly as D3 required.
+    await m.afterCreate(block({ id: 'b-1' }), 'One')
+    await m.reconcile({
+      key: 'k',
+      blocks: [block({ id: 'b-1', calendarUid: 'hupo-block-new' })],
+      plannerEvents: [
+        {
+          uid: 'hupo-block-new',
+          start: '2026-05-06T18:00:00.000Z',
+          end: '2026-05-06T19:00:00.000Z',
+        },
+      ],
+      plannerEventsAt: Date.now() + 60_000,
+      titleOf,
+    })
+    expect(deps.updateEvent).toHaveBeenCalledTimes(1)
+    expect(deps.updateEvent).toHaveBeenCalledWith({
+      uid: 'hupo-block-new',
+      title: 'One',
+      start: '2026-05-06T13:00:00.000Z',
+      end: '2026-05-06T14:00:00.000Z',
+    })
+  })
+})

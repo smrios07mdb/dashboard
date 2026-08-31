@@ -616,6 +616,9 @@ export default function Planner() {
       key: `${weekKey}:${busyRefreshKey}`,
       blocks,
       plannerEvents,
+      // When this snapshot was fetched (chunk 47, D10). On a cache hit this is
+      // the original fetch time, not now — a reused snapshot's age is its own.
+      plannerEventsAt: busyState.fetchedAt,
       titleOf: (id) => {
         const b = blocks.find((x) => x.id === id)
         return b ? tasksById.get(b.taskId)?.title : undefined

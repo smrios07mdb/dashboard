@@ -59,6 +59,13 @@ export interface ReconcileInput {
   key: string
   blocks: MirrorBlock[]
   plannerEvents: PlannerEvent[]
+  /**
+   * When the `/busy` snapshot in `plannerEvents` was fetched (chunk 47, D9).
+   * The drift loop ranks the snapshot against the mirror's own write record by
+   * recency: the snapshot decides only when it is the newer observation. Null
+   * or absent → the snapshot wins unconditionally, i.e. the pre-chunk-47 rule.
+   */
+  plannerEventsAt?: number | null
   /** Task title for a block's create/update; undefined → the block is skipped. */
   titleOf: (blockId: string) => string | undefined
 }
@@ -89,16 +96,23 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
   // Blocks with a create in flight — reconcile must not backfill them too.
   const creating = new Set<string>()
   // Session record of the events this mirror wrote: uid → the times it wrote
-  // (chunk 46, D1). `plannerEvents` is the snapshot from the last `/busy`
-  // fetch, whose effect deps know nothing about blocks or mirror writes — so
-  // an event created since that fetch is absent from it and the drift loop
-  // has nothing to compare a freshly-mirrored block against. The mirror
-  // creates the event, so it already knows the uid and the times; this keeps
-  // them instead of discarding them and waiting for a refetch that the
-  // drift-repair path exists to avoid. Fallback only: `plannerEvents` wins
-  // wherever both know a uid (D3), so a Calendar.app edit still reads as
-  // drift and is still rewritten one-way.
-  const written = new Map<string, { start: string; end: string }>()
+  // and when it wrote them (chunk 46, D1; `at` added chunk 47, D9).
+  // `plannerEvents` is the snapshot from the last `/busy` fetch, whose effect
+  // deps know nothing about blocks or mirror writes — so an event created
+  // since that fetch is absent from it and the drift loop has nothing to
+  // compare a freshly-mirrored block against. The mirror creates the event, so
+  // it already knows the uid and the times; this keeps them instead of
+  // discarding them and waiting for a refetch that the drift-repair path
+  // exists to avoid.
+  //
+  // Where both sources know a uid the drift loop takes **the newer
+  // observation** (chunk 47, D9), not `plannerEvents` unconditionally (chunk
+  // 46, D3). D3's purpose is unchanged — a Calendar.app edit reported by a
+  // fetch that postdates the mirror's write still reads as drift and is still
+  // rewritten to the DB time, one-way — but a snapshot older than the mirror's
+  // own write no longer overrides what the mirror knows it just wrote, which
+  // is what made a single drag-move fire two identical PATCHes.
+  const written = new Map<string, { start: string; end: string; at: number }>()
   // Uids this mirror deleted — the orphan sweep skips them (chunk 46, D6).
   // The post-unschedule blocks refetch is a new content signature, so the
   // reconcile runs against a `plannerEvents` snapshot that still lists the
@@ -117,7 +131,11 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
       })
       if (uid) {
         await deps.stampUid(block.id, uid)
-        written.set(uid, { start: block.startAt, end: block.endAt })
+        written.set(uid, {
+          start: block.startAt,
+          end: block.endAt,
+          at: Date.now(),
+        })
       }
     } finally {
       creating.delete(block.id)
@@ -136,7 +154,11 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
     })
     // Keep the record current after a repair, so the same drift is never
     // PATCHed twice while `plannerEvents` remains stale.
-    written.set(block.calendarUid, { start: block.startAt, end: block.endAt })
+    written.set(block.calendarUid, {
+      start: block.startAt,
+      end: block.endAt,
+      at: Date.now(),
+    })
   }
 
   async function foreground(work: () => Promise<void>): Promise<void> {
@@ -162,12 +184,25 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
     afterDelete: (calendarUid) =>
       foreground(async () => {
         if (!calendarUid) return
-        await deps.deleteEvent(calendarUid)
+        // Recorded BEFORE the await, like `creating` (chunk 47, D8): the
+        // reconcile that the post-unschedule blocks refetch triggers runs
+        // while this delete is still in flight (live on 2026-08-31: the
+        // sweep's delete started at +184 ms, this one resolved at ~+594 ms),
+        // so a guard set after the await never fires in the window it was
+        // written for.
         written.delete(calendarUid)
         deleted.add(calendarUid)
+        try {
+          await deps.deleteEvent(calendarUid)
+        } catch (e) {
+          // The event is still out there — let the sweep retry it. Rethrown so
+          // `foreground`'s catch still warns and toasts once.
+          deleted.delete(calendarUid)
+          throw e
+        }
       }),
 
-    async reconcile({ key, blocks, plannerEvents, titleOf }) {
+    async reconcile({ key, blocks, plannerEvents, plannerEventsAt, titleOf }) {
       if (!deps.enabled()) return
       const signature = blockSignature(blocks)
       if (reconciled.get(key) === signature) return
@@ -204,14 +239,21 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
 
       // 3. Time drift (≥1 minute either end). Title drift is out of scope:
       //    `plannerEvents` carries no summary to compare against.
-      //    `plannerEvents` is authoritative (D3); `written` fills only the
-      //    uids it does not mention — an event mirrored since the last
-      //    `/busy` fetch. The orphan sweep above deliberately does NOT
-      //    consult `written` (D4): it stays on what the calendar reports.
+      //    Where only one source knows a uid it decides. Where both do, the
+      //    newer observation decides (chunk 47, D9): the `/busy` snapshot iff
+      //    it was fetched after the mirror's own write, otherwise the record.
+      //    A missing `plannerEventsAt` means the snapshot wins, which is the
+      //    pre-chunk-47 rule (D3) exactly. The orphan sweep above deliberately
+      //    consults neither `written` nor timestamps (D4/D11): it stays on
+      //    what the calendar reports.
       const eventByUid = new Map(plannerEvents.map((e) => [e.uid, e]))
       for (const b of blocks) {
         if (!b.calendarUid) continue
-        const ev = eventByUid.get(b.calendarUid) ?? written.get(b.calendarUid)
+        const ev = observation(
+          eventByUid.get(b.calendarUid),
+          written.get(b.calendarUid),
+          plannerEventsAt,
+        )
         if (!ev) continue
         if (!drifted(b, ev)) continue
         const title = titleOf(b.id)
@@ -236,6 +278,24 @@ function blockSignature(blocks: MirrorBlock[]): string {
     .map((b) => `${b.id}|${b.startAt}|${b.endAt}|${b.calendarUid ?? ''}`)
     .sort()
     .join('\n')
+}
+
+/**
+ * The times the drift loop compares a block against (chunk 47, D9). With both
+ * a `/busy` snapshot entry and a mirror write record for the same uid, the one
+ * observed more recently wins; a snapshot with no fetch timestamp is treated as
+ * authoritative, preserving chunk 46's D3 behaviour unchanged.
+ */
+function observation(
+  snapshot: { start: string; end: string } | undefined,
+  record: { start: string; end: string; at: number } | undefined,
+  plannerEventsAt: number | null | undefined,
+): { start: string; end: string } | undefined {
+  if (!snapshot) return record
+  if (!record) return snapshot
+  return plannerEventsAt == null || plannerEventsAt > record.at
+    ? snapshot
+    : record
 }
 
 function drifted(
