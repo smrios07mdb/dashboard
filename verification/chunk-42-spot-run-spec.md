@@ -122,6 +122,26 @@ blocks by SQL rather than dragging them, so the move path's reconcile was
 never on a netlog. Chunk 47 ranks the two observations by recency (D9), so
 the pre-move snapshot no longer overrides the mirror's own record.
 
+**Required setup — force one `/busy` refresh between the placement and the
+move.** In Part B's own order the week is mounted before the block is placed,
+so the snapshot in memory was fetched before the mirrored event existed and
+`plannerEvents` never mentions its uid. The drift loop then falls to the
+mirror's own record on *every* build, that record was just refreshed by the
+move's own PATCH, and no second PATCH fires either way — the assertion passes
+vacuously, the third instance of the failure mode that made chunk 42's
+original B3 and chunk 46's B3b attempt 1 unfalsifiable. So after placing the
+block, force one `/busy` refresh (a page reload or Force resync both do it)
+and confirm `GET /busy` lists the uid at its placed times; only then drag it.
+This is **setup for B2b, not a repair trigger**: B3b's "no reload fallback"
+rule forbids reloading in order to *produce* a repair the echo failed to
+produce, and does not forbid establishing the precondition an assertion needs.
+B2b's PATCH must still come from the move's own mutation and the reconcile
+that follows it — no reload inside the marked move window. Measured against
+the two committed modules with the same fixture and only the order changed,
+this is the discriminator: with the interposed refresh, `0f076e2` (chunk 46)
+fires **2** PATCHes and `0087cc4` (chunk 47) fires **1**; without it, both
+fire 1. Two PATCHes in the marked window is the real failure.
+
 **B3 (re-scoped, chunk 43).** The original B3 — drift by SQL, navigate away
 and back, expect a drift PATCH on the back-load — is excluded by design:
 the back-load serves both caches, and chunk-40's own test asserts a
