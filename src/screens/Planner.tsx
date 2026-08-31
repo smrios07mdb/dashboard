@@ -182,6 +182,11 @@ type BusyState = {
   busy: GetBusyResult | null
   fetchedAt: number | null
   errorMessage: string | null
+  /** The `weekKey` this state's data belongs to (chunk 40, F1): a week
+   *  change renders one frame where `weekKey` is new while the phase still
+   *  reads `'ready'` holding the previous week's data — consumers that need
+   *  the visible week's data (the reconcile) must check this tag. */
+  forWeek: string | null
 }
 
 type BusyEntry = { busy: GetBusyResult; fetchedAt: number; refreshKey: number }
@@ -260,6 +265,7 @@ export default function Planner() {
     busy: null,
     fetchedAt: null,
     errorMessage: null,
+    forWeek: null,
   })
   const busyCacheRef = useRef(new Map<string, BusyEntry>())
   // Bumped by the focus listener when the visible week's entry is past TTL.
@@ -289,6 +295,7 @@ export default function Planner() {
         busy: entry.busy,
         fetchedAt: entry.fetchedAt,
         errorMessage: null,
+        forWeek: weekKey,
       })
       return
     }
@@ -301,8 +308,15 @@ export default function Planner() {
             busy: entry.busy,
             fetchedAt: entry.fetchedAt,
             errorMessage: null,
+            forWeek: weekKey,
           }
-        : { phase: 'loading', busy: null, fetchedAt: null, errorMessage: null },
+        : {
+            phase: 'loading',
+            busy: null,
+            fetchedAt: null,
+            errorMessage: null,
+            forWeek: weekKey,
+          },
     )
     const from = weekStartDate.toISOString()
     const to = addDays(weekStartDate, 7).toISOString()
@@ -320,6 +334,7 @@ export default function Planner() {
           busy: next.busy,
           fetchedAt: next.fetchedAt,
           errorMessage: null,
+          forWeek: weekKey,
         })
       })
       .catch((e: unknown) => {
@@ -331,6 +346,7 @@ export default function Planner() {
             busy: null,
             fetchedAt: null,
             errorMessage: null,
+            forWeek: weekKey,
           })
           return
         }
@@ -343,6 +359,7 @@ export default function Planner() {
             e instanceof CalendarError
               ? e.message
               : 'Could not load busy times.',
+          forWeek: weekKey,
         })
       })
     return () => {
@@ -364,6 +381,11 @@ export default function Planner() {
   // `cold` until the visible week has been read once; realtime-echo
   // refetches keep the current rows on screen (`refreshing`, R3).
   const [blocksPhase, setBlocksPhase] = useState<GridPhase>('cold')
+  // The `weekKey` the loaded blocks belong to (chunk 40, F1) — stamped only
+  // on a successful load, never in the failure path: a failed read leaves
+  // the tag stale so the reconcile can never run against an empty/stale
+  // list and orphan-delete the week's mirror events.
+  const [blocksForWeek, setBlocksForWeek] = useState<string | null>(null)
   const blocksCacheRef = useRef(new Map<string, BlocksEntry>())
   // Bumped after a failed write to force a re-read of the visible week.
   const [blocksReloadKey, setBlocksReloadKey] = useState(0)
@@ -377,6 +399,7 @@ export default function Planner() {
     if (entry && entry.key === blocksKey) {
       setBlocks(entry.rows)
       setBlocksPhase('ready')
+      setBlocksForWeek(weekKey)
       return
     }
     if (entry) {
@@ -395,6 +418,7 @@ export default function Planner() {
         blocksCacheRef.current.set(weekKey, { rows, key: blocksKey })
         setBlocks(rows)
         setBlocksPhase('ready')
+        setBlocksForWeek(weekKey)
       })
       .catch((e) => {
         if (cancelled) return
@@ -577,6 +601,10 @@ export default function Planner() {
   useEffect(() => {
     if (!writeoutOn || !tasksLoaded) return
     if (blocksPhase !== 'ready' || busyState.phase !== 'ready') return
+    // F1 (chunk 40): on the week-change commit both phases still read the
+    // previous week's 'ready' — require both data tags to name the visible
+    // week so that frame can never consume the reconcile key.
+    if (busyState.forWeek !== weekKey || blocksForWeek !== weekKey) return
     const plannerEvents = busyState.busy?.plannerEvents
     if (!plannerEvents) return
     void mirror.reconcile({
@@ -592,6 +620,7 @@ export default function Planner() {
     writeoutOn,
     tasksLoaded,
     blocksPhase,
+    blocksForWeek,
     busyState,
     blocks,
     weekKey,
