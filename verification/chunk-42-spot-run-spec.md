@@ -141,6 +141,11 @@ the pin must survive the remount (chunk 43 persists membership deltas to
 - **Day rollover (new)**: write a `hup:todayPlan` entry whose `date` is
   yesterday (keep real pins in it), reload — the stale entry is discarded:
   yesterday's pins do not resurface and yesterday's removals do not stick.
+  This covers the cold-start read path only; the **same-session** rollover
+  (the clock crossing local midnight with the tab open) is covered by unit
+  test only (chunk 44 — see its decisions-log row), because moving local
+  midnight on the deployed build would need a `lib/today` clock hook and
+  chunk 43 rejected shipping a test hook.
 
 ## Cleanup / end state
 

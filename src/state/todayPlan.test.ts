@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 
 import type { Task } from '@/db/types'
@@ -126,5 +126,52 @@ describe('useTodayPlan persistence (chunk 43, F1)', () => {
     rerender({ tasks: [task({ id: 'a' })] })
     expect(result.current.todaySet.has('a')).toBe(true)
     expect(storedDeltas().pinned).toEqual(['a'])
+  })
+})
+
+describe('useTodayPlan day rollover with the tab open (chunk 44)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('a toggle after local midnight resets the deltas and stamps the new day', () => {
+    vi.setSystemTime(new Date(2026, 7, 31, 22, 0, 0))
+    const tasks = [task({ id: 'a' }), task({ id: 'b' })]
+    const { result } = renderHook(() => useTodayPlan(tasks))
+    act(() => result.current.toggleToday('a'))
+    expect(result.current.todaySet.has('a')).toBe(true)
+    expect(storedDeltas().date).toBe('2026-08-31')
+
+    // The tab stays open across midnight; the next toggle observes the roll.
+    vi.setSystemTime(new Date(2026, 8, 1, 0, 5, 0))
+    act(() => result.current.toggleToday('b'))
+
+    const stored = storedDeltas()
+    expect(stored.date).toBe('2026-09-01')
+    expect(stored.pinned).toEqual(['b'])
+    expect(stored.removed).toEqual([])
+    expect(result.current.todaySet.has('b')).toBe(true)
+    expect(result.current.todaySet.has('a')).toBe(false)
+  })
+
+  it('a same-day clock advance leaves the stored entry intact apart from the toggle', () => {
+    vi.setSystemTime(new Date(2026, 7, 31, 9, 0, 0))
+    const tasks = [task({ id: 'a' }), task({ id: 'b' })]
+    const { result } = renderHook(() => useTodayPlan(tasks))
+    act(() => result.current.toggleToday('a'))
+
+    vi.setSystemTime(new Date(2026, 7, 31, 18, 0, 0))
+    act(() => result.current.toggleToday('b'))
+
+    const stored = storedDeltas()
+    expect(stored.date).toBe('2026-08-31')
+    expect(stored.pinned).toEqual(['a', 'b'])
+    expect(stored.removed).toEqual([])
+    expect(result.current.todaySet.has('a')).toBe(true)
+    expect(result.current.todaySet.has('b')).toBe(true)
   })
 })

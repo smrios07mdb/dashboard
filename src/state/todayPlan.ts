@@ -71,12 +71,12 @@ export function readTodayDeltas(now: Date = new Date()): TodayDeltas {
   }
 }
 
-function writeTodayDeltas(deltas: TodayDeltas, now: Date = new Date()): void {
+function writeTodayDeltas(deltas: TodayDeltas, day: string): void {
   try {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        date: dayKey(now),
+        date: day,
         pinned: [...deltas.pinned],
         removed: [...deltas.removed],
       }),
@@ -100,8 +100,16 @@ export function applyTodayDeltas(
 
 export function useTodayPlan(tasks: Task[]): TodayPlan {
   // One mutable deltas object for the hook's lifetime; every mutation is
-  // followed by a `writeTodayDeltas` so storage tracks it.
-  const [deltas] = useState<TodayDeltas>(() => readTodayDeltas())
+  // followed by a `writeTodayDeltas` so storage tracks it. `day` is the local
+  // day the deltas were read for — every write stamps THIS key, not the wall
+  // clock, so a tab open across midnight can never re-stamp yesterday's
+  // deltas with today's date (the write-path half of the day scoping; the
+  // read half is `readTodayDeltas`' stale-date discard).
+  const [{ deltas, day: initialDay }] = useState(() => {
+    const now = new Date()
+    return { deltas: readTodayDeltas(now), day: dayKey(now) }
+  })
+  const dayRef = useRef(initialDay)
   const [membership, setMembership] = useState<Set<string>>(() =>
     applyTodayDeltas(autoTodayIds(tasks), deltas),
   )
@@ -113,6 +121,30 @@ export function useTodayPlan(tasks: Task[]): TodayPlan {
   useEffect(() => {
     membershipRef.current = membership
   }, [membership])
+  // Latest tasks for the toggle's rollover re-seed (a roll invalidates the
+  // resolved set in `membershipRef`, so it re-derives from the auto signals).
+  const tasksRef = useRef(tasks)
+  useEffect(() => {
+    tasksRef.current = tasks
+  })
+
+  // Day rollover, observed lazily on the next interaction or task refresh —
+  // deliberately no timer/interval/visibility listener (the app has no
+  // day-tick). When the local day has changed since the deltas were read,
+  // yesterday's plan is over: clear both delta sets in place and persist the
+  // now-empty entry under the new day.
+  const rollIfNewDay = useCallback(
+    (now: Date): boolean => {
+      const key = dayKey(now)
+      if (key === dayRef.current) return false
+      deltas.pinned.clear()
+      deltas.removed.clear()
+      dayRef.current = key
+      writeTodayDeltas(deltas, key)
+      return true
+    },
+    [deltas],
+  )
 
   // Reconcile only when the task-id set changes identity (added, removed, or
   // swapped) — not on in-place field edits (which keep the same ids) or reorder.
@@ -121,12 +153,13 @@ export function useTodayPlan(tasks: Task[]): TodayPlan {
   // during render; the conditional setState mirrors the SubcategorySection
   // linger idiom. `tasks` is the only live dep — the ref read/write stays here.
   useEffect(() => {
+    const rolled = rollIfNewDay(new Date())
     const curIds = tasks.map((t) => t.id)
     const prevIds = idsRef.current
     const changed =
       curIds.length !== prevIds.size ||
       curIds.some((id) => !prevIds.has(id))
-    if (!changed) return
+    if (!changed && !rolled) return
     idsRef.current = new Set(curIds)
     // Prune delta ids whose task is gone — but never against an empty list,
     // which is the still-loading state and would wipe the stored plan.
@@ -141,18 +174,32 @@ export function useTodayPlan(tasks: Task[]): TodayPlan {
           }
         }
       }
-      if (pruned) writeTodayDeltas(deltas)
+      if (pruned) writeTodayDeltas(deltas, dayRef.current)
     }
+    // After a roll the previous membership is yesterday's resolved set —
+    // re-seed from the auto signals rather than layering the (now empty)
+    // deltas over it.
     setMembership((cur) =>
-      applyTodayDeltas(reconcileTodayMembership(cur, prevIds, tasks), deltas),
+      rolled
+        ? applyTodayDeltas(autoTodayIds(tasks), deltas)
+        : applyTodayDeltas(reconcileTodayMembership(cur, prevIds, tasks), deltas),
     )
-  }, [tasks, deltas])
+  }, [tasks, deltas, rollIfNewDay])
 
   const toggleToday = useCallback(
     (id: string, force?: boolean) => {
-      const cur = membershipRef.current
+      const rolled = rollIfNewDay(new Date())
+      const cur = rolled
+        ? applyTodayDeltas(autoTodayIds(tasksRef.current), deltas)
+        : membershipRef.current
       const want = force === undefined ? !cur.has(id) : force
-      if (want === cur.has(id)) return
+      if (want === cur.has(id)) {
+        if (rolled) {
+          membershipRef.current = cur
+          setMembership(cur)
+        }
+        return
+      }
       if (want) {
         deltas.pinned.add(id)
         deltas.removed.delete(id)
@@ -160,14 +207,14 @@ export function useTodayPlan(tasks: Task[]): TodayPlan {
         deltas.removed.add(id)
         deltas.pinned.delete(id)
       }
-      writeTodayDeltas(deltas)
+      writeTodayDeltas(deltas, dayRef.current)
       const next = new Set(cur)
       if (want) next.add(id)
       else next.delete(id)
       membershipRef.current = next
       setMembership(next)
     },
-    [deltas],
+    [deltas, rollIfNewDay],
   )
 
   return { todaySet: membership, toggleToday }
