@@ -92,6 +92,16 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 Work happens on `main` with short-lived per-chunk branches merged (ff where possible) and deleted after landing. The `redesign` branch is retired — it was promoted to `main` in chunk 42 and deleted in chunk 43; do not recreate it.
 
+**Testing whether a branch has landed (chunk-44 Task 3a finding).** `git merge-base --is-ancestor <tip> main` is correct for merge- and fast-forward-landed branches, but it **can never pass for a squash-merged branch**: the squash commit is a fresh commit on `main` with no link to the branch's commits, so ancestry is absent by construction, not because work is unmerged. For a squash merge the test is **tree identity against a commit reachable from `main`** — the branch tip's tree equals the tree of some commit in `git rev-list main`, which proves `main` once held the branch's complete file state byte-for-byte:
+
+```
+for c in $(git rev-list origin/main); do \
+  [ "$(git rev-parse $c^{tree})" = "$(git rev-parse origin/<branch>^{tree})" ] \
+  && echo "$c"; done
+```
+
+Deletion stays reversible either way: GitHub retains `refs/pull/<N>/head` permanently, so a deleted branch tip remains addressable (`git fetch origin refs/pull/<N>/head`).
+
 ## Chunk prompt corrections
 
 `prompts/README.md` is an overlay doc capturing the cross-chunk substitutions, path corrections, and conventions that apply to every chunk prompt in this repo. Read it before starting any chunk. Authority order: `ARCHITECTURE.md` → `prompts/README.md` → the individual chunk prompt → the chunk-specific brief (if any).

@@ -19,5 +19,6 @@ vapid.json
 caldav-key.txt
 .mcp.json
 .claude/
+.remember/
 
 dist-verify/
