@@ -66,6 +66,24 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **The device shell has no GitHub credentials.** Cowork commits smoke results locally; the operator pushes.
 
+**Remount-dependent navigations must be split into separate `execute_javascript` calls.** Same-tick double navigation (two `.click()`s in one call) never remounts the screen — React Router settles once. One navigation per call.
+
+**The tray card is the schedule button.** `button[aria-label="<title> — schedule"]` is the drag target itself — `pointerdown` on it starts the drag; there is no card wrapper above it to walk up to.
+
+**Scope sheet queries with `[data-state="open"]`.** A bare `[role="dialog"]` matches the lingering sync-pill popover first (it stays in the DOM `data-state="closed"`, and both coexist).
+
+**Feedback-guided dropping.** Aim the pointer near the slot, read `[data-testid="drop-slot"]` on the next call (one tick late as documented), nudge ±13px per 15-min step (52px/hour), then `pointerup` in its own call.
+
+**Resizes render no `drop-slot` preview.** The block's own aria-label/height update live during the drag — assert those; `resize-strip` is the handle.
+
+**One-shot failure shims must wrap the logger-wrapped fetch** and restore to it (so the netlog keeps recording afterwards), stamping a DOM attribute with method+timestamp for the report.
+
+**Isolated-world fetches don't pollute the page-world request log.** Keep harness reads (PostgREST/proxy probes) in the isolated world; secrets travel via DOM attributes, never the transcript.
+
+**The outbox is readable from the isolated world** via IndexedDB (`dashboard-cache` / `outbox`) — no page-world injection needed.
+
+**Computer-use app grants can expire mid-run** — re-requesting costs an operator approval; batch Calendar.app assertions where possible.
+
 ## Chunk prompt corrections
 
 `prompts/README.md` is an overlay doc capturing the cross-chunk substitutions, path corrections, and conventions that apply to every chunk prompt in this repo. Read it before starting any chunk. Authority order: `ARCHITECTURE.md` → `prompts/README.md` → the individual chunk prompt → the chunk-specific brief (if any).

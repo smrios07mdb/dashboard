@@ -1,5 +1,11 @@
 # Chunk 39 smoke — results (Cowork / Chrome MCP, 2026-08-30 ~18:30–19:30 ET)
 
+> Recorded by the orchestrator from the Cowork run report. Orchestrator citation
+> audit 2026-08-30: every source citation below (`main.tsx:63`,
+> `Planner.tsx:448/577-601/583`, `plannerCalendarMirror.ts:136-137`) verified
+> against `56ffff4` — all accurate. F1's mechanism was subsequently pinned from
+> source and is fixed in chunk 40 (see PROGRESS.md Decisions log 2026-08-30).
+
 **Run authorization:** the operator directed this run live in chat ("build the
 tests in a way we can do them now") after two same-day attempts blocked on
 §0.3 (Mon–Thu 10:30–15:00 ET). Run window was **Sunday Aug 30, 18:30+ ET** —
@@ -96,6 +102,15 @@ where reconcile fires (mount dynamics under StrictMode converge to one run
 because the gates hold until data is ready). Chunk-40 candidate: reproduce in
 a test (`weekOffset` change with busy resolving before/after blocks), or key
 the dedup on the blocks snapshot too.
+
+*Orchestrator addendum (2026-08-30, source read at `56ffff4`): mechanism
+pinned — it is the "key consumed" shape. `busyState` and `blocksPhase` are
+reset only inside their own effects, so the week-change commit renders one
+frame where `weekKey` is new while both phases still read `'ready'` holding
+the previous week's data; the reconcile effect (dep: `weekKey`) fires on that
+frame, no-ops against the already-reconciled stale data, and burns
+`${newWeekKey}:${busyRefreshKey}`. Mount works because both phases start
+cold/loading. Fixed in chunk 40 (data-week tags on both loaders + gate).*
 
 **F2 — dev StrictMode makes mount-time request counts unassertable.**
 `main.tsx:63` wraps the app; the busy effect double-fires per mount (2
