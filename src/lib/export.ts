@@ -6,6 +6,11 @@
  * `caldav_app_password_encrypted` is forced to null — the encrypted CalDAV
  * password must never leave the device. push_subscriptions are device-specific
  * and intentionally excluded (R4/R5).
+ *
+ * `scheduled_blocks` joined the payload in chunk 50 (closing §14's only
+ * explicit deferral). The export is a faithful dump — `calendar_uid` is NOT
+ * redacted; it is dropped on the way IN instead (see import.ts), because a
+ * re-imported uid points at a VEVENT this file cannot vouch for.
  */
 import { supabase } from '@/lib/supabase'
 
@@ -29,6 +34,7 @@ const EXPORT_TABLES = [
   'categories',
   'subcategories',
   'tasks',
+  'scheduled_blocks',
   'routine_items',
   'routine_logs',
 ] as const
@@ -40,6 +46,7 @@ export type ExportPayload = {
   categories: Row[]
   subcategories: Row[]
   tasks: Row[]
+  scheduled_blocks: Row[]
   routine_items: Row[]
   routine_logs: Row[]
   settings: Row | null
@@ -67,6 +74,7 @@ export function buildExportPayload(args: {
     categories: args.tables.categories ?? [],
     subcategories: args.tables.subcategories ?? [],
     tasks: args.tables.tasks ?? [],
+    scheduled_blocks: args.tables.scheduled_blocks ?? [],
     routine_items: args.tables.routine_items ?? [],
     routine_logs: args.tables.routine_logs ?? [],
     settings: redactSettings(args.settings),
