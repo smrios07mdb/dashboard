@@ -48,7 +48,14 @@ export interface MirrorDeps {
 }
 
 export interface ReconcileInput {
-  /** Dedup key — `weekKey:busyRefreshKey`; the same key never reconciles twice. */
+  /**
+   * Dedup key — `weekKey:busyRefreshKey`. A content signature of `blocks`
+   * (id + startAt + endAt + calendarUid) is folded in internally (chunk 43,
+   * F2), so the same key with unchanged blocks never reconciles twice, while
+   * a block that changed since the key was consumed — drift written from
+   * another device, an outbox drain, a failed mirror write — re-reconciles
+   * on the week's next load without a `busyRefreshKey` bump.
+   */
   key: string
   blocks: MirrorBlock[]
   plannerEvents: PlannerEvent[]
@@ -75,7 +82,10 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
   const warn =
     deps.warn ??
     ((message: string, error: unknown) => console.warn(message, error))
-  const reconciled = new Set<string>()
+  // Last-reconciled block signature per dedup key. A Map (not a Set of
+  // key+signature) so each `weekKey:busyRefreshKey` holds exactly one entry —
+  // the store stays bounded however often a week's blocks change.
+  const reconciled = new Map<string, string>()
   // Blocks with a create in flight — reconcile must not backfill them too.
   const creating = new Set<string>()
 
@@ -133,8 +143,9 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
 
     async reconcile({ key, blocks, plannerEvents, titleOf }) {
       if (!deps.enabled()) return
-      if (reconciled.has(key)) return
-      reconciled.add(key)
+      const signature = blockSignature(blocks)
+      if (reconciled.get(key) === signature) return
+      reconciled.set(key, signature)
 
       const byUid = new Map<string, MirrorBlock>()
       for (const b of blocks) if (b.calendarUid) byUid.set(b.calendarUid, b)
@@ -181,6 +192,18 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
       }
     },
   }
+}
+
+/**
+ * Order-independent content signature of a week's blocks. Only the fields the
+ * mirror writes out — volatile fields like `updatedAt` are excluded so a
+ * touch that changes nothing the calendar sees never re-reconciles.
+ */
+function blockSignature(blocks: MirrorBlock[]): string {
+  return blocks
+    .map((b) => `${b.id}|${b.startAt}|${b.endAt}|${b.calendarUid ?? ''}`)
+    .sort()
+    .join('\n')
 }
 
 function drifted(block: MirrorBlock, ev: PlannerEvent): boolean {

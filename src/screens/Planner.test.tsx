@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { addDays, weekStart } from '@/lib/plannerGeometry'
+import { useUIStore } from '@/state/uiStore'
 import type { GetBusyResult, PlannerEvent } from '@/lib/calendarApi'
 
 /*
@@ -172,5 +173,74 @@ describe('Planner — reconcile on week navigation (chunk 40, F1)', () => {
       ),
     )
     expect(mocks.deleteEvent).not.toHaveBeenCalledWith(ORPHAN_B)
+  })
+
+  // Chunk 43 (F2): the dedup key carries a content signature of the week's
+  // blocks, so drift written after the week already reconciled — another
+  // device, an outbox drain, a failed mirror write — is repaired on the
+  // week's next blocks load, with no `busyRefreshKey` bump and no remount.
+  it('repairs drift on the week’s next blocks load without a busyRefreshKey bump', async () => {
+    const at = (minutes: number) =>
+      new Date(thisWeekStart.getTime() + minutes * 60_000).toISOString()
+    const MIRROR_UID = 'hupo-block-mirrored'
+    mocks.tasksList.mockResolvedValue([
+      {
+        id: 't1',
+        userId: 'u1',
+        subcategoryId: 's1',
+        title: 'Deep work',
+        notes: null,
+        estimateMinutes: 60,
+        dueAt: null,
+        remindAt: null,
+        notified: false,
+        priority: null,
+        completedAt: null,
+        createdAt: at(0),
+        updatedAt: at(0),
+      },
+    ])
+    const inSync = {
+      id: 'blk1',
+      userId: 'u1',
+      taskId: 't1',
+      startAt: at(10 * 60),
+      endAt: at(11 * 60),
+      calendarUid: MIRROR_UID,
+      createdAt: at(0),
+      updatedAt: at(0),
+    }
+    mocks.listByRange.mockResolvedValue([inSync])
+    // The week's mirror event matches the block; orphan A makes the
+    // reconcile's completion observable.
+    mocks.getBusy.mockImplementation(async () =>
+      busyResult([
+        { uid: MIRROR_UID, start: inSync.startAt, end: inSync.endAt },
+        plannerEventAt(ORPHAN_A, thisWeekStart),
+      ]),
+    )
+
+    render(<Planner />)
+    await waitFor(() => expect(mocks.deleteEvent).toHaveBeenCalledWith(ORPHAN_A))
+    // In sync — the first reconcile repaired nothing.
+    expect(mocks.updateEvent).not.toHaveBeenCalled()
+
+    // The block drifts in the DB; the realtime echo bumps
+    // `dashboardRefreshKey`, which refetches blocks — but never busy.
+    mocks.listByRange.mockResolvedValue([
+      { ...inSync, startAt: at(10 * 60 + 30), endAt: at(11 * 60 + 30) },
+    ])
+    act(() => useUIStore.getState().forceDashboardRefresh())
+
+    await waitFor(() =>
+      expect(mocks.updateEvent).toHaveBeenCalledWith({
+        uid: MIRROR_UID,
+        title: 'Deep work',
+        start: at(10 * 60 + 30),
+        end: at(11 * 60 + 30),
+      }),
+    )
+    // No busyRefreshKey bump was needed: busy was fetched exactly once.
+    expect(mocks.getBusy).toHaveBeenCalledTimes(1)
   })
 })

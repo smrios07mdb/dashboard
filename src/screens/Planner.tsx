@@ -117,8 +117,11 @@ import { useUIStore } from '@/state/uiStore'
  * handlers below never await iCloud and a mirror failure never rolls a
  * block back (one `Saved — Apple Calendar not updated` toast). The proxy
  * keeps the mirror out of busy and reports it as `plannerEvents`; once
- * per week load (`weekKey:busyRefreshKey`) `mirror.reconcile` deletes
- * orphans, backfills null uids and fixes time drift.
+ * per week load (`weekKey:busyRefreshKey` plus a content signature of the
+ * week's blocks — chunk 43, F2) `mirror.reconcile` deletes orphans,
+ * backfills null uids and fixes time drift, so drift written after a
+ * week's reconcile is repaired on that week's next blocks load without a
+ * `busyRefreshKey` bump.
  */
 
 const SAVE_ERROR = 'Could not save — retry'
@@ -595,9 +598,11 @@ export default function Planner() {
   )
 
   // ── calendar reconcile (chunk 39, D9) ──────────────────────────────────
-  // Once per `weekKey:busyRefreshKey`, when the week's busy (with the
-  // proxy's `plannerEvents` — absent on a pre-chunk-39 proxy), blocks and
-  // tasks are all loaded. Background: warns only, never blocks render.
+  // Once per `weekKey:busyRefreshKey` per blocks-content signature (the
+  // mirror folds the signature in — chunk 43, F2), when the week's busy
+  // (with the proxy's `plannerEvents` — absent on a pre-chunk-39 proxy),
+  // blocks and tasks are all loaded. Background: warns only, never blocks
+  // render.
   useEffect(() => {
     if (!writeoutOn || !tasksLoaded) return
     if (blocksPhase !== 'ready' || busyState.phase !== 'ready') return

@@ -227,6 +227,54 @@ describe('reconcile', () => {
     expect(deps.createEvent).toHaveBeenCalledTimes(2)
   })
 
+  it('re-reconciles the same key when the blocks content changed (chunk 43, F2)', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    const ev = {
+      uid: 'hupo-block-1',
+      start: '2026-05-06T13:00:00.000Z',
+      end: '2026-05-06T14:00:00.000Z',
+    }
+    const inSync = block({ id: 'b-1', calendarUid: 'hupo-block-1' })
+    await m.reconcile({
+      key: '2026-05-04:0',
+      blocks: [inSync],
+      plannerEvents: [ev],
+      titleOf,
+    })
+    expect(deps.updateEvent).not.toHaveBeenCalled()
+
+    // The block drifts (another device, an outbox drain) — same key, and no
+    // busyRefreshKey bump: the content signature must re-open the key.
+    const driftedBlock = block({
+      id: 'b-1',
+      calendarUid: 'hupo-block-1',
+      startAt: '2026-05-06T13:30:00.000Z',
+      endAt: '2026-05-06T14:30:00.000Z',
+    })
+    await m.reconcile({
+      key: '2026-05-04:0',
+      blocks: [driftedBlock],
+      plannerEvents: [ev],
+      titleOf,
+    })
+    expect(deps.updateEvent).toHaveBeenCalledWith({
+      uid: 'hupo-block-1',
+      title: 'One',
+      start: '2026-05-06T13:30:00.000Z',
+      end: '2026-05-06T14:30:00.000Z',
+    })
+
+    // Unchanged content again — still deduped.
+    await m.reconcile({
+      key: '2026-05-04:0',
+      blocks: [driftedBlock],
+      plannerEvents: [ev],
+      titleOf,
+    })
+    expect(deps.updateEvent).toHaveBeenCalledTimes(1)
+  })
+
   it('background failures warn and continue — no toast, later passes still run', async () => {
     const deps = makeDeps({
       deleteEvent: vi.fn(async () => {

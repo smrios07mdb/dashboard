@@ -84,6 +84,14 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **Computer-use app grants can expire mid-run** — re-requesting costs an operator approval; batch Calendar.app assertions where possible.
 
+**One run owner, prefixed fixtures (chunk 43).** Exactly one agent session runs a smoke/spot spec against the dev DB + iCloud calendar at a time — confirm with the operator before starting. Every fixture title carries a per-run prefix (`Smoke-<runId>-P1a`), and cleanup deletes only `title=like.Smoke-<runId>-*`, never bare `Smoke*` — on 2026-08-31 two concurrent sessions corrupted each other's state within minutes, and an unscoped cleanup would have cascaded the other session's blocks and calendar events mid-test.
+
+**The deployed build ships a CSP that blocks page-world script injection** (`script-src 'self'`, added chunk 17), so the chunk-38/39 page-world harness notes above do NOT transfer to prod runs. Prod gets isolated-world observation only: a `PerformanceObserver` netlog on resource entries (URL + `responseStatus` + completion order, **no HTTP method** — bracket assertions with marked windows and corroborate via DB/proxy state), a `MutationObserver` for toasts, and `window.onerror`/`unhandledrejection` instead of a page `console.error` counter. Decision (chunk 43): **no build-time test hook** — the 2026-08-31 run completed every assertion under these constraints, and a prod-shipped hook would weaken the CSP posture chunk 17 established; revisit only if a future prod assertion is actually blocked.
+
+## Branch policy (chunk 43)
+
+Work happens on `main` with short-lived per-chunk branches merged (ff where possible) and deleted after landing. The `redesign` branch is retired — it was promoted to `main` in chunk 42 and deleted in chunk 43; do not recreate it.
+
 ## Chunk prompt corrections
 
 `prompts/README.md` is an overlay doc capturing the cross-chunk substitutions, path corrections, and conventions that apply to every chunk prompt in this repo. Read it before starting any chunk. Authority order: `ARCHITECTURE.md` → `prompts/README.md` → the individual chunk prompt → the chunk-specific brief (if any).
