@@ -20,8 +20,21 @@ After completing any chunk:
 A chunk is done when:
 - All acceptance criteria in the chunk prompt pass.
 - `npm run build` and `npm test` are both green.
-- The deploy workflow runs green on the push.
+- The deploy workflow runs green on the push — unless the push carries `[skip ci]` (see below).
 - `PROGRESS.md` reflects completion per the rules above.
+
+### When a push takes `[skip ci]` (chunk 45)
+
+Whether the deploy workflow has to run is decided by one question: did anything
+affecting the built artifact change? `deploy.yml` runs `npm ci` + `npm run build`
+only — **no lint, no tests** — so lint and test configuration never reach the
+deployed artifact. All gates are run locally by the implementing agent, not by CI.
+
+- A push gets `[skip ci]` when nothing affecting the built artifact changed —
+  docs, `PROGRESS.md`, `verification/`, `.gitignore`, lint config, refs.
+- Otherwise no `[skip ci]`, and the deploy workflow must run green.
+- Consequence: `version.json` tracks the last commit that changed shipped code,
+  and will lag `main` after any docs-only run. That is correct, not drift.
 
 ## Routine doc edits
 `PROGRESS.md` updates, decision log entries, and README additions are handled by Claude Code directly, in the same pass as the chunk's code work — committed with the chunk or as an immediate follow-up. (Until 2026-07-30 these were Cowork's lane; that handoff is retired.)
