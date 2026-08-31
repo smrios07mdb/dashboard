@@ -104,6 +104,23 @@ still listed the just-deleted event. That was a chunk-43 regression (before
 the content signature, `blocks: []` hit the dedup and returned early);
 chunk 46 guards the sweep with a set of uids the mirror itself deleted. A
 second delete in the unschedule window is now a **regression**, not noise.
+This assertion was **not** satisfied by the chunk-46 build (`0f076e2`): the
+guard existed but was populated only after the delete's network await, and
+the live timings above are exactly the concurrent case — the sweep fired at
++184 ms while the mirror's own delete ran until ~+594 ms — so a run against
+that build would still have seen two. It holds from chunk 47 (`0087cc4`),
+which populates the set before the await.
+
+**B2 count (added chunk 47, G2).** Exactly **one** `/api/calendar/events`
+PATCH per drag-move of a mirrored block. A second identical PATCH in the
+move window is a regression of the same class as B4's: the post-move blocks
+refetch is a new content signature, so the reconcile runs, and until chunk 47
+its drift loop compared the moved block against a `/busy` snapshot fetched
+before the mirror's own write and rewrote the times it had just written.
+This was never measured before chunk 47 because every prior run drifted
+blocks by SQL rather than dragging them, so the move path's reconcile was
+never on a netlog. Chunk 47 ranks the two observations by recency (D9), so
+the pre-move snapshot no longer overrides the mirror's own record.
 
 **B3 (re-scoped, chunk 43).** The original B3 — drift by SQL, navigate away
 and back, expect a drift PATCH on the back-load — is excluded by design:
@@ -219,3 +236,14 @@ through the app/proxy (record every `hupo-block-` uid seen),
 run), harness discard verified (`navType === 'reload'` + a `timeOrigin`
 later than the last cleanup write — `reload_tab` returns before the reload
 commits).
+
+## Scope note — verifying the chunk-47 build (added chunk 47)
+
+The natural verification against `0087cc4` is **B3b + the B2 move count +
+the B4 delete count**, not the whole spec: those three are the assertions
+chunk 47's two changes can move, and B3b is the one that proves the
+recency rule did not cost D3 its repair. This short run is **not**
+window-constrained — Part A's Mon–Thu / 10:30–15:00 ET rule exists for the
+today-relative cursor and none of the three touches it. The run rules above
+(single owner, `Smoke-<runId>-*` prefix, isolated-world harness only) still
+apply in full.
