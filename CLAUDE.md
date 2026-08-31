@@ -36,6 +36,22 @@ deployed artifact. All gates are run locally by the implementing agent, not by C
 - Consequence: `version.json` tracks the last commit that changed shipped code,
   and will lag `main` after any docs-only run. That is correct, not drift.
 
+**`[skip ci]` is decided per *push*, not per commit (chunk 46).** GitHub reads
+the marker on the push's **head commit** only. So a code commit followed by a
+`[skip ci]` docs commit, pushed together, skips the workflow entirely and the
+code never deploys — observed on the chunk-46 push (`e092fe0` code, `0f076e2`
+docs). Two ways to avoid it, in order of preference:
+
+1. Push the code commit on its own, let the deploy run, then push the docs
+   commit with `[skip ci]`.
+2. If they are already pushed together, recover with
+   `gh workflow run "Deploy to GitHub Pages" --ref main` — `deploy.yml` has
+   `workflow_dispatch`, and a dispatched run builds the branch tip, so the
+   result is identical. Then confirm `version.json` and the shipped bundle.
+
+Either way, "the deploy workflow must run green" is only satisfied by a run
+that actually exists — check `gh run list` after any push carrying code.
+
 ## Routine doc edits
 `PROGRESS.md` updates, decision log entries, and README additions are handled by Claude Code directly, in the same pass as the chunk's code work — committed with the chunk or as an immediate follow-up. (Until 2026-07-30 these were Cowork's lane; that handoff is retired.)
 
