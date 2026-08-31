@@ -127,11 +127,16 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
   // own write no longer overrides what the mirror knows it just wrote, which
   // is what made a single drag-move fire two identical PATCHes.
   const written = new Map<string, { start: string; end: string; at: number }>()
-  // Uids this mirror deleted — the orphan sweep skips them (chunk 46, D6).
-  // The post-unschedule blocks refetch is a new content signature, so the
-  // reconcile runs against a `plannerEvents` snapshot that still lists the
-  // just-deleted event and would delete it a second time. Session-scoped and
-  // safe to keep: uids are `hupo-block-<uuid>` and never reused.
+  // Uids this mirror deleted — `afterDelete`'s and the sweep's own (chunk 49,
+  // D15) — and the orphan sweep skips them (chunk 46, D6). The post-unschedule
+  // blocks refetch is a new content signature, so the reconcile runs against a
+  // `plannerEvents` snapshot that still lists the just-deleted event and would
+  // delete it a second time; likewise a pass that deferred a pending block
+  // releases its dedup key (chunk 48, D12) and re-runs the whole sweep against
+  // that same snapshot. Only the sweep consults this set — the drift loop and
+  // the backfill never read it — so recording the sweep's deletes here cannot
+  // affect either. Session-scoped and safe to keep: uids are
+  // `hupo-block-<uuid>` and never reused.
   const deleted = new Set<string>()
 
   async function create(block: MirrorBlock, title: string): Promise<void> {
@@ -239,11 +244,16 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
       // 1. Orphans: events on the calendar no visible block claims — blocks
       //    removed by a task delete/cascade, a wipe, or a replace-import.
       //    A uid this mirror already deleted is skipped (chunk 46, D6): the
-      //    snapshot still lists it, but the delete already happened.
+      //    snapshot still lists it, but the delete already happened. A
+      //    successful sweep delete records itself for the same reason (chunk
+      //    49, D15); a failed one deliberately records nothing, so the uid
+      //    stays sweepable and the next pass retries — D8's rule for
+      //    `afterDelete`'s failure path, applied here.
       for (const ev of plannerEvents) {
         if (byUid.has(ev.uid) || deleted.has(ev.uid)) continue
         try {
           await deps.deleteEvent(ev.uid)
+          deleted.add(ev.uid)
         } catch (e) {
           warn(`Planner calendar mirror: orphan delete failed (${ev.uid})`, e)
         }

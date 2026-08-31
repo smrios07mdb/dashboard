@@ -749,6 +749,64 @@ describe('reconcile: blocks whose mirror write the caller owns (chunk 48, D12)',
 })
 
 /*
+ * Chunk 49, D15: the sweep records its own deletes. D12's key release lets a
+ * pass that deferred a pending block run again with identical arguments — and
+ * the sweep populated nothing, so an orphan still listed in the `/busy`
+ * snapshot was deleted once per deferred pass. Measured against chunk 48's
+ * module: 2 `deleteEvent` calls for one orphan uid.
+ */
+describe('reconcile: the orphan sweep records its own deletes (chunk 49, D15)', () => {
+  const titleOf = () => 'One'
+
+  const orphan = { uid: 'hupo-block-orphan', start: 'a', end: 'b' }
+  // A pending block defers the pass, which releases the dedup key (D12).
+  const pendingBlock = block({ id: 'b-1', calendarUid: null })
+
+  it('deletes an orphan once across two deferred passes with identical arguments', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    const input = {
+      key: 'k',
+      blocks: [pendingBlock],
+      plannerEvents: [orphan],
+      pending: new Set(['b-1']),
+      titleOf,
+    }
+
+    await m.reconcile(input)
+    await m.reconcile(input)
+
+    expect(deps.deleteEvent).toHaveBeenCalledTimes(1)
+    expect(deps.deleteEvent).toHaveBeenCalledWith('hupo-block-orphan')
+    expect(deps.createEvent).not.toHaveBeenCalled()
+  })
+
+  it('a failed sweep delete leaves the uid sweepable, and warns once per attempt', async () => {
+    const deleteEvent = vi.fn<MirrorDeps['deleteEvent']>(async () => {
+      throw new Error('502')
+    })
+    const deps = makeDeps({ deleteEvent })
+    const m = createCalendarMirror(deps)
+    const input = {
+      key: 'k',
+      blocks: [pendingBlock],
+      plannerEvents: [orphan],
+      pending: new Set(['b-1']),
+      titleOf,
+    }
+
+    await m.reconcile(input)
+    await m.reconcile(input)
+
+    expect(deleteEvent).toHaveBeenCalledTimes(2)
+    expect(deleteEvent).toHaveBeenLastCalledWith('hupo-block-orphan')
+    expect(deps.warn).toHaveBeenCalledTimes(2)
+    // Background failure — never the foreground toast.
+    expect(deps.onWriteFailed).not.toHaveBeenCalled()
+  })
+})
+
+/*
  * Chunk 48, D13: the signature compares instants, not timestamp strings.
  * `toInstant` emits `…T20:00:00.000Z`; `scheduledBlockFromRow` passes
  * PostgREST's `…T20:00:00+00:00` through verbatim. Same moment, different
