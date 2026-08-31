@@ -60,7 +60,16 @@ export function readTodayDeltas(now: Date = new Date()): TodayDeltas {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) return emptyDeltas()
     const { date, pinned, removed } = parsed as Record<string, unknown>
-    if (date !== dayKey(now)) return emptyDeltas()
+    if (date !== dayKey(now)) {
+      // Yesterday's plan is over — drop the entry rather than leaving the
+      // string on disk for a device that is opened, untouched and closed
+      // (chunk 46, D7). Only the stale-date branch prunes; a parse failure
+      // on an entry dated today is left alone. A removal failure (private
+      // mode) must not break the read, so it rides the outer try/catch —
+      // the discard has already happened either way.
+      localStorage.removeItem(STORAGE_KEY)
+      return emptyDeltas()
+    }
     const ids = (v: unknown) =>
       new Set(
         Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [],

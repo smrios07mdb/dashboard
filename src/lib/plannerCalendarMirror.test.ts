@@ -318,3 +318,165 @@ describe('reconcile', () => {
     expect(deps.stampUid).toHaveBeenCalledWith('b-1', 'hupo-block-1')
   })
 })
+
+/*
+ * Chunk 46, F1/D1–D4: the session record of the mirror's own writes. The
+ * `/busy` snapshot that feeds `plannerEvents` is refetched on
+ * `[weekKey, weekStartDate, busyRefreshKey, busyTick]` only — nothing about
+ * blocks, nothing about mirror writes — so an event the mirror just created
+ * is absent from it and the drift loop had nothing to compare against. The
+ * record fills exactly those uids; `plannerEvents` still wins where both
+ * know one, so Calendar.app edits keep flowing one way.
+ */
+describe('reconcile: the mirror’s own writes (chunk 46)', () => {
+  const titles: Record<string, string> = { 'b-1': 'One' }
+  const titleOf = (id: string) => titles[id]
+
+  it('a just-mirrored block whose times are unchanged is not rewritten', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await m.afterCreate(block({ id: 'b-1' }), 'One')
+    await m.reconcile({
+      key: 'k',
+      blocks: [block({ id: 'b-1', calendarUid: 'hupo-block-new' })],
+      plannerEvents: [],
+      titleOf,
+    })
+    expect(deps.updateEvent).not.toHaveBeenCalled()
+  })
+
+  it('drift on a just-mirrored block is repaired against an empty plannerEvents', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await m.afterCreate(block({ id: 'b-1' }), 'One')
+    await m.reconcile({
+      key: 'k',
+      blocks: [
+        block({
+          id: 'b-1',
+          calendarUid: 'hupo-block-new',
+          startAt: '2026-05-06T15:00:00.000Z',
+          endAt: '2026-05-06T16:00:00.000Z',
+        }),
+      ],
+      plannerEvents: [],
+      titleOf,
+    })
+    expect(deps.updateEvent).toHaveBeenCalledTimes(1)
+    expect(deps.updateEvent).toHaveBeenCalledWith({
+      uid: 'hupo-block-new',
+      title: 'One',
+      start: '2026-05-06T15:00:00.000Z',
+      end: '2026-05-06T16:00:00.000Z',
+    })
+  })
+
+  it('a repair refreshes the record, so the same drift is never PATCHed twice', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await m.afterCreate(block({ id: 'b-1' }), 'One')
+    const moved = block({
+      id: 'b-1',
+      calendarUid: 'hupo-block-new',
+      startAt: '2026-05-06T15:00:00.000Z',
+      endAt: '2026-05-06T16:00:00.000Z',
+    })
+    await m.reconcile({ key: 'k1', blocks: [moved], plannerEvents: [], titleOf })
+    await m.reconcile({ key: 'k2', blocks: [moved], plannerEvents: [], titleOf })
+    expect(deps.updateEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('plannerEvents wins where both know the uid (D3 — Calendar.app edits still repaired)', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    // The mirror wrote 13:00–14:00 and recorded it; the calendar reports the
+    // event moved to 18:00 (edited in Calendar.app). The block is unchanged,
+    // so `written` alone would see no drift — `plannerEvents` must decide.
+    await m.afterCreate(block({ id: 'b-1' }), 'One')
+    await m.reconcile({
+      key: 'k',
+      blocks: [block({ id: 'b-1', calendarUid: 'hupo-block-new' })],
+      plannerEvents: [
+        {
+          uid: 'hupo-block-new',
+          start: '2026-05-06T18:00:00.000Z',
+          end: '2026-05-06T19:00:00.000Z',
+        },
+      ],
+      titleOf,
+    })
+    expect(deps.updateEvent).toHaveBeenCalledWith({
+      uid: 'hupo-block-new',
+      title: 'One',
+      start: '2026-05-06T13:00:00.000Z',
+      end: '2026-05-06T14:00:00.000Z',
+    })
+  })
+
+  it('afterDelete drops the uid from the record', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await m.afterCreate(block({ id: 'b-1' }), 'One')
+    await m.afterDelete('hupo-block-new')
+    // A block still claiming the uid with drifted times: with the record
+    // gone and `plannerEvents` empty there is nothing to compare against.
+    await m.reconcile({
+      key: 'k',
+      blocks: [
+        block({
+          id: 'b-1',
+          calendarUid: 'hupo-block-new',
+          startAt: '2026-05-06T15:00:00.000Z',
+          endAt: '2026-05-06T16:00:00.000Z',
+        }),
+      ],
+      plannerEvents: [],
+      titleOf,
+    })
+    expect(deps.updateEvent).not.toHaveBeenCalled()
+  })
+})
+
+/*
+ * Chunk 46, F2/D6: the unschedule double-delete. Chunk 43's content
+ * signature makes the post-unschedule `blocks: []` a distinct snapshot, so
+ * the reconcile runs and its orphan sweep hit a `plannerEvents` snapshot
+ * that still listed the just-deleted event — two identical deletes per
+ * unschedule, observed live on 2026-08-31.
+ */
+describe('reconcile: orphan sweep vs. the mirror’s own deletes (chunk 46)', () => {
+  const titleOf = () => 'One'
+
+  it('does not re-delete a uid afterDelete already removed', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await m.afterDelete('hupo-block-1')
+    expect(deps.deleteEvent).toHaveBeenCalledTimes(1)
+    await m.reconcile({
+      key: 'k',
+      blocks: [],
+      plannerEvents: [
+        { uid: 'hupo-block-1', start: 'a', end: 'b' },
+      ],
+      titleOf,
+    })
+    expect(deps.deleteEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('still sweeps an orphan the mirror never deleted', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await m.afterDelete('hupo-block-1')
+    await m.reconcile({
+      key: 'k',
+      blocks: [],
+      plannerEvents: [
+        { uid: 'hupo-block-1', start: 'a', end: 'b' },
+        { uid: 'hupo-block-other', start: 'a', end: 'b' },
+      ],
+      titleOf,
+    })
+    expect(deps.deleteEvent).toHaveBeenCalledTimes(2)
+    expect(deps.deleteEvent).toHaveBeenLastCalledWith('hupo-block-other')
+  })
+})

@@ -88,6 +88,23 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
   const reconciled = new Map<string, string>()
   // Blocks with a create in flight — reconcile must not backfill them too.
   const creating = new Set<string>()
+  // Session record of the events this mirror wrote: uid → the times it wrote
+  // (chunk 46, D1). `plannerEvents` is the snapshot from the last `/busy`
+  // fetch, whose effect deps know nothing about blocks or mirror writes — so
+  // an event created since that fetch is absent from it and the drift loop
+  // has nothing to compare a freshly-mirrored block against. The mirror
+  // creates the event, so it already knows the uid and the times; this keeps
+  // them instead of discarding them and waiting for a refetch that the
+  // drift-repair path exists to avoid. Fallback only: `plannerEvents` wins
+  // wherever both know a uid (D3), so a Calendar.app edit still reads as
+  // drift and is still rewritten one-way.
+  const written = new Map<string, { start: string; end: string }>()
+  // Uids this mirror deleted — the orphan sweep skips them (chunk 46, D6).
+  // The post-unschedule blocks refetch is a new content signature, so the
+  // reconcile runs against a `plannerEvents` snapshot that still lists the
+  // just-deleted event and would delete it a second time. Session-scoped and
+  // safe to keep: uids are `hupo-block-<uuid>` and never reused.
+  const deleted = new Set<string>()
 
   async function create(block: MirrorBlock, title: string): Promise<void> {
     creating.add(block.id)
@@ -98,7 +115,10 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
         end: block.endAt,
         source: 'planner',
       })
-      if (uid) await deps.stampUid(block.id, uid)
+      if (uid) {
+        await deps.stampUid(block.id, uid)
+        written.set(uid, { start: block.startAt, end: block.endAt })
+      }
     } finally {
       creating.delete(block.id)
     }
@@ -114,6 +134,9 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
       start: block.startAt,
       end: block.endAt,
     })
+    // Keep the record current after a repair, so the same drift is never
+    // PATCHed twice while `plannerEvents` remains stale.
+    written.set(block.calendarUid, { start: block.startAt, end: block.endAt })
   }
 
   async function foreground(work: () => Promise<void>): Promise<void> {
@@ -138,7 +161,10 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
 
     afterDelete: (calendarUid) =>
       foreground(async () => {
-        if (calendarUid) await deps.deleteEvent(calendarUid)
+        if (!calendarUid) return
+        await deps.deleteEvent(calendarUid)
+        written.delete(calendarUid)
+        deleted.add(calendarUid)
       }),
 
     async reconcile({ key, blocks, plannerEvents, titleOf }) {
@@ -152,8 +178,10 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
 
       // 1. Orphans: events on the calendar no visible block claims — blocks
       //    removed by a task delete/cascade, a wipe, or a replace-import.
+      //    A uid this mirror already deleted is skipped (chunk 46, D6): the
+      //    snapshot still lists it, but the delete already happened.
       for (const ev of plannerEvents) {
-        if (byUid.has(ev.uid)) continue
+        if (byUid.has(ev.uid) || deleted.has(ev.uid)) continue
         try {
           await deps.deleteEvent(ev.uid)
         } catch (e) {
@@ -176,10 +204,14 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
 
       // 3. Time drift (≥1 minute either end). Title drift is out of scope:
       //    `plannerEvents` carries no summary to compare against.
+      //    `plannerEvents` is authoritative (D3); `written` fills only the
+      //    uids it does not mention — an event mirrored since the last
+      //    `/busy` fetch. The orphan sweep above deliberately does NOT
+      //    consult `written` (D4): it stays on what the calendar reports.
       const eventByUid = new Map(plannerEvents.map((e) => [e.uid, e]))
       for (const b of blocks) {
         if (!b.calendarUid) continue
-        const ev = eventByUid.get(b.calendarUid)
+        const ev = eventByUid.get(b.calendarUid) ?? written.get(b.calendarUid)
         if (!ev) continue
         if (!drifted(b, ev)) continue
         const title = titleOf(b.id)
@@ -206,7 +238,10 @@ function blockSignature(blocks: MirrorBlock[]): string {
     .join('\n')
 }
 
-function drifted(block: MirrorBlock, ev: PlannerEvent): boolean {
+function drifted(
+  block: MirrorBlock,
+  ev: { start: string; end: string },
+): boolean {
   const bs = Date.parse(block.startAt)
   const be = Date.parse(block.endAt)
   const es = Date.parse(ev.start)

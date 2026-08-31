@@ -85,6 +85,17 @@ describe('useTodayPlan persistence (chunk 43, F1)', () => {
     expect(result.current.todaySet.has('p')).toBe(true)
   })
 
+  it('removes the stale entry from storage, not just from the read (chunk 46)', () => {
+    // A device opened, untouched and closed would otherwise keep yesterday's
+    // deltas on disk indefinitely — behaviour right, storage wrong.
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ date: '2020-01-01', pinned: ['a'], removed: [] }),
+    )
+    renderHook(() => useTodayPlan([task({ id: 'a' })]))
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull()
+  })
+
   it('prunes deleted task ids from the stored deltas', () => {
     const before = [task({ id: 'a' }), task({ id: 'b' })]
     const { result, rerender } = renderHook(
