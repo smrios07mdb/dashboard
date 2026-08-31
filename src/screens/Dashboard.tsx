@@ -8,6 +8,7 @@ import BusyStrip from '@/components/BusyStrip'
 import CategoryColumn from '@/components/CategoryColumn'
 import EmptyStateCard from '@/components/EmptyStateCard'
 import DailyHero from '@/components/gamify/DailyHero'
+import TodayPanel from '@/components/TodayPanel'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
@@ -19,6 +20,9 @@ import {
   storeTaskSortKey,
   type TaskSortKey,
 } from '@/lib/taskSort'
+import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
+import { useTodayListStore } from '@/state/todayList'
+import { useTodayPlan } from '@/state/todayPlan'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -164,6 +168,13 @@ export default function Dashboard() {
     () => data.tasks.filter((t) => liveSubIds.has(t.subcategoryId)),
     [data.tasks, liveSubIds],
   )
+
+  // Today plan — membership seeded from the live tasks, re-seeded on task-set
+  // identity change. The sun toggle on both the Today panel and the dashboard
+  // rows drives this one shared set (chunk: Today list).
+  const isTouch = useIsTouchDevice()
+  const todayVariant = useTodayListStore((s) => s.todayList)
+  const { todaySet, toggleToday } = useTodayPlan(liveTasks)
 
   // "On a roll ×N" combo (chunk 27). A render-diff over the live tasks: when
   // exactly one task flips to done (open −1, done +1) within ~9s of the last
@@ -610,6 +621,47 @@ export default function Dashboard() {
     )
   }
 
+  const todayData = {
+    categories: data.categories,
+    subcategories: liveSubcategories,
+    tasks: liveTasks,
+  }
+
+  const columns = (
+    <div className="grid gap-6 sm:grid-cols-2 sm:gap-8">
+      {data.categories.map((cat) => (
+        <CategoryColumn
+          key={cat.id}
+          category={cat}
+          allCategories={data.categories}
+          allSubcategories={liveSubcategories}
+          subcategories={subsByCat[cat.id] ?? []}
+          tasksBySub={tasksBySub}
+          onDrillDown={onDrillDown}
+          onCreateTask={onCreateTask}
+          onCompleteTask={onCompleteTask}
+          onEditTitle={onEditTitle}
+          onEditMinutes={onEditMinutes}
+          onDeleteTask={onDeleteTask}
+          onMoveTaskToSubcategory={onMoveTaskToSubcategory}
+          onSetTaskReminder={onSetTaskReminder}
+          onSetTaskPriority={onSetTaskPriority}
+          onEditTaskNotes={onEditTaskNotes}
+          sortKey={sortKey}
+          onChangeSortKey={onChangeSortKey}
+          onCreateSubcategory={onCreateSubcategory}
+          onRenameSubcategory={onRenameSubcategory}
+          onDeleteSubcategory={onDeleteSubcategory}
+          onMergeSubcategory={onMergeSubcategory}
+          onReorderSubcategories={onReorderSubcategories}
+          onMoveSubcategory={onMoveSubcategory}
+          todaySet={todaySet}
+          onToggleToday={toggleToday}
+        />
+      ))}
+    </div>
+  )
+
   return (
     <div>
       {comboMsg && (
@@ -628,36 +680,35 @@ export default function Dashboard() {
       />
       {/* All-clear: jade banner above the still-visible columns. */}
       {dashboardState === 'all-clear' && <AllClearBanner />}
-      <div className="grid gap-6 sm:grid-cols-2 sm:gap-8">
-        {data.categories.map((cat) => (
-          <CategoryColumn
-            key={cat.id}
-            category={cat}
-            allCategories={data.categories}
-            allSubcategories={liveSubcategories}
-            subcategories={subsByCat[cat.id] ?? []}
-            tasksBySub={tasksBySub}
-            onDrillDown={onDrillDown}
-            onCreateTask={onCreateTask}
+      {/* Today plan. stacked/banner sit full-width above the columns; rail sits
+          beside them (collapsing above on small screens); off renders nothing. */}
+      {(todayVariant === 'stacked' || todayVariant === 'banner') && (
+        <div className="mb-6 sm:mb-8">
+          <TodayPanel
+            variant={todayVariant}
+            data={todayData}
+            todaySet={todaySet}
+            onToggleToday={toggleToday}
             onCompleteTask={onCompleteTask}
-            onEditTitle={onEditTitle}
-            onEditMinutes={onEditMinutes}
-            onDeleteTask={onDeleteTask}
-            onMoveTaskToSubcategory={onMoveTaskToSubcategory}
-            onSetTaskReminder={onSetTaskReminder}
-            onSetTaskPriority={onSetTaskPriority}
-            onEditTaskNotes={onEditTaskNotes}
-            sortKey={sortKey}
-            onChangeSortKey={onChangeSortKey}
-            onCreateSubcategory={onCreateSubcategory}
-            onRenameSubcategory={onRenameSubcategory}
-            onDeleteSubcategory={onDeleteSubcategory}
-            onMergeSubcategory={onMergeSubcategory}
-            onReorderSubcategories={onReorderSubcategories}
-            onMoveSubcategory={onMoveSubcategory}
+            mobile={isTouch}
           />
-        ))}
-      </div>
+        </div>
+      )}
+      {todayVariant === 'rail' ? (
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(230px,300px)_minmax(0,1fr)] lg:gap-8">
+          <TodayPanel
+            variant="rail"
+            data={todayData}
+            todaySet={todaySet}
+            onToggleToday={toggleToday}
+            onCompleteTask={onCompleteTask}
+            mobile={isTouch}
+          />
+          {columns}
+        </div>
+      ) : (
+        columns
+      )}
     </div>
   )
 }

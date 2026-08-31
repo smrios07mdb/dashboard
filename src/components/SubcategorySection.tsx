@@ -75,6 +75,9 @@ export type SubcategorySectionProps = {
     targetId: string,
   ) => void | Promise<void>
   onMoveSubcategory: (id: string, direction: 'up' | 'down') => void
+  /** Today-plan wiring, forwarded to each TaskRow (dashboard only). */
+  todaySet?: Set<string>
+  onToggleToday?: (id: string, force?: boolean) => void
 }
 
 export default function SubcategorySection({
@@ -102,6 +105,8 @@ export default function SubcategorySection({
   onDeleteSubcategory,
   onMergeSubcategory,
   onMoveSubcategory,
+  todaySet,
+  onToggleToday,
 }: SubcategorySectionProps) {
   const [showCompleted, setShowCompleted] = useState(false)
   const hue = subColor(subcategory.id)
@@ -231,6 +236,8 @@ export default function SubcategorySection({
               onSetReminder={onSetTaskReminder}
               onSetPriority={onSetTaskPriority}
               onEditNotes={onEditTaskNotes}
+              inToday={todaySet?.has(t.id)}
+              onToggleToday={onToggleToday}
             />
           ))
         )}
@@ -267,6 +274,8 @@ export default function SubcategorySection({
                   onSetReminder={onSetTaskReminder}
                   onSetPriority={onSetTaskPriority}
                   onEditNotes={onEditTaskNotes}
+                  inToday={todaySet?.has(t.id)}
+                  onToggleToday={onToggleToday}
                 />
               ))}
           </>

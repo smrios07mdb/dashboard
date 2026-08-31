@@ -101,6 +101,12 @@ export type CategoryColumnProps = {
     orderedIds: string[],
   ) => void | Promise<void>
   onMoveSubcategory: (id: string, direction: 'up' | 'down') => void
+  /**
+   * Today-plan wiring (dashboard only). When provided, each task row shows the
+   * sun toggle reflecting `todaySet` membership. Omitted by drill-down screens.
+   */
+  todaySet?: Set<string>
+  onToggleToday?: (id: string, force?: boolean) => void
 }
 
 export default function CategoryColumn({
@@ -127,6 +133,8 @@ export default function CategoryColumn({
   onMergeSubcategory,
   onReorderSubcategories,
   onMoveSubcategory,
+  todaySet,
+  onToggleToday,
 }: CategoryColumnProps) {
   const isTouch = useIsTouchDevice()
 
@@ -294,6 +302,8 @@ export default function CategoryColumn({
                   onDeleteSubcategory={onDeleteSubcategory}
                   onMergeSubcategory={onMergeSubcategory}
                   onMoveSubcategory={onMoveSubcategory}
+                  todaySet={todaySet}
+                  onToggleToday={onToggleToday}
                 />
               ))}
             </SortableContext>
@@ -352,6 +362,8 @@ type SortableSubSectionProps = {
     targetId: string,
   ) => void | Promise<void>
   onMoveSubcategory: (id: string, direction: 'up' | 'down') => void
+  todaySet?: Set<string>
+  onToggleToday?: (id: string, force?: boolean) => void
 }
 
 function SortableSubSection({

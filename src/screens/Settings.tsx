@@ -39,6 +39,11 @@ import {
   validateImport,
 } from '@/lib/import'
 import { supabase } from '@/lib/supabase'
+import {
+  TODAY_LIST_VARIANTS,
+  type TodayListVariant,
+  useTodayListStore,
+} from '@/state/todayList'
 import { useUIStore } from '@/state/uiStore'
 import {
   CalendarError,
@@ -318,6 +323,56 @@ function AccountSection() {
           >
             Sign out
           </Button>
+        </div>
+      </SettingsRow>
+    </SettingsSection>
+  )
+}
+
+/**
+ * Display (Today list). A client-only VIEW preference — no schema migration, no
+ * synced field — persisted per-device via the `todayList` store. Placed near the
+ * top as the dashboard's layout control. This is the "density/layout options"
+ * home the brief refers to; the app didn't previously have one, so it's created
+ * here.
+ */
+const TODAY_LIST_LABELS: Record<TodayListVariant, string> = {
+  stacked: 'Stacked',
+  rail: 'Rail',
+  banner: 'Banner',
+  off: 'Off',
+}
+
+function DisplaySection() {
+  const todayList = useTodayListStore((s) => s.todayList)
+  const setTodayList = useTodayListStore((s) => s.setTodayList)
+
+  return (
+    <SettingsSection kicker="Display" title="Display">
+      <SettingsRow
+        title="Today list"
+        hint="How the Today plan appears on your dashboard: a full-width card (stacked), a side rail, a compact banner, or hidden."
+      >
+        <div
+          className="inline-flex flex-wrap rounded-full border border-line bg-bg-alt p-0.5"
+          role="group"
+          aria-label="Today list layout"
+        >
+          {TODAY_LIST_VARIANTS.map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={todayList === v}
+              onClick={() => setTodayList(v)}
+              className={`rounded-full px-4 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                todayList === v
+                  ? 'bg-surface font-semibold text-ink shadow-[0_1px_0_var(--line)]'
+                  : 'font-medium text-ink-3 hover:text-ink'
+              }`}
+            >
+              {TODAY_LIST_LABELS[v]}
+            </button>
+          ))}
         </div>
       </SettingsRow>
     </SettingsSection>
@@ -1442,6 +1497,7 @@ export default function Settings() {
 
       <SyncIssuesSection />
       <AccountSection />
+      <DisplaySection />
       <CalendarSection />
       <AiKeySection />
       <NotificationsSection />
