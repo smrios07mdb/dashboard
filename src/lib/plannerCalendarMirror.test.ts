@@ -619,3 +619,179 @@ describe('reconcile: the newer observation wins (chunk 47, D9)', () => {
     })
   })
 })
+
+/*
+ * Chunk 48, D12: the reconcile runs against optimistic state. `move` patches
+ * `blocks` before it awaits the Supabase write and only calls `afterUpdate`
+ * after that resolves (~630 ms later on the 0831h measurement), but the
+ * reconcile effect has `blocks` in its deps — so it fired on the optimistic
+ * frame at +6 ms, compared the moved block against a `/busy` snapshot holding
+ * the pre-move times, and PATCHed exactly what the mirror was about to write.
+ * `creating` guarded this for creates; nothing guarded updates.
+ */
+describe('reconcile: blocks whose mirror write the caller owns (chunk 48, D12)', () => {
+  const titleOf = () => 'One'
+
+  const preMove = {
+    uid: 'hupo-block-1',
+    start: '2026-05-06T13:00:00.000Z',
+    end: '2026-05-06T14:00:00.000Z',
+  }
+  const moved = block({
+    id: 'b-1',
+    calendarUid: 'hupo-block-1',
+    startAt: '2026-05-06T15:00:00.000Z',
+    endAt: '2026-05-06T16:00:00.000Z',
+  })
+
+  it('does not repair a pending block, and repairs it once the mark is released', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    const pending = new Set(['b-1'])
+
+    // The optimistic frame: the block is patched to the new times, the mirror
+    // write has not been issued, the snapshot still holds the old ones.
+    await m.reconcile({
+      key: 'k',
+      blocks: [moved],
+      plannerEvents: [preMove],
+      plannerEventsAt: Date.now() - 5_000,
+      pending,
+      titleOf,
+    })
+    expect(deps.updateEvent).not.toHaveBeenCalled()
+
+    // The handler's write path failed, so the mirror never wrote: once the id
+    // leaves the set the same key + same content must still repair the drift —
+    // the deferred pass released the dedup key.
+    pending.delete('b-1')
+    await m.reconcile({
+      key: 'k',
+      blocks: [moved],
+      plannerEvents: [preMove],
+      plannerEventsAt: Date.now() - 5_000,
+      pending,
+      titleOf,
+    })
+    expect(deps.updateEvent).toHaveBeenCalledTimes(1)
+    expect(deps.updateEvent).toHaveBeenCalledWith({
+      uid: 'hupo-block-1',
+      title: 'One',
+      start: '2026-05-06T15:00:00.000Z',
+      end: '2026-05-06T16:00:00.000Z',
+    })
+  })
+
+  it('does not backfill a pending block either', async () => {
+    const deps = makeDeps()
+    await createCalendarMirror(deps).reconcile({
+      key: 'k',
+      blocks: [block({ id: 'b-1', calendarUid: null })],
+      plannerEvents: [],
+      pending: new Set(['b-1']),
+      titleOf,
+    })
+    expect(deps.createEvent).not.toHaveBeenCalled()
+  })
+
+  it('still repairs a block that is not pending — the guard is not an off switch', async () => {
+    const deps = makeDeps()
+    await createCalendarMirror(deps).reconcile({
+      key: 'k',
+      blocks: [moved],
+      plannerEvents: [preMove],
+      plannerEventsAt: Date.now() - 5_000,
+      pending: new Set(['b-other']),
+      titleOf,
+    })
+    expect(deps.updateEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('the orphan sweep is unaffected — `deleted` already covers the delete path', async () => {
+    const deps = makeDeps()
+    await createCalendarMirror(deps).reconcile({
+      key: 'k',
+      blocks: [],
+      plannerEvents: [{ uid: 'hupo-block-gone', start: 'a', end: 'b' }],
+      pending: new Set(['b-1']),
+      titleOf,
+    })
+    expect(deps.deleteEvent).toHaveBeenCalledWith('hupo-block-gone')
+  })
+
+  it('`place` needs no mark: its create is registered before the reconcile can run', async () => {
+    // `place` awaits the Supabase insert, then patches and calls `afterCreate`
+    // in one synchronous block — and `create()` runs `creating.add` before its
+    // first await, so the effect (which runs after render) already sees it.
+    let resolveCreate: (v: { uid: string }) => void = () => {}
+    const deps = makeDeps({
+      createEvent: vi.fn(
+        () =>
+          new Promise<{ uid: string }>((r) => {
+            resolveCreate = r
+          }),
+      ),
+    })
+    const m = createCalendarMirror(deps)
+    const created = block({ id: 'b-1', calendarUid: null })
+
+    void m.afterCreate(created, 'One') // fire-and-forget, exactly as `place` does
+    await m.reconcile({
+      key: 'k',
+      blocks: [created],
+      plannerEvents: [],
+      titleOf,
+    })
+    expect(deps.createEvent).toHaveBeenCalledTimes(1)
+
+    resolveCreate({ uid: 'hupo-block-1' })
+  })
+})
+
+/*
+ * Chunk 48, D13: the signature compares instants, not timestamp strings.
+ * `toInstant` emits `…T20:00:00.000Z`; `scheduledBlockFromRow` passes
+ * PostgREST's `…T20:00:00+00:00` through verbatim. Same moment, different
+ * text — so `patchBlocks(saved)` looked like new content and re-ran the whole
+ * reconcile. Not move-specific: every block save has done this since chunk 43.
+ */
+describe('blockSignature compares instants (chunk 48, D13)', () => {
+  const titleOf = () => 'One'
+
+  const reconcileWith = async (
+    m: ReturnType<typeof createCalendarMirror>,
+    startAt: string,
+    endAt: string,
+  ) =>
+    m.reconcile({
+      key: 'k',
+      blocks: [block({ id: 'b-1', calendarUid: null, startAt, endAt })],
+      plannerEvents: [],
+      titleOf,
+    })
+
+  it('the same instant in two encodings is one signature', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await reconcileWith(m, '2026-05-06T20:00:00.000Z', '2026-05-06T21:00:00.000Z')
+    expect(deps.createEvent).toHaveBeenCalledTimes(1)
+    await reconcileWith(m, '2026-05-06T20:00:00+00:00', '2026-05-06T21:00:00+00:00')
+    expect(deps.createEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('a one-minute change is still a different signature', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await reconcileWith(m, '2026-05-06T20:00:00.000Z', '2026-05-06T21:00:00.000Z')
+    await reconcileWith(m, '2026-05-06T20:01:00.000Z', '2026-05-06T21:00:00.000Z')
+    expect(deps.createEvent).toHaveBeenCalledTimes(2)
+  })
+
+  it('an unparseable timestamp still differentiates', async () => {
+    const deps = makeDeps()
+    const m = createCalendarMirror(deps)
+    await reconcileWith(m, 'not-a-date', '2026-05-06T21:00:00.000Z')
+    await reconcileWith(m, 'also-not-a-date', '2026-05-06T21:00:00.000Z')
+    expect(deps.createEvent).toHaveBeenCalledTimes(2)
+  })
+})

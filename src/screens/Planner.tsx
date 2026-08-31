@@ -477,6 +477,17 @@ export default function Planner() {
     [],
   )
 
+  // Blocks whose mirror write this screen owns right now (chunk 48, D12).
+  // `move`/`resize`/`carryMove` patch `blocks` optimistically and only call
+  // `mirror.afterUpdate` after the Supabase write resolves (~600 ms later), but
+  // the reconcile effect has `blocks` in its deps — so it fires on the
+  // optimistic frame, compares the moved block against a pre-move `/busy`
+  // snapshot and PATCHes the very times the mirror is about to write. The id is
+  // added synchronously, BEFORE the first `patchBlocks`: a mark set after an
+  // await never covers the frame it was written for (chunk 46, D6). A ref, not
+  // state, deliberately — see the reconcile effect below.
+  const pendingWrites = useRef<Set<string>>(new Set())
+
   // ── capacity (scheduled is real now — chunk 37) ────────────────────────
   const capacity = useMemo(
     () => computeCapacity(busyBlocks, weekBlocks),
@@ -619,6 +630,11 @@ export default function Planner() {
       // When this snapshot was fetched (chunk 47, D10). On a cache hit this is
       // the original fetch time, not now — a reused snapshot's age is its own.
       plannerEventsAt: busyState.fetchedAt,
+      // Read live off the ref (chunk 48, D12). It intentionally does not
+      // retrigger this effect: the blocks refetch that follows every mutation
+      // runs the next reconcile, and a pass that deferred a pending block
+      // releases its dedup key so that refetch is not swallowed by it.
+      pending: pendingWrites.current,
       titleOf: (id) => {
         const b = blocks.find((x) => x.id === id)
         return b ? tasksById.get(b.taskId)?.title : undefined
@@ -692,6 +708,26 @@ export default function Planner() {
     [tasksById],
   )
 
+  /**
+   * Issue a moved/resized block's mirror update and release its pending mark
+   * when the hook settles (chunk 48, D12). Fire-and-forget as ever — the UI
+   * must not wait on iCloud — and `afterUpdate` never rejects (`foreground`
+   * catches), so `.finally` always runs. No title means nothing will be
+   * written, so the mark is released immediately.
+   */
+  const mirrorUpdate = useCallback(
+    (saved: ScheduledBlock, title: string | undefined) => {
+      if (!title) {
+        pendingWrites.current.delete(saved.id)
+        return
+      }
+      void mirror.afterUpdate(saved, title).finally(() => {
+        pendingWrites.current.delete(saved.id)
+      })
+    },
+    [mirror],
+  )
+
   const move = useCallback(
     async (wb: WeekScheduledBlock, day: number, startMin: number) => {
       setProposals([])
@@ -704,38 +740,42 @@ export default function Planner() {
       const endAt = new Date(
         new Date(startAt).getTime() + durMin * 60_000,
       ).toISOString()
+      pendingWrites.current.add(wb.id)
       patchBlocks((prev) =>
         prev.map((b) => (b.id === wb.id ? { ...b, startAt, endAt } : b)),
       )
       try {
         const saved = await repo.scheduledBlocks.update(wb.id, { startAt, endAt })
         patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? saved : b)))
-        const title = titleFor(wb.taskId)
-        if (title) void mirror.afterUpdate(saved, title)
+        mirrorUpdate(saved, titleFor(wb.taskId))
       } catch (e) {
+        // A failed DB write must release the id, or the block stays
+        // unreconcilable for the rest of the session.
+        pendingWrites.current.delete(wb.id)
         fail(e)
       }
     },
-    [blocks, weekStartDate, patchBlocks, fail, titleFor, mirror],
+    [blocks, weekStartDate, patchBlocks, fail, titleFor, mirrorUpdate],
   )
 
   const resize = useCallback(
     async (wb: WeekScheduledBlock, endMin: number) => {
       setProposals([])
       const endAt = toInstant(weekStartDate, wb.day, endMin)
+      pendingWrites.current.add(wb.id)
       patchBlocks((prev) =>
         prev.map((b) => (b.id === wb.id ? { ...b, endAt } : b)),
       )
       try {
         const saved = await repo.scheduledBlocks.update(wb.id, { endAt })
         patchBlocks((prev) => prev.map((b) => (b.id === wb.id ? saved : b)))
-        const title = titleFor(wb.taskId)
-        if (title) void mirror.afterUpdate(saved, title)
+        mirrorUpdate(saved, titleFor(wb.taskId))
       } catch (e) {
+        pendingWrites.current.delete(wb.id)
         fail(e)
       }
     },
-    [weekStartDate, patchBlocks, fail, titleFor, mirror],
+    [weekStartDate, patchBlocks, fail, titleFor, mirrorUpdate],
   )
 
   // One write (R1): `tasks.completed_at` is authoritative; the DB trigger
@@ -880,6 +920,7 @@ export default function Planner() {
       const endAt = new Date(
         new Date(startAt).getTime() + durMin * 60_000,
       ).toISOString()
+      pendingWrites.current.add(wb.id)
       if (isCurrent) {
         patchBlocks((prev) =>
           prev.map((b) => (b.id === wb.id ? { ...b, startAt, endAt } : b)),
@@ -896,12 +937,12 @@ export default function Planner() {
           // The current week's cached rows (if any) predate this write.
           blocksCacheRef.current.delete(curKey)
         }
-        const title = titleFor(wb.taskId)
-        if (title) void mirror.afterUpdate(saved, title)
+        mirrorUpdate(saved, titleFor(wb.taskId))
         toast(
           `Moved to ${DAY_LABELS[slot.day]} ${addDays(curStart, slot.day).getDate()}, ${fmtClock(slot.startMin)}.`,
         )
       } catch (e) {
+        pendingWrites.current.delete(wb.id)
         fail(e)
       }
     },
@@ -916,7 +957,7 @@ export default function Planner() {
       patchBlocks,
       fail,
       titleFor,
-      mirror,
+      mirrorUpdate,
     ],
   )
 

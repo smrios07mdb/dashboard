@@ -66,6 +66,20 @@ export interface ReconcileInput {
    * or absent → the snapshot wins unconditionally, i.e. the pre-chunk-47 rule.
    */
   plannerEventsAt?: number | null
+  /**
+   * Block ids whose mirror write the caller owns right now and has not issued
+   * yet (chunk 48, D12). The backfill and drift loops skip them: the caller
+   * patched its local state optimistically and is still awaiting the Supabase
+   * write, so the reconcile would otherwise "repair" a block against a `/busy`
+   * snapshot holding the pre-mutation times — writing exactly what the caller's
+   * own `afterUpdate` is about to write. Absent → today's behaviour.
+   *
+   * The orphan sweep is deliberately not gated on it: `deleted` (chunk 47, D8)
+   * already covers the delete path. A pass that skipped a pending block also
+   * releases the dedup key, so the same key + content reconciles again once the
+   * id leaves the set — the repair is deferred, never dropped.
+   */
+  pending?: ReadonlySet<string>
   /** Task title for a block's create/update; undefined → the block is skipped. */
   titleOf: (blockId: string) => string | undefined
 }
@@ -202,11 +216,22 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
         }
       }),
 
-    async reconcile({ key, blocks, plannerEvents, plannerEventsAt, titleOf }) {
+    async reconcile({
+      key,
+      blocks,
+      plannerEvents,
+      plannerEventsAt,
+      pending,
+      titleOf,
+    }) {
       if (!deps.enabled()) return
       const signature = blockSignature(blocks)
       if (reconciled.get(key) === signature) return
       reconciled.set(key, signature)
+      // Set true when a block was skipped only because its mirror write is
+      // still the caller's to issue (chunk 48, D12) — that pass did not do the
+      // work the key claims, so the key is released at the end.
+      let deferred = false
 
       const byUid = new Map<string, MirrorBlock>()
       for (const b of blocks) if (b.calendarUid) byUid.set(b.calendarUid, b)
@@ -228,6 +253,10 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
       //    write, or the toggle turned on after the block existed).
       for (const b of blocks) {
         if (b.calendarUid || creating.has(b.id)) continue
+        if (pending?.has(b.id)) {
+          deferred = true
+          continue
+        }
         const title = titleOf(b.id)
         if (!title) continue
         try {
@@ -249,6 +278,10 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
       const eventByUid = new Map(plannerEvents.map((e) => [e.uid, e]))
       for (const b of blocks) {
         if (!b.calendarUid) continue
+        if (pending?.has(b.id)) {
+          deferred = true
+          continue
+        }
         const ev = observation(
           eventByUid.get(b.calendarUid),
           written.get(b.calendarUid),
@@ -264,6 +297,13 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
           warn(`Planner calendar mirror: drift update failed (${b.id})`, e)
         }
       }
+
+      // A pass that deferred work has not consumed the key it claimed: release
+      // it so the next blocks change — including one with identical content —
+      // reconciles the block once its owner has finished writing. If that write
+      // landed, `written` now holds the new times and there is no drift; if it
+      // failed, the snapshot still wins and the repair happens then.
+      if (deferred && reconciled.get(key) === signature) reconciled.delete(key)
     },
   }
 }
@@ -272,12 +312,32 @@ export function createCalendarMirror(deps: MirrorDeps): CalendarMirror {
  * Order-independent content signature of a week's blocks. Only the fields the
  * mirror writes out — volatile fields like `updatedAt` are excluded so a
  * touch that changes nothing the calendar sees never re-reconciles.
+ *
+ * Timestamps are compared as **instants**, not strings (chunk 48, D13). An
+ * optimistic patch writes `toInstant`'s `…T20:00:00.000Z`; the saved row comes
+ * back through `scheduledBlockFromRow` as PostgREST's `…T20:00:00+00:00`. Same
+ * moment, different text — so every block save produced a fresh signature and
+ * re-ran the whole reconcile for free. Chunk 43's "an unchanged week never
+ * re-reconciles" held; "a save that changed nothing" did not.
  */
 function blockSignature(blocks: MirrorBlock[]): string {
   return blocks
-    .map((b) => `${b.id}|${b.startAt}|${b.endAt}|${b.calendarUid ?? ''}`)
+    .map(
+      (b) =>
+        `${b.id}|${instantKey(b.startAt)}|${instantKey(b.endAt)}|${b.calendarUid ?? ''}`,
+    )
     .sort()
     .join('\n')
+}
+
+/**
+ * A timestamp's instant as a stable key. An unparseable value falls back to its
+ * own text, so malformed timestamps still differentiate rather than collapsing
+ * into one signature.
+ */
+function instantKey(value: string): string {
+  const t = Date.parse(value)
+  return Number.isNaN(t) ? value : String(t)
 }
 
 /**
