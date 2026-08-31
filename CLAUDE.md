@@ -101,6 +101,12 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **The deployed build ships a CSP that blocks page-world script injection** (`script-src 'self'`, added chunk 17), so the chunk-38/39 page-world harness notes above do NOT transfer to prod runs. Prod gets isolated-world observation only: a `PerformanceObserver` netlog on resource entries (URL + `responseStatus` + completion order, **no HTTP method** — bracket assertions with marked windows and corroborate via DB/proxy state), a `MutationObserver` for toasts, and `window.onerror`/`unhandledrejection` instead of a page `console.error` counter. Decision (chunk 43): **no build-time test hook** — the 2026-08-31 run completed every assertion under these constraints, and a prod-shipped hook would weaken the CSP posture chunk 17 established; revisit only if a future prod assertion is actually blocked.
 
+**`execute_javascript` needs an IIFE (chunk 46).** `Control Chrome` evaluates the snippet at top level, so a top-level `return` is a **syntax error**, not an early exit. It surfaces as the bare string `missing value` — the same symptom the existing note attributes to a thrown exception or a dead connection, so an otherwise-correct script reads as a harness fault. Wrap every snippet in `(() => { … })()`.
+
+**The prod toast region has no toast markers (chunk 46).** It is a `section[aria-live="polite"]` whose injected children carry no `role`, no `data-sonner-toast` and no `toast` class, so a `MutationObserver` predicate that tests the *added node* for any of those captures nothing on prod. Observe the section itself and read every added element's `innerText`.
+
+**`performance.getEntriesByType('resource')` survives the mount (chunk 46).** The buffer still holds the whole mount after a reload, so mount-time `/busy` and `/events` counts can be read after the fact — no race to install a `PerformanceObserver` before the app boots. This removes the main reason prod runs were awkward to instrument; keep the `PerformanceObserver` only for windows you mark *during* a run.
+
 ## Branch policy (chunk 43)
 
 Work happens on `main` with short-lived per-chunk branches merged (ff where possible) and deleted after landing. The `redesign` branch is retired — it was promoted to `main` in chunk 42 and deleted in chunk 43; do not recreate it.

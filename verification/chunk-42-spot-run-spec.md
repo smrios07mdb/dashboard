@@ -1,4 +1,4 @@
-# Chunk 42 deployed spot-run spec — amended (chunk 43)
+# Chunk 42 deployed spot-run spec — amended (chunks 43, 46)
 
 This is the amended, in-repo copy of the chunk-42 spot-run spec. The original
 lived outside the repo (`cowork-chunk-42-spot-run.md`) and was executed
@@ -9,6 +9,12 @@ vacuously satisfiable — plus two process gaps (no concurrency guard; the
 prod CSP invalidates the page-world harness). All are corrected here. The
 amended B3/C4/C5 assume **chunk 43 or later** is deployed (Today-membership
 localStorage persistence; content-signature reconcile dedup).
+
+A behavioural re-run of the chunk-43/44 changes on 2026-08-31 (record:
+`claude/chunk-43-44-rerun-2026-08-31.md`) confirmed both live and produced
+three further findings, closed in chunk 46. B3b, the B4 delete count, C4's
+option wording, C5's rollover assertion and the Part B ordering are amended
+below against **chunk 46 or later**.
 
 Target: **deployed prod** `https://smrios07mdb.github.io/dashboard/`, dev DB
 `dctfspcbkqvvyptddtif`, operator signed in. Run window: **Mon–Thu, first
@@ -87,7 +93,17 @@ re-run on 2026-08-31):
 B1 (Settings toggle → toast + DB), B2 (drag-place → optimistic insert,
 `/api/calendar/events` mirror write, uid stamp), B4 (unschedule deletes the
 event by uid, even drifted), B5 (toggle off leaves events in place):
-unchanged.
+unchanged in substance.
+
+**B4 count (added chunk 46, F2).** Exactly **one** delete-by-uid per
+unschedule. The 2026-08-31 run observed two identical
+`/api/calendar/events?uid=…` deletes (+9 ms and +184 ms after the click,
+both 200): the mutation's own `afterDelete`, then the orphan sweep of the
+reconcile triggered by the blocks refetch, whose `plannerEvents` snapshot
+still listed the just-deleted event. That was a chunk-43 regression (before
+the content signature, `blocks: []` hit the dedup and returned early);
+chunk 46 guards the sweep with a set of uids the mirror itself deleted. A
+second delete in the unschedule window is now a **regression**, not noise.
 
 **B3 (re-scoped, chunk 43).** The original B3 — drift by SQL, navigate away
 and back, expect a drift PATCH on the back-load — is excluded by design:
@@ -103,25 +119,54 @@ it:
   `busyRefreshKey` bump, no remount; `GET /busy` for that week afterwards
   shows `plannerEvents: []`.
 - **B3b — drift after a week already reconciled is repaired on that week's
-  next blocks load** (chunk 43, F2 — the content-signature dedup). With the
-  current week reconciled and a mirrored block in sync, drift the block by
-  SQL (times only, `calendar_uid` untouched). Trigger a blocks refetch
-  without any `busyRefreshKey` bump — the realtime echo from the SQL write
-  itself bumps `dashboardRefreshKey`, so on prod the drift PATCH should fire
-  within the echo's refetch; a reload of the page is an acceptable fallback
-  trigger. Expect one `/api/calendar/events` update in the marked window and
-  `GET /busy` showing the event moved to the DB times. A focus refetch past
-  the busy TTL alone is still NOT a repair path (it refetches busy, not
-  blocks) — do not assert on it.
+  next blocks load** (chunk 43, F2 — the content-signature dedup; chunk 46,
+  F1 — the mirror's session record). With the current week reconciled and a
+  mirrored block in sync, drift the block by SQL (times only, `calendar_uid`
+  untouched). Trigger a blocks refetch without any `busyRefreshKey` bump —
+  the realtime echo from the SQL write itself bumps `dashboardRefreshKey`,
+  so the drift PATCH fires within the echo's refetch. Expect one
+  `/api/calendar/events` update in the marked window and `GET /busy` showing
+  the event moved to the DB times.
+
+  **Why the 2026-08-31 attempt 1 failed, and why it now passes.** That run
+  placed the block and drifted it in the same session, and saw no PATCH.
+  This was a **snapshot gap, not a dedup failure** — chunk 43's content
+  signature worked correctly and the reconcile did run. The reconcile
+  compared against `busyState.busy.plannerEvents`, the snapshot from the
+  last `/busy` fetch, whose effect deps are
+  `[weekKey, weekStartDate, busyRefreshKey, busyTick]` — nothing about
+  blocks and nothing about mirror writes. The event had been created *after*
+  that fetch, so the snapshot did not mention it: backfill skipped the block
+  (it had a uid) and the drift loop found no entry for that uid and gave up.
+  A silent no-op with nothing to compare against. Chunk 46 closes it — the
+  mirror now keeps a session record of the events it wrote (uid → start/end)
+  and falls back to it for uids `plannerEvents` does not mention, so the
+  spec's original sequence works as written and discriminates. Attempt 2 of
+  that run passed only because it used a block whose event predated the
+  session's `/busy`.
+
+  **No reload fallback.** Do NOT reload the page when the echo produces no
+  PATCH. A reload is a remount, and a remount refetches `/busy` — which
+  repaired drift before chunk 43 and before chunk 46 too, so a run that
+  falls back to it cannot tell either fix from its absence. If the echo's
+  refetch does not produce the PATCH, that is a **failure to report**, not a
+  cue to try another trigger.
+
+  **Negative control (keep).** A focus refetch past the busy TTL alone is
+  still NOT a repair path — it refetches busy, not blocks, so no reconcile
+  runs. Do not assert a repair on it.
 
 ## Part C — Today × priority coexistence (dashboard, no calendar)
 
 C1 (combined row: priority chip + sun toggle), C2 (independence both
 directions), C3 (chunk-33 sort wiring + picker round-trip): unchanged.
 
-**C4 (amended chunk 43).** Cycle all four `Today list layout` variants and
-Off, asserting each geometry. **"Sun toggles survive the variant changes" is
-now a real assertion**: pin a task, change the variant in Settings, return —
+**C4 (amended chunk 43; wording corrected chunk 46).** The `Today list
+layout` control has exactly **four** options, and `Off` is one of them —
+earlier wording ("all four variants plus Off") read as five and was wrong.
+Cycle all four options, `Off` included, asserting each geometry.
+**"Sun toggles survive the variant changes" is now a real assertion**: pin a
+task, change the variant in Settings, return —
 the pin must survive the remount (chunk 43 persists membership deltas to
 `localStorage['hup:todayPlan']`).
 
@@ -141,6 +186,13 @@ the pin must survive the remount (chunk 43 persists membership deltas to
 - **Day rollover (new)**: write a `hup:todayPlan` entry whose `date` is
   yesterday (keep real pins in it), reload — the stale entry is discarded:
   yesterday's pins do not resurface and yesterday's removals do not stick.
+  Assert on the **derived membership**, not on the key's presence — that is
+  the right pattern and the 2026-08-31 run used it correctly. Then, as a
+  separate assertion (chunk 46, F3): the stale entry is also **removed** from
+  `localStorage`, not merely ignored — immediately after the reload and
+  before touching any sun toggle,
+  `localStorage.getItem('hup:todayPlan') === null`. (Read it before any
+  toggle: the first toggle rewrites the key under today's date.)
   This covers the cold-start read path only; the **same-session** rollover
   (the clock crossing local midnight with the tab open) is covered by unit
   test only (chunk 44 — see its decisions-log row), because moving local
@@ -148,6 +200,15 @@ the pin must survive the remount (chunk 43 persists membership deltas to
   chunk 43 rejected shipping a test hook.
 
 ## Cleanup / end state
+
+**Part B ordering (corrected chunk 46).** B5 must run **before** B4. B5
+confirms that existing events survive the write-out flip, and after B4 has
+unscheduled the block there is no event left to confirm. The order the
+2026-08-31 run used, and the one to follow: place the block → flip
+`planner_writeout` **off** with the block still live → confirm via
+`GET /busy` that the event is still there (B5) → flip **on** → unschedule
+and assert exactly one delete-by-uid (B4) → flip **off** to land on the
+§0.4 baseline.
 
 As the original run's table, with cleanup scoped to `Smoke-<runId>-*`:
 blocks empty, run-prefixed tasks deleted, no real task touched
