@@ -41,7 +41,21 @@ Monday-09:00 branch (CLAUDE.md).
   `MutationObserver`; page `console.error` is not countable — use
   `window.onerror` / `unhandledrejection` only. No build-time test hook exists
   (decision recorded in PROGRESS, chunk 43): don't budget for one.
-- **The instrument for an exact count is the driver's network log** (corrected
+- **Exact counts are scored at the app's mutation boundary, not from a browser
+  (chunk 49, run `0831k`).** `src/lib/plannerCalendarMirror.counts.test.ts` drives the
+  real mirror with the real `calendarApi` through a stubbed `fetch` and counts by HTTP
+  method, deterministically and with each count proven red against the build it targets.
+  Browser instruments observe the *network*; these assertions mean *app-issued mutations*,
+  and a service worker, retries, preflights and the proxy sit in between. Use a live run
+  for layers below the app only, and score it off a server-side proxy log.
+- **Name the driver in the run record header.** Three drivers with different instruments
+  have been used against this spec; only prose tells them apart. A network log belongs to
+  the driver, not the environment — the Control Chrome MCP has none.
+- **No count assertion is reported green until it has been shown red** against the build
+  it targets, and **an assertion about racing work must never `await` the thing it races**
+  (chunk 49, F-1). Four assertions in this spec have been vacuous: chunk 42's B3, chunk
+  46's B3b attempt 1, chunk 47's G3, and `0831k`'s first B4.
+- *(superseded)* **The instrument for an exact count is the driver's network log** (corrected
   chunk 48, from runs `0831g`/`0831h`). HTTP methods **are** observable on prod
   — the earlier "no HTTP method" premise above was wrong — and the log does not
   duplicate. Resource timing (`PerformanceObserver`, or
@@ -60,7 +74,12 @@ Unchanged from the original run (see the results doc for the executed form):
 
 - 0.1 run window as above; verify `todayIdx` via the mount `/busy` range.
 - 0.2 bundle identity: hard-reload, then assert the entry JS contains the
-  chunk-marker strings and only the dev Supabase URL. (An open tab serves a
+  chunk-marker strings and only the dev Supabase URL. **The planner and the whole
+  calendar mirror are NOT in the entry** (chunk 49, F-3) — they ship in a lazily
+  imported `assets/Planner-*.js` that `index.html` never references, so a grep for any
+  mirror marker in the entry returns 0 on a correctly deployed build. Resolve the real
+  chunk set from the service worker's precache manifest in `sw.js` and assert
+  planner/mirror markers against the Planner chunk. (An open tab serves a
   stale cached loader — always hard-reload first.)
 - 0.3 proxy CORS for the production origin (OPTIONS preflight → 204 with
   `access-control-allow-origin: https://smrios07mdb.github.io`).
