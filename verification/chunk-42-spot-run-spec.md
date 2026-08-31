@@ -37,13 +37,22 @@ Monday-09:00 branch (CLAUDE.md).
   session's fixtures and cascades their blocks and calendar events.
 - **Prod harness = isolated world only.** The deployed `index.html` ships a
   CSP (`script-src 'self'`) that blocks page-world `<script>` injection, so
-  the chunk-38/39 page-world notes do NOT transfer. Netlog via an
-  isolated-world `PerformanceObserver` on resource entries (URL,
-  `responseStatus`, completion order — **no HTTP method**; mark windows and
-  corroborate via DB/proxy state); toasts via `MutationObserver`; page
-  `console.error` is not countable — use `window.onerror` /
-  `unhandledrejection` only. No build-time test hook exists (decision
-  recorded in PROGRESS, chunk 43): don't budget for one.
+  the chunk-38/39 page-world notes do NOT transfer. Toasts via
+  `MutationObserver`; page `console.error` is not countable — use
+  `window.onerror` / `unhandledrejection` only. No build-time test hook exists
+  (decision recorded in PROGRESS, chunk 43): don't budget for one.
+- **The instrument for an exact count is the driver's network log** (corrected
+  chunk 48, from runs `0831g`/`0831h`). HTTP methods **are** observable on prod
+  — the earlier "no HTTP method" premise above was wrong — and the log does not
+  duplicate. Resource timing (`PerformanceObserver`, or
+  `performance.getEntriesByType('resource')`, which still holds the whole mount
+  after a reload) **over-counts**: it reported 2 entries for a single `DELETE`
+  in both runs. Use it for ordering, for windows you mark during a run, and for
+  mount-cost reads — never to score an exact-count assertion. Two further
+  driver facts: request tracking **resets on every reload** and must be re-armed
+  after one, and console tracking **arms on first call** and cannot be asserted
+  retroactively — call `read_console_messages` once immediately after the first
+  load if you intend to assert console cleanliness.
 
 ## §0 Preconditions
 
@@ -111,16 +120,28 @@ the live timings above are exactly the concurrent case — the sweep fired at
 that build would still have seen two. It holds from chunk 47 (`0087cc4`),
 which populates the set before the await.
 
-**B2 count (added chunk 47, G2).** Exactly **one** `/api/calendar/events`
-PATCH per drag-move of a mirrored block. A second identical PATCH in the
-move window is a regression of the same class as B4's: the post-move blocks
-refetch is a new content signature, so the reconcile runs, and until chunk 47
-its drift loop compared the moved block against a `/busy` snapshot fetched
-before the mirror's own write and rewrote the times it had just written.
-This was never measured before chunk 47 because every prior run drifted
-blocks by SQL rather than dragging them, so the move path's reconcile was
-never on a netlog. Chunk 47 ranks the two observations by recency (D9), so
-the pre-move snapshot no longer overrides the mirror's own record.
+**B2 count (added chunk 47, G2; re-scoped chunk 48).** The **primary
+assertion is zero `/api/calendar/events` calls after the post-move blocks
+refetch** — that is what G2 actually meant, and it is falsifiable: a call there
+is the drift loop rewriting what the mirror had just written. The **secondary
+assertion is exactly one PATCH before that refetch**.
+
+The secondary count was **3** on `0087cc4`, measured three times in run `0831g`
+and confirmed by a second instrument in run `0831h`; the records
+(`claude/chunk-47-b2b-run-2026-08-31.md`, `claude/chunk-47-b2b-remeasure-2026-08-31.md`)
+say why. It was not the G2 mechanism — the primary assertion passed on every
+attempt — but two older app-level causes, both closed in chunk 48: the reconcile
+running against the optimistic frame before the mutation's own mirror write
+(D12) and a content signature that compared timestamp strings rather than
+instants (D13). One PATCH before the refetch is what D12 + D13 make true.
+
+Background on the G2 mechanism itself: until chunk 47 the drift loop compared
+the moved block against a `/busy` snapshot fetched before the mirror's own write
+and rewrote the times it had just written. This was never measured before
+chunk 47 because every prior run drifted blocks by SQL rather than dragging
+them, so the move path's reconcile was never on a netlog. Chunk 47 ranks the two
+observations by recency (D9), so the pre-move snapshot no longer overrides the
+mirror's own record.
 
 **Required setup — force one `/busy` refresh between the placement and the
 move.** In Part B's own order the week is mounted before the block is placed,
@@ -132,6 +153,17 @@ vacuously, the third instance of the failure mode that made chunk 42's
 original B3 and chunk 46's B3b attempt 1 unfalsifiable. So after placing the
 block, force one `/busy` refresh (a page reload or Force resync both do it)
 and confirm `GET /busy` lists the uid at its placed times; only then drag it.
+
+**Precondition on that refresh (added chunk 48): confirm the block's
+`calendar_uid` is non-null in the DB before you reload.** Reloading while the
+create is still in flight unloads the page between the proxy `POST` and
+`stampUid`, so the event exists on iCloud with no block claiming it, and the
+post-reload reconcile backfills a *second* one. That is the likeliest source of
+the unclaimed `hupo-block-` event both `0831g` and `0831h` saw (D-2). It is a
+real edge but self-healing — the orphan sweep removes the stray on a later load
+— so it is recorded here, not as a defect. Force resync avoids the window
+entirely and is the safer form. If a run honours this precondition and still
+sees a stray, add it to the open-questions table then.
 This is **setup for B2b, not a repair trigger**: B3b's "no reload fallback"
 rule forbids reloading in order to *produce* a repair the echo failed to
 produce, and does not forbid establishing the precondition an assertion needs.
