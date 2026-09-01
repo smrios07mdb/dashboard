@@ -1,5 +1,7 @@
 # Design Brief for Claude Design Mode
 
+> **Historical — noted 2026-08-31.** This brief produced the MVP prototype in 2026-05 and is kept for provenance. The app it describes was replaced by the Daylight redesign (chunks 21–42), so its screen list and data interfaces no longer match what ships; the current visual system of record is `design/DESIGN_NOTES.md` plus the shipped `src/`. A new design pass gets its own scoped brief from the orchestrator and must **not** be run from this file. The instruction line below, and everything between the fences, is unchanged history.
+
 > Copy everything between the lines below into a fresh Claude conversation in **Design mode**. Do not edit.
 
 ---

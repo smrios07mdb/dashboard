@@ -4,6 +4,15 @@
 - `ARCHITECTURE.md` is the single source of truth for stack, data model, sync, security, and UI rules. Read it before starting work on any chunk.
 - If a chunk prompt and `ARCHITECTURE.md` disagree, stop and surface the conflict. Do not silently pick one.
 
+## Lanes
+
+Four agents work this repo; each owns one lane.
+
+- **Claude (orchestrator)** — reads committed source at exact SHAs, authors prompts / specs / briefs, verifies results independently, makes scope calls.
+- **Claude Code** — implements chunks; updates `PROGRESS.md`, the Decisions log and routine doc edits in the same commit pass.
+- **Cowork (Chrome MCP)** — live smoke runs; no push credentials, reports the SHA back.
+- **Claude Design** — visual passes only. Output is committed under `design/` as an unwired reference and is never imported by `src/`. Code does not design; Design does not wire.
+
 ## Progress tracking
 
 Claude Code updates `PROGRESS.md` directly as part of each chunk — no Cowork handoff. (Policy changed 2026-07-30; before that, PROGRESS.md edits were owned by a separate Cowork pass.)

@@ -2,6 +2,8 @@
 
 Step-by-step sequence to drive the build. Follow in order.
 
+> **Status (2026-08-31).** Phases 0–4 below are the MVP build sequence and are kept as history, not as live instructions — do not run them. The live process is `CLAUDE.md` (rules, lanes, definition of done) plus `PROGRESS.md` (state). "Design → Code handoff (general pattern)" is the one section below that describes how work runs today.
+
 ---
 
 ## Phase 0 — Setup (do once, before any chunk)
@@ -84,12 +86,12 @@ After chunk 16 ships, use the app on all three devices for a week. Document any 
 
 ## Design → Code handoff (general pattern)
 
-For every chunk that consumes UI:
+How a design pass runs today:
 
-1. Open the chunk prompt in Claude Code.
-2. Have the relevant `design/[Screen].tsx` open in your editor for reference.
-3. In Claude Code, before running the prompt, attach or paste the design file content so Claude Code has the visual reference.
-4. The chunk prompt already says "replace mock-data props with real data via repo" — Claude Code wires it up.
+1. **The orchestrator authors a scoped brief, one per pass** — a single screen or a single feature, never the whole app — written against the current system of record: `design/DESIGN_NOTES.md` for the visual system, `ARCHITECTURE.md` for anything the screen touches.
+2. **The pass runs in Claude Design**, and its output is committed under `design/` as a prototype — the existing `design/src/*.jsx` are the shape to match. It stays unwired: no Supabase, Dexie, CalDAV or AI calls; data in via props, changes out via callbacks.
+3. **Claude Code consumes the prototype** plus `design/DESIGN_NOTES.md`'s tokens and wires it to real data through `src/db/repo.ts`, per the implementation chunk prompt.
+4. **Revisions to the visuals go back to Design with specific feedback, never to Code.**
 
 If Claude Design output needs revisions before Code consumes it, re-run the Design prompt with specific feedback ("the dashboard header is too dense; the subcategory chevrons need more contrast") — don't ask Code to re-design.
 
