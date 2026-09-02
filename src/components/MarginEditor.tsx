@@ -95,7 +95,12 @@ function Guide({
 
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     e.preventDefault()
-    e.currentTarget.setPointerCapture(e.pointerId)
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      // Synthetic / already-released pointer ids throw; the drag still works
+      // as long as the pointer stays over the handle.
+    }
     startRef.current = {
       pointer: horizontal ? e.clientX : e.clientY,
       value,
