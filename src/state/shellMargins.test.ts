@@ -53,6 +53,19 @@ describe('shellMargins store', () => {
     expect(useShellMarginsStore.getState().draft).toBeNull()
   })
 
+  it('saving the responsive defaults (Reset → Save) clears the stored preference', () => {
+    useShellMarginsStore.getState().startEditing()
+    useShellMarginsStore.getState().setDraft({ side: 5 })
+    useShellMarginsStore.getState().save()
+    expect(localStorage.getItem('hup:shellMargins')).not.toBeNull()
+
+    useShellMarginsStore.getState().startEditing()
+    useShellMarginsStore.getState().resetDraft()
+    useShellMarginsStore.getState().save()
+    expect(useShellMarginsStore.getState().margins).toBeNull()
+    expect(localStorage.getItem('hup:shellMargins')).toBeNull()
+  })
+
   it('clampMargins keeps the minimum content width between the sides', () => {
     expect(clampMargins({ side: 400, top: 0, bottom: 0 }, 600).side).toBe(160)
   })

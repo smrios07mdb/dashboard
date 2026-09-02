@@ -109,7 +109,16 @@ export const useShellMarginsStore = create<ShellMarginsState>((set, get) => ({
   save: () => {
     const { draft } = get()
     if (!draft) return
-    const next = clampMargins(draft)
+    const clamped = clampMargins(draft)
+    const d = defaultMargins()
+    // Saving the defaults (e.g. after Reset) stores nothing, so the shell goes
+    // back to the responsive defaults instead of pinning today's numbers.
+    const next =
+      clamped.side === d.side &&
+      clamped.top === d.top &&
+      clamped.bottom === d.bottom
+        ? null
+        : clamped
     persist(next)
     set({ margins: next, draft: null })
   },
