@@ -44,6 +44,10 @@ import {
   type TodayListVariant,
   useTodayListStore,
 } from '@/state/todayList'
+import {
+  defaultMargins,
+  useShellMarginsStore,
+} from '@/state/shellMargins'
 import { useUIStore } from '@/state/uiStore'
 import {
   CalendarError,
@@ -346,6 +350,10 @@ const TODAY_LIST_LABELS: Record<TodayListVariant, string> = {
 function DisplaySection() {
   const todayList = useTodayListStore((s) => s.todayList)
   const setTodayList = useTodayListStore((s) => s.setTodayList)
+  const margins = useShellMarginsStore((s) => s.margins)
+  const editingMargins = useShellMarginsStore((s) => s.draft !== null)
+  const startEditingMargins = useShellMarginsStore((s) => s.startEditing)
+  const shown = margins ?? defaultMargins()
 
   return (
     <SettingsSection kicker="Display" title="Display">
@@ -374,6 +382,25 @@ function DisplaySection() {
             </button>
           ))}
         </div>
+      </SettingsRow>
+      <SettingsRow
+        title="Page margins"
+        hint={
+          margins
+            ? `Custom, on this device: sides ${shown.side}px, top ${shown.top}px, bottom ${shown.bottom}px. Drag the guides on any page, then Save.`
+            : `Default for this screen size: sides ${shown.side}px, top ${shown.top}px, bottom ${shown.bottom}px. Drag the guides on any page, then Save.`
+        }
+        align="center"
+      >
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={startEditingMargins}
+          disabled={editingMargins}
+        >
+          {editingMargins ? 'Adjusting…' : 'Adjust margins'}
+        </Button>
       </SettingsRow>
     </SettingsSection>
   )

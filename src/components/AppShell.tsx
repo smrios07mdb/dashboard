@@ -1,7 +1,10 @@
 import type { ReactNode } from 'react'
 
+import { useEffectiveMargins } from '@/state/shellMargins'
+
 import AccountMenu from './AccountMenu'
 import { HupoMark } from './HupoMark'
+import MarginEditor from './MarginEditor'
 
 type AppShellProps = {
   /**
@@ -22,14 +25,30 @@ export default function AppShell({
   topBanner,
   children,
 }: AppShellProps) {
+  // Page margins: `.shell` in index.css declares the responsive defaults as
+  // `--shell-side` / `--shell-top` / `--shell-bottom`; a saved (or in-edit
+  // draft) preference overrides them inline. The header, InstallHint and the
+  // content wrapper all read the same variables.
+  const margins = useEffectiveMargins()
+  const vars = margins
+    ? ({
+        '--shell-side': `${margins.side}px`,
+        '--shell-top': `${margins.top}px`,
+        '--shell-bottom': `${margins.bottom}px`,
+      } as React.CSSProperties)
+    : undefined
+
   // Safe-area top on the shell so BOTH the topBanner (e.g. InstallHint, which
   // renders above the header) and the header itself clear the notch / Dynamic
   // Island under `viewport-fit=cover` (UX-04).
   return (
-    <div className="min-h-svh bg-background pt-[env(safe-area-inset-top)] text-foreground">
+    <div
+      className="shell flex min-h-svh flex-col bg-background pt-[env(safe-area-inset-top)] text-foreground"
+      style={vars}
+    >
       {topBanner}
       <header className="border-b border-border">
-        <div className="flex w-full items-center justify-between gap-4 px-4 py-3 sm:px-7 lg:px-10">
+        <div className="flex w-full items-center justify-between gap-4 px-[var(--shell-side)] py-3">
           {/* Brand lockup (brand/README "App header"): the HupoMark — whose
               emerald point is the wordmark's period — beside the serif
               "hupomnemata" wordmark. The mark carries the point, so the wordmark
@@ -46,10 +65,13 @@ export default function AppShell({
           </div>
         </div>
       </header>
-      {/* Bottom padding on phones clears the fixed bottom nav (min-h-14 bar +
-          its safe-area inset) so no content hides behind it (UX-01). Restored
-          to the normal py-6 at >=sm where the bottom nav is hidden. */}
-      <div className="w-full px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:px-7 sm:pb-8 lg:px-10 lg:pt-8">
+      {/* Bottom padding on phones adds the fixed bottom nav (min-h-14 bar +
+          its safe-area inset) so no content hides behind it (UX-01). Just the
+          margin at >=sm where the bottom nav is hidden. `relative` + `flex-1`
+          so the MarginEditor guides sit on this wrapper's padding edges and
+          the bottom guide lands at the bottom of the page. */}
+      <div className="relative w-full flex-1 px-[var(--shell-side)] pt-[var(--shell-top)] pb-[calc(var(--shell-bottom)+3.5rem+env(safe-area-inset-bottom))] sm:pb-[var(--shell-bottom)]">
+        <MarginEditor />
         {children}
       </div>
     </div>

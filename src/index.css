@@ -383,6 +383,27 @@
   }
 }
 
+@layer components {
+  /* App shell page margins (defaults). A saved preference (Settings → Display →
+     Page margins, `hup:shellMargins`) overrides these inline on `.shell`. */
+  .shell {
+    --shell-side: 1rem;
+    --shell-top: 1.5rem;
+    --shell-bottom: 2rem;
+  }
+  @media (min-width: 640px) {
+    .shell {
+      --shell-side: 1.75rem;
+    }
+  }
+  @media (min-width: 1024px) {
+    .shell {
+      --shell-side: 2.5rem;
+      --shell-top: 2rem;
+    }
+  }
+}
+
 @layer utilities {
   /*
    * The design's "tiny utility tokens" (index.html). These are primitives the
