@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch'
 import { repo } from '@/db/repo'
 import type { ReadCalendar } from '@/db/types'
 import { listCalendars } from '@/lib/calendarApi'
-import { calendarColorMap } from '@/lib/calendarColors'
+import { calendarColorMap, outlookColorKey } from '@/lib/calendarColors'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -32,6 +32,9 @@ import { useUIStore } from '@/state/uiStore'
  * this component only renders whatever it is given. Each row carries a
  * color dot (chunk 51b) — the same per-calendar color the busy blocks use
  * (`lib/calendarColors`: iCloud's color, made distinct across the set).
+ * When the Outlook feed is configured it is listed last as a read-only row
+ * (dot, feed name, `FEED` tag, no switch — chunk 51c) so the legend is
+ * complete in one place; the chip count stays over iCloud only.
  */
 
 export type CalendarPickerProps = {
@@ -42,6 +45,9 @@ export type CalendarPickerProps = {
   writeTargetUrl: string | null
   /** True while the Planner's one-shot initialization is in flight. */
   initializing: boolean
+  /** Outlook feed display name when the feed is configured (chunk 51c);
+   *  `null` hides the row. */
+  outlookFeedName?: string | null
   /** Called with the set that was just persisted so the owner's copy of
    *  settings stays current without waiting for the realtime echo. */
   onPersisted: (next: ReadCalendar[]) => void
@@ -54,6 +60,7 @@ export default function CalendarPicker({
   calendars,
   writeTargetUrl,
   initializing,
+  outlookFeedName = null,
   onPersisted,
 }: CalendarPickerProps) {
   // Draft-or-null: render from the prop unless a write is in flight.
@@ -135,7 +142,8 @@ export default function CalendarPicker({
   }
 
   const writeName = shown?.find((c) => c.url === writeTargetUrl)?.name
-  const colors = calendarColorMap(shown)
+  const outlookKey = outlookFeedName === null ? null : outlookColorKey(outlookFeedName)
+  const colors = calendarColorMap(shown, outlookKey ? [outlookKey] : undefined)
 
   return (
     <Popover
@@ -176,9 +184,10 @@ export default function CalendarPicker({
           <div className="px-[13px] py-2.5 text-[12px] text-ink-3">
             No event calendars found on this Apple ID.
           </div>
-        ) : (
+        ) : null}
+        {((shown && shown.length > 0) || outlookKey) && (
           <ul className="m-0 list-none px-[13px] py-1.5">
-            {shown.map((c) => {
+            {(shown ?? []).map((c) => {
               const id = `cal-${c.url.replace(/[^A-Za-z0-9]/g, '-')}`
               const isWrite = c.url === writeTargetUrl
               const color = colors.get(c.name)
@@ -224,6 +233,32 @@ export default function CalendarPicker({
                 </li>
               )
             })}
+            {outlookKey && (
+              <li
+                data-testid="outlook-feed-row"
+                className="flex items-center gap-2 py-[5px]"
+              >
+                <span
+                  aria-hidden
+                  data-testid="calendar-swatch"
+                  className="inline-block h-[8px] w-[8px] shrink-0 rounded-full"
+                  style={{ background: colors.get(outlookKey) ?? 'var(--busy-outlook-ln)' }}
+                />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
+                  {outlookFeedName}
+                </span>
+                <span
+                  className="label rounded-sm px-1 py-px"
+                  style={{
+                    fontSize: 8,
+                    background: 'color-mix(in srgb, var(--ink) 6%, transparent)',
+                    color: 'var(--ink-2)',
+                  }}
+                >
+                  FEED
+                </span>
+              </li>
+            )}
           </ul>
         )}
         <hr className="m-0 border-line" />

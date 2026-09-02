@@ -283,7 +283,9 @@ export interface BusySource extends BusyRange {
   /** iCloud only (chunk 51): display name of the calendar it came from.
    *  Absent from a pre-chunk-51 proxy and on the legacy single-calendar read. */
   calendar?: string
-  /** iCloud only (chunk 51b): that calendar's `#rrggbb` from the read set. */
+  /** That calendar's `#rrggbb` (chunk 51b). The proxy tags iCloud intervals
+   *  from the read set; the app fills the rest, Outlook included (chunk
+   *  51c, `lib/calendarColors`). */
   color?: string
 }
 

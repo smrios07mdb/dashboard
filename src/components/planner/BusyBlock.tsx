@@ -9,10 +9,17 @@ import { blockPos, fmtClock, type WeekBusyBlock } from '@/lib/plannerGeometry'
  * tint recessed into the canvas at z1. iCloud = flat tint + inset ring;
  * Outlook = one step cooler + fine 135° hatch (1px stripes, 6px period).
  * Colors come from the `--busy-*` variables, with one exception (chunk
- * 51b): an iCloud block whose calendar has a color (`block.color`, see
- * lib/calendarColors) mixes that color into the same recessed tint — the
- * hue identifies the calendar, the opacity keeps it context — and shows a
- * dot of it beside the source tag.
+ * 51b, Outlook in 51c): a block whose calendar has a color (`block.color`,
+ * see lib/calendarColors) mixes that color into the same recessed tint —
+ * the hue identifies the calendar, the opacity keeps it context — and
+ * shows a dot of it beside the source tag. An Outlook block keeps its
+ * hatch over the tint: the hatch is the source cue, the color the
+ * identity cue. Without a color the flat tokens stand.
+ *
+ * Tight blocks (chunk 51c, D2/D3): a 30-minute block is 24px on desktop
+ * (`hourH 52`) and 22px on mobile (`mHourH 48`), so the title renders from
+ * 18px with tighter padding and type below 30px. The 14px floor
+ * (`blockPos`, 15 minutes) stays text-free — the popover is the reveal.
  *
  * Renders a <button> so the popover is keyboard-reachable (chunk-36
  * acceptance). Stale Outlook: 55% opacity, source tag becomes
@@ -64,17 +71,21 @@ export default function BusyBlock({
       ? `OUTLOOK · ${staleTime}`
       : 'OUTLOOK'
     : 'ICLOUD'
-  const calColor = !cool && block.color ? block.color : null
-  const background = cool
-    ? 'repeating-linear-gradient(135deg, var(--busy-outlook-hatch) 0 1px, transparent 1px 6px), var(--busy-outlook)'
-    : calColor
-      ? `color-mix(in srgb, ${calColor} 16%, transparent)`
+  const calColor = block.color ?? null
+  const tint = calColor
+    ? `color-mix(in srgb, ${calColor} 16%, transparent)`
+    : cool
+      ? 'var(--busy-outlook)'
       : 'var(--busy-icloud)'
-  const ring = cool
-    ? 'var(--busy-outlook-ln)'
-    : calColor
-      ? `color-mix(in srgb, ${calColor} 42%, transparent)`
+  const background = cool
+    ? `repeating-linear-gradient(135deg, var(--busy-outlook-hatch) 0 1px, transparent 1px 6px), ${tint}`
+    : tint
+  const ring = calColor
+    ? `color-mix(in srgb, ${calColor} 42%, transparent)`
+    : cool
+      ? 'var(--busy-outlook-ln)'
       : 'var(--busy-icloud-ln)'
+  const tight = pos.height < 30
 
   return (
     <button
@@ -87,7 +98,9 @@ export default function BusyBlock({
         e.stopPropagation()
         onOpen(block, pos)
       }}
-      className="absolute inset-x-px flex flex-col overflow-hidden rounded-sm px-[7px] py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={`absolute inset-x-px flex flex-col overflow-hidden rounded-sm px-[7px] text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+        tight ? 'py-[2px]' : 'py-1'
+      }`}
       style={{
         top: pos.top,
         height: pos.height,
@@ -97,9 +110,11 @@ export default function BusyBlock({
         boxShadow: `inset 0 0 0 1px ${ring}`,
       }}
     >
-      {pos.height >= 26 && (
+      {pos.height >= 18 && (
         <span
-          className="overflow-hidden text-ellipsis whitespace-nowrap text-[10.5px] font-medium"
+          className={`overflow-hidden text-ellipsis whitespace-nowrap font-medium ${
+            tight ? 'text-[10px] leading-[1.1]' : 'text-[10.5px]'
+          }`}
           style={{ color: 'var(--ink-3)' }}
         >
           {block.title}

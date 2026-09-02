@@ -110,6 +110,45 @@ describe('WeekGrid (chunk 36)', () => {
     expect(plain.style.background).toBe('var(--busy-icloud)')
   })
 
+  it('a 30-minute block shows its title without hover; a 15-minute block is tint-only (chunk 51c)', () => {
+    renderGrid({
+      busy: [
+        { day: 3, startMin: 600, endMin: 630, source: 'icloud', title: 'Half hour' },
+        { day: 2, startMin: 600, endMin: 615, source: 'icloud', title: 'Quarter hour' },
+      ],
+    })
+    // 30 min at hourH 52 → 24px: title rendered, tight typography.
+    const half = screen.getByRole('button', { name: /Half hour/ })
+    expect(half.style.height).toBe('24px')
+    expect(half).toHaveTextContent('Half hour')
+    expect(half.className).toContain('py-[2px]')
+    // 15 min → the 14px floor: no text at all.
+    const quarter = screen.getByRole('button', { name: /Quarter hour/ })
+    expect(quarter.style.height).toBe('14px')
+    expect(quarter).toHaveTextContent('')
+  })
+
+  it('an Outlook block with a feed color keeps its hatch and mixes the color in (chunk 51c)', () => {
+    renderGrid({
+      busy: [
+        { day: 2, startMin: 540, endMin: 630, source: 'outlook', title: 'Standup', color: '#ff9500' },
+        { day: 3, startMin: 540, endMin: 630, source: 'outlook', title: 'Uncolored' },
+      ],
+    })
+    const colored = screen.getByRole('button', { name: /Standup \(Outlook\)/ })
+    expect(colored).toHaveAttribute('data-calendar-color', '#ff9500')
+    expect(colored.style.background).toContain('repeating-linear-gradient(135deg')
+    expect(colored.style.background).toMatch(/color-mix\(in srgb, (#ff9500|rgb\(255, 149, 0\)) 16%/)
+    expect(colored.style.boxShadow).toMatch(/color-mix\(in srgb, (#ff9500|rgb\(255, 149, 0\)) 42%/)
+    // Dot beside the OUTLOOK tag (block is 76px, tag renders).
+    expect(colored.querySelector('span[style*="rgb(255, 149, 0)"], span[style*="#ff9500"]')).not.toBeNull()
+    // Pre-fetch / unconfigured: the flat tokens stand.
+    const plain = screen.getByRole('button', { name: /Uncolored \(Outlook\)/ })
+    expect(plain).not.toHaveAttribute('data-calendar-color')
+    expect(plain.style.background).toContain('var(--busy-outlook)')
+    expect(plain.style.boxShadow).toBe('inset 0 0 0 1px var(--busy-outlook-ln)')
+  })
+
   it('clamps a block crossing the collapsed top edge and stamps ↑ HH:MM', () => {
     renderGrid({
       busy: [{ day: 2, startMin: 450, endMin: 510, source: 'icloud', title: 'Gym' }],

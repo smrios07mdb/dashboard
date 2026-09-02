@@ -238,6 +238,30 @@ describe('CalendarPicker (chunk 51)', () => {
     expect(mocks.settingsUpdate).not.toHaveBeenCalled()
   })
 
+  it('lists the Outlook feed as a read-only row with its own distinct dot and a FEED tag (chunk 51c)', async () => {
+    const user = userEvent.setup()
+    renderPicker({ outlookFeedName: 'Work feed' })
+    await user.click(chip())
+    const row = await screen.findByTestId('outlook-feed-row')
+    expect(row).toHaveTextContent('Work feed')
+    expect(row).toHaveTextContent('FEED')
+    expect(row.querySelector('[role="switch"]')).toBeNull()
+    // Three iCloud switches only; the chip count is iCloud-only too.
+    expect(screen.getAllByRole('switch')).toHaveLength(3)
+    expect(chip()).toHaveTextContent('CALENDARS · 2/3')
+    const dots = screen.getAllByTestId('calendar-swatch')
+    expect(dots).toHaveLength(4)
+    expect(new Set(dots.map((d) => d.style.background)).size).toBe(4)
+  })
+
+  it('no Outlook row when the feed is not configured', async () => {
+    const user = userEvent.setup()
+    renderPicker({ outlookFeedName: null })
+    await user.click(chip())
+    await screen.findAllByRole('switch')
+    expect(screen.queryByTestId('outlook-feed-row')).toBeNull()
+  })
+
   it('re-discovery persists a calendar’s color into the read set (chunk 51b)', async () => {
     const user = userEvent.setup()
     mocks.listCalendars.mockResolvedValue({

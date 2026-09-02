@@ -46,7 +46,12 @@ import {
   type BusySources,
   type GetBusyResult,
 } from '@/lib/calendarApi'
-import { calendarColorMap, withCalendarColors } from '@/lib/calendarColors'
+import {
+  calendarColorMap,
+  outlookColorKey,
+  outlookColorName,
+  withCalendarColors,
+} from '@/lib/calendarColors'
 import { fmtMin } from '@/lib/cat'
 import { isOnline } from '@/lib/network'
 import { createCalendarMirror } from '@/lib/plannerCalendarMirror'
@@ -424,17 +429,21 @@ export default function Planner() {
 
   // Per-calendar colors (chunk 51b): distinct per read-set entry, iCloud's
   // own color when it has one, palette otherwise — see lib/calendarColors.
+  // The Outlook feed is one more entry, colored after the read set, only
+  // once `/busy` reports it configured (chunk 51c, D1).
+  const outlookName = sources?.outlook.configured ? outlookColorName(sources) : null
+  const outlookKey = outlookName === null ? null : outlookColorKey(outlookName)
   const calendarColors = useMemo(
-    () => calendarColorMap(readCalendars),
-    [readCalendars],
+    () => calendarColorMap(readCalendars, outlookKey ? [outlookKey] : undefined),
+    [readCalendars, outlookKey],
   )
   const busyBlocks = useMemo(
     () =>
       busyToWeekBlocks(
-        withCalendarColors(busyState.busy ?? [], calendarColors),
+        withCalendarColors(busyState.busy ?? [], calendarColors, outlookKey ?? undefined),
         weekStartDate,
       ),
-    [busyState.busy, calendarColors, weekStartDate],
+    [busyState.busy, calendarColors, outlookKey, weekStartDate],
   )
 
   // ── scheduled blocks (per-week, D14) ───────────────────────────────────
@@ -1216,6 +1225,7 @@ export default function Planner() {
           calendars={readCalendars}
           writeTargetUrl={settings?.caldavCalendarUrl ?? null}
           initializing={readSetInitializing}
+          outlookFeedName={outlookName}
           onPersisted={(next) =>
             setSettings((s) => (s ? { ...s, caldavReadCalendars: next } : s))
           }
