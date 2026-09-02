@@ -149,6 +149,15 @@ function Guide({
           ? { top: value, left: 0, right: 0 }
           : { bottom: value, left: 0, right: 0 }
 
+  // Side handles stick to the viewport's vertical middle so they are reachable
+  // without scrolling on long pages; top/bottom handles sit at a third of the
+  // width so they never hide under the centered Save bar.
+  const handleClass = `pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface text-[11px] font-semibold tabular-nums text-ink shadow-md touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+    horizontal
+      ? 'sticky top-[calc(50svh-1.125rem)] -translate-x-1/2 cursor-ew-resize'
+      : 'absolute left-1/3 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize'
+  }`
+
   return (
     <div
       data-testid={`margin-guide-${edge}`}
@@ -167,11 +176,8 @@ function Guide({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onKeyDown={onKeyDown}
-        className={`pointer-events-auto absolute flex items-center justify-center rounded-full border border-line bg-surface text-[11px] font-semibold tabular-nums text-ink shadow-md touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-          horizontal
-            ? 'top-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize'
-            : 'left-1/2 h-9 w-9 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize'
-        } ${horizontal ? '-ml-px' : '-mt-px'}`}
+        className={handleClass}
+        style={horizontal ? { marginLeft: -1 } : { marginTop: -1 }}
       >
         {value}
       </button>
