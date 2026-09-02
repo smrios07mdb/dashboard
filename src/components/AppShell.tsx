@@ -29,7 +29,7 @@ export default function AppShell({
     <div className="min-h-svh bg-background pt-[env(safe-area-inset-top)] text-foreground">
       {topBanner}
       <header className="border-b border-border">
-        <div className="mx-auto flex max-w-[1280px] items-center justify-between gap-4 px-4 py-3 sm:px-7">
+        <div className="flex w-full items-center justify-between gap-4 px-4 py-3 sm:px-7 lg:px-10">
           {/* Brand lockup (brand/README "App header"): the HupoMark — whose
               emerald point is the wordmark's period — beside the serif
               "hupomnemata" wordmark. The mark carries the point, so the wordmark
@@ -49,7 +49,7 @@ export default function AppShell({
       {/* Bottom padding on phones clears the fixed bottom nav (min-h-14 bar +
           its safe-area inset) so no content hides behind it (UX-01). Restored
           to the normal py-6 at >=sm where the bottom nav is hidden. */}
-      <div className="mx-auto max-w-[1280px] px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:px-7 sm:pb-6">
+      <div className="w-full px-4 pt-6 pb-[calc(3.5rem+env(safe-area-inset-bottom))] sm:px-7 sm:pb-8 lg:px-10 lg:pt-8">
         {children}
       </div>
     </div>

@@ -53,7 +53,7 @@ export default function InstallHint() {
 
   return (
     <div className="border-b border-border bg-card">
-      <div className="mx-auto flex max-w-[1280px] items-start gap-3 px-4 py-3 sm:px-7">
+      <div className="flex w-full items-start gap-3 px-4 py-3 sm:px-7 lg:px-10">
         <div className="flex-1 text-[13px] leading-snug text-secondary-foreground">
           <div className="label mb-1">Install</div>
           <span>

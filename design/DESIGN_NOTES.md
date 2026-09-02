@@ -176,7 +176,7 @@ The prototype targets these specifically:
 | ≥ 640px | Two-column dashboard, top tabs in header |
 | < 640px | Single column, bottom-nav tabs, install banner visible on iOS |
 | Tablet 744px (iPad mini portrait) | Two-column with `clamp(24px, 3vw, 40px)` gap |
-| Desktop 1440px (27" portrait) | Shell max-width 1280px; centered |
+| Desktop 1440px (27" portrait) | Shell fills the window (1280px cap removed 2026-09-02); 40px side padding at ≥1024px |
 
 The `mobile` boolean in the prototype combines `tweak.device === 'mobile'` OR
 `window.innerWidth < 640`. In production, drop the tweak — just use the viewport.
