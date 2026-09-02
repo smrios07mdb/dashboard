@@ -248,3 +248,32 @@ describe('expandedWindow', () => {
     })
   })
 })
+
+describe('busyToWeekBlocks — calendar color (chunk 51b)', () => {
+  it('carries `color` onto every segment of an interval and omits the key when absent', () => {
+    const start = new Date(2026, 4, 4) // Mon 4 May 2026, local
+    const out = busyToWeekBlocks(
+      [
+        {
+          start: new Date(2026, 4, 5, 22).toISOString(),
+          end: new Date(2026, 4, 6, 2).toISOString(),
+          source: 'icloud',
+          calendar: 'Home',
+          color: '#ff2968',
+        },
+        {
+          start: new Date(2026, 4, 7, 9).toISOString(),
+          end: new Date(2026, 4, 7, 10).toISOString(),
+          source: 'icloud',
+        },
+      ],
+      start,
+    )
+    expect(out.map((b) => [b.day, b.color])).toEqual([
+      [1, '#ff2968'],
+      [2, '#ff2968'],
+      [3, undefined],
+    ])
+    expect('color' in out[2]!).toBe(false)
+  })
+})

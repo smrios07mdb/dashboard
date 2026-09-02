@@ -85,6 +85,31 @@ describe('WeekGrid (chunk 36)', () => {
     )
   })
 
+  it('an iCloud block with a calendar color is tinted with it and shows the dot + calendar in its name (chunk 51b)', () => {
+    renderGrid({
+      busy: [
+        {
+          day: 3,
+          startMin: 600,
+          endMin: 690,
+          source: 'icloud',
+          title: 'Dentist',
+          calendar: 'Home',
+          color: '#ff2968',
+        },
+        { day: 2, startMin: 600, endMin: 690, source: 'icloud', title: 'Plain' },
+      ],
+    })
+    const tinted = screen.getByRole('button', { name: /Dentist \(iCloud · Home\)/ })
+    expect(tinted).toHaveAttribute('data-calendar-color', '#ff2968')
+    // jsdom serializes the hex as rgb(); the tint is a color-mix of it.
+    expect(tinted.style.background).toContain('color-mix(in srgb, rgb(255, 41, 104) 16%')
+    expect(tinted.style.boxShadow).toMatch(/color-mix\(in srgb, (#ff2968|rgb\(255, 41, 104\)) 42%/)
+    const plain = screen.getByRole('button', { name: /Plain \(iCloud\)/ })
+    expect(plain).not.toHaveAttribute('data-calendar-color')
+    expect(plain.style.background).toBe('var(--busy-icloud)')
+  })
+
   it('clamps a block crossing the collapsed top edge and stamps ↑ HH:MM', () => {
     renderGrid({
       busy: [{ day: 2, startMin: 450, endMin: 510, source: 'icloud', title: 'Gym' }],

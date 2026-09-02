@@ -87,8 +87,18 @@ export type CaldavStatus = 'unconfigured' | 'ok' | 'auth_failed'
  *  (stale, not lost — amber in the UI, never destructive). */
 export type OutlookStatus = 'unconfigured' | 'ok' | 'unreachable'
 
-/** One iCloud event calendar in the READ set (chunk 51). */
-export type ReadCalendar = { url: string; name: string; enabled: boolean }
+/**
+ * One iCloud event calendar in the READ set (chunk 51). `color` is the
+ * calendar's `#rrggbb` from iCloud's `calendar-color` (chunk 51b), absent
+ * when iCloud reported none — `lib/calendarColors` assigns a palette color
+ * then, so every calendar still renders distinctly.
+ */
+export type ReadCalendar = {
+  url: string
+  name: string
+  enabled: boolean
+  color?: string
+}
 
 export type Settings = {
   userId: string

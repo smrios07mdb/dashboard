@@ -230,6 +230,30 @@ describe('mappers', () => {
     expect(settingsToRow({ plannerWriteout: true })).not.toHaveProperty('caldav_read_calendars')
   })
 
+  it('settings: a read-set entry keeps a valid #rrggbb color and drops a bad one (chunk 51b)', () => {
+    const row = {
+      user_id: 'u-1',
+      ai_api_key: null,
+      caldav_apple_id: 'me@icloud.com',
+      caldav_calendar_url: 'https://caldav.icloud.com/1/calendars/home/',
+      caldav_read_calendars: [
+        { url: 'https://caldav.icloud.com/1/calendars/home/', name: 'Home', enabled: true, color: '#FF2968' },
+        { url: 'https://caldav.icloud.com/1/calendars/work/', name: 'Work', enabled: true, color: 'red' },
+      ],
+      caldav_status: 'ok' as const,
+      outlook_status: 'unconfigured' as const,
+      outlook_feed_name: null,
+      outlook_fetched_at: null,
+      planner_writeout: true,
+      timezone: 'America/New_York',
+      last_daily_reset: null,
+    }
+    expect(settingsFromRow(row).caldavReadCalendars).toEqual([
+      { url: 'https://caldav.icloud.com/1/calendars/home/', name: 'Home', enabled: true, color: '#ff2968' },
+      { url: 'https://caldav.icloud.com/1/calendars/work/', name: 'Work', enabled: true },
+    ])
+  })
+
   it('settings: invalid or missing caldav_read_calendars jsonb reads as null; malformed entries drop', () => {
     const base = {
       user_id: 'u-1',

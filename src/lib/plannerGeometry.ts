@@ -172,6 +172,8 @@ export type WeekBusyBlock = {
   title?: string
   /** iCloud calendar display name (chunk 51); absent for Outlook / legacy. */
   calendar?: string
+  /** `#rrggbb` tint for the calendar (chunk 51b); absent → the flat tint. */
+  color?: string
 }
 
 /**
@@ -186,6 +188,7 @@ export function busyToWeekBlocks(
     source: 'icloud' | 'outlook'
     title?: string
     calendar?: string
+    color?: string
   }>,
   start: Date,
 ): WeekBusyBlock[] {
@@ -213,6 +216,7 @@ export function busyToWeekBlocks(
         source: b.source,
         title: b.title,
         ...(b.calendar !== undefined ? { calendar: b.calendar } : {}),
+        ...(b.color !== undefined ? { color: b.color } : {}),
       })
     }
   }

@@ -270,12 +270,19 @@ export function parseReadCalendars(v: unknown): ReadCalendar[] | null {
   const seen = new Set<string>()
   for (const item of v) {
     if (typeof item !== 'object' || item === null) continue
-    const { url, name, enabled } = item as Record<string, unknown>
+    const { url, name, enabled, color } = item as Record<string, unknown>
     if (typeof url !== 'string' || !url) continue
     if (typeof enabled !== 'boolean') continue
     if (seen.has(url)) continue
     seen.add(url)
-    out.push({ url, name: typeof name === 'string' ? name : '', enabled })
+    const entry: ReadCalendar = {
+      url,
+      name: typeof name === 'string' ? name : '',
+      enabled,
+    }
+    if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color))
+      entry.color = color.toLowerCase()
+    out.push(entry)
   }
   return out
 }

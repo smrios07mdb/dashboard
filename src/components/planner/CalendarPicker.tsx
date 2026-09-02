@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch'
 import { repo } from '@/db/repo'
 import type { ReadCalendar } from '@/db/types'
 import { listCalendars } from '@/lib/calendarApi'
+import { calendarColorMap } from '@/lib/calendarColors'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -28,7 +29,9 @@ import { useUIStore } from '@/state/uiStore'
  * calendars that vanished upstream are dropped — silently on failure.
  *
  * Initialization of a `null` set is the Planner's job (once per mount);
- * this component only renders whatever it is given.
+ * this component only renders whatever it is given. Each row carries a
+ * color dot (chunk 51b) — the same per-calendar color the busy blocks use
+ * (`lib/calendarColors`: iCloud's color, made distinct across the set).
  */
 
 export type CalendarPickerProps = {
@@ -99,7 +102,12 @@ export default function CalendarPicker({
     const known = new Map((current ?? []).map((c) => [c.url, c]))
     const next: ReadCalendar[] = discovered.map((d) => {
       const k = known.get(d.url)
-      return { url: d.url, name: d.name, enabled: k ? k.enabled : true }
+      return {
+        url: d.url,
+        name: d.name,
+        enabled: k ? k.enabled : true,
+        ...(d.color ? { color: d.color } : {}),
+      }
     })
     const same =
       current !== null &&
@@ -108,7 +116,8 @@ export default function CalendarPicker({
         (c, i) =>
           c.url === next[i]?.url &&
           c.name === next[i]?.name &&
-          c.enabled === next[i]?.enabled,
+          c.enabled === next[i]?.enabled &&
+          c.color === next[i]?.color,
       )
     if (same) return
     // Only a change in what is READ needs the busy cache dropped.
@@ -126,6 +135,7 @@ export default function CalendarPicker({
   }
 
   const writeName = shown?.find((c) => c.url === writeTargetUrl)?.name
+  const colors = calendarColorMap(shown)
 
   return (
     <Popover
@@ -171,11 +181,21 @@ export default function CalendarPicker({
             {shown.map((c) => {
               const id = `cal-${c.url.replace(/[^A-Za-z0-9]/g, '-')}`
               const isWrite = c.url === writeTargetUrl
+              const color = colors.get(c.name)
               return (
                 <li
                   key={c.url}
                   className="flex items-center gap-2 py-[5px]"
                 >
+                  <span
+                    aria-hidden
+                    data-testid="calendar-swatch"
+                    className="inline-block h-[8px] w-[8px] shrink-0 rounded-full"
+                    style={{
+                      background: color ?? 'var(--busy-icloud-ln)',
+                      opacity: c.enabled ? 1 : 0.35,
+                    }}
+                  />
                   <label
                     htmlFor={id}
                     className="min-w-0 flex-1 cursor-pointer truncate text-[12.5px] text-ink"

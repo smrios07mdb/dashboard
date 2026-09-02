@@ -214,4 +214,53 @@ describe('CalendarPicker (chunk 51)', () => {
     )
     expect(screen.queryByRole('switch', { name: 'Work' })).toBeNull()
   })
+
+  it('every row carries a distinct color dot (chunk 51b): iCloud’s color where known, palette otherwise', async () => {
+    const user = userEvent.setup()
+    const withColor: ReadCalendar[] = [
+      { ...SET[0]!, color: '#ff2968' },
+      SET[1]!,
+      SET[2]!,
+    ]
+    mocks.listCalendars.mockResolvedValue({
+      calendars: withColor.map(({ url, name, color }) => ({ url, name, ...(color ? { color } : {}) })),
+      writeTargetUrl: HOME,
+    })
+    renderPicker({ calendars: withColor })
+    await user.click(chip())
+    const dots = await screen.findAllByTestId('calendar-swatch')
+    expect(dots).toHaveLength(3)
+    const colors = dots.map((d) => d.style.background)
+    expect(colors[0]).toBe('rgb(255, 41, 104)')
+    expect(new Set(colors).size).toBe(3)
+    // Nothing changed upstream → no write.
+    await waitFor(() => expect(mocks.listCalendars).toHaveBeenCalled())
+    expect(mocks.settingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('re-discovery persists a calendar’s color into the read set (chunk 51b)', async () => {
+    const user = userEvent.setup()
+    mocks.listCalendars.mockResolvedValue({
+      calendars: [
+        { url: HOME, name: 'Home', color: '#ff2968' },
+        { url: WORK, name: 'Work' },
+        { url: FAMILY, name: 'Family' },
+      ],
+      writeTargetUrl: HOME,
+    })
+    const before = useUIStore.getState().busyRefreshKey
+    renderPicker()
+    await user.click(chip())
+    await waitFor(() =>
+      expect(mocks.settingsUpdate).toHaveBeenCalledWith('u1', {
+        caldavReadCalendars: [
+          { url: HOME, name: 'Home', enabled: true, color: '#ff2968' },
+          { url: WORK, name: 'Work', enabled: true },
+          { url: FAMILY, name: 'Family', enabled: false },
+        ],
+      }),
+    )
+    // Only a color changed, not what is read → the busy cache is kept.
+    expect(useUIStore.getState().busyRefreshKey).toBe(before)
+  })
 })

@@ -260,6 +260,25 @@ describe('listCalendars (chunk 51)', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer jwt-token')
   })
 
+  it('keeps a #rrggbb color and the subscribed flag, drops a bad color (chunk 51b)', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        ok: true,
+        calendars: [
+          { url: 'https://cal/home/', name: 'Home', color: '#FF2968' },
+          { url: 'https://cal/holidays/', name: 'US Holidays', color: 'green', subscribed: true },
+          { url: 'https://cal/work/', name: 'Work', subscribed: 'yes' },
+        ],
+        writeTargetUrl: null,
+      }),
+    )
+    expect((await listCalendars()).calendars).toEqual([
+      { url: 'https://cal/home/', name: 'Home', color: '#ff2968' },
+      { url: 'https://cal/holidays/', name: 'US Holidays', subscribed: true },
+      { url: 'https://cal/work/', name: 'Work' },
+    ])
+  })
+
   it('maps 412 no_credentials to not_configured', async () => {
     fetchMock.mockResolvedValue(jsonResponse(412, { ok: false, error: 'no_credentials' }))
     const err = await listCalendars().catch((e: unknown) => e)

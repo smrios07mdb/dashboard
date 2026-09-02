@@ -6,9 +6,13 @@ import { blockPos, fmtClock, type WeekBusyBlock } from '@/lib/plannerGeometry'
  * Busy overlay block (chunk 36, DESIGN_NOTES §Busy-overlay treatment).
  *
  * Context, not content: no surface, no shadow, no ink-strength text — a
- * tint recessed into the canvas at z1. iCloud = flat neutral tint + inset
- * ring; Outlook = one step cooler + fine 135° hatch (1px stripes, 6px
- * period). All colors via the `--busy-*` variables — never inline values.
+ * tint recessed into the canvas at z1. iCloud = flat tint + inset ring;
+ * Outlook = one step cooler + fine 135° hatch (1px stripes, 6px period).
+ * Colors come from the `--busy-*` variables, with one exception (chunk
+ * 51b): an iCloud block whose calendar has a color (`block.color`, see
+ * lib/calendarColors) mixes that color into the same recessed tint — the
+ * hue identifies the calendar, the opacity keeps it context — and shows a
+ * dot of it beside the source tag.
  *
  * Renders a <button> so the popover is keyboard-reachable (chunk-36
  * acceptance). Stale Outlook: 55% opacity, source tag becomes
@@ -60,13 +64,25 @@ export default function BusyBlock({
       ? `OUTLOOK · ${staleTime}`
       : 'OUTLOOK'
     : 'ICLOUD'
+  const calColor = !cool && block.color ? block.color : null
+  const background = cool
+    ? 'repeating-linear-gradient(135deg, var(--busy-outlook-hatch) 0 1px, transparent 1px 6px), var(--busy-outlook)'
+    : calColor
+      ? `color-mix(in srgb, ${calColor} 16%, transparent)`
+      : 'var(--busy-icloud)'
+  const ring = cool
+    ? 'var(--busy-outlook-ln)'
+    : calColor
+      ? `color-mix(in srgb, ${calColor} 42%, transparent)`
+      : 'var(--busy-icloud-ln)'
 
   return (
     <button
       type="button"
       aria-label={`Busy ${fmtClock(block.startMin)} to ${fmtClock(block.endMin)}${
         block.title ? ` — ${block.title}` : ''
-      } (${cool ? 'Outlook' : 'iCloud'})`}
+      } (${cool ? 'Outlook' : block.calendar ? `iCloud · ${block.calendar}` : 'iCloud'})`}
+      data-calendar-color={calColor ?? undefined}
       onClick={(e) => {
         e.stopPropagation()
         onOpen(block, pos)
@@ -77,10 +93,8 @@ export default function BusyBlock({
         height: pos.height,
         zIndex: 1,
         opacity: isStale ? 0.55 : 1,
-        background: cool
-          ? 'repeating-linear-gradient(135deg, var(--busy-outlook-hatch) 0 1px, transparent 1px 6px), var(--busy-outlook)'
-          : 'var(--busy-icloud)',
-        boxShadow: `inset 0 0 0 1px ${cool ? 'var(--busy-outlook-ln)' : 'var(--busy-icloud-ln)'}`,
+        background,
+        boxShadow: `inset 0 0 0 1px ${ring}`,
       }}
     >
       {pos.height >= 26 && (
@@ -93,9 +107,16 @@ export default function BusyBlock({
       )}
       {pos.height >= 46 && (
         <span
-          className="label mt-auto"
+          className="label mt-auto inline-flex items-center gap-1"
           style={{ fontSize: 8.5, letterSpacing: '.14em', opacity: 0.8 }}
         >
+          {calColor && (
+            <span
+              aria-hidden
+              className="inline-block h-[6px] w-[6px] shrink-0 rounded-full"
+              style={{ background: calColor }}
+            />
+          )}
           {sourceTag}
         </span>
       )}

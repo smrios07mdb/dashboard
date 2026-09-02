@@ -81,7 +81,15 @@ export default function BusyPopover({
         {fmtRange(block.startMin, block.endMin)}
       </div>
       <hr className="my-[9px] border-line" />
-      <div className="label" style={{ fontSize: 8.5 }}>
+      <div className="label inline-flex items-center gap-1.5" style={{ fontSize: 8.5 }}>
+        {!cool && block.color && (
+          <span
+            aria-hidden
+            data-testid="calendar-swatch"
+            className="inline-block h-[7px] w-[7px] shrink-0 rounded-full"
+            style={{ background: block.color }}
+          />
+        )}
         {cool
           ? 'OUTLOOK · WORK FEED'
           : `ICLOUD · ${(block.calendar ?? 'Calendar').toUpperCase()}`}

@@ -46,6 +46,7 @@ import {
   type BusySources,
   type GetBusyResult,
 } from '@/lib/calendarApi'
+import { calendarColorMap, withCalendarColors } from '@/lib/calendarColors'
 import { fmtMin } from '@/lib/cat'
 import { isOnline } from '@/lib/network'
 import { createCalendarMirror } from '@/lib/plannerCalendarMirror'
@@ -421,9 +422,19 @@ export default function Planner() {
   const stale = sources?.outlook.status === 'stale'
   const staleTime = localHHMM(sources?.outlook.fetchedAt ?? null)
 
+  // Per-calendar colors (chunk 51b): distinct per read-set entry, iCloud's
+  // own color when it has one, palette otherwise — see lib/calendarColors.
+  const calendarColors = useMemo(
+    () => calendarColorMap(readCalendars),
+    [readCalendars],
+  )
   const busyBlocks = useMemo(
-    () => busyToWeekBlocks(busyState.busy ?? [], weekStartDate),
-    [busyState.busy, weekStartDate],
+    () =>
+      busyToWeekBlocks(
+        withCalendarColors(busyState.busy ?? [], calendarColors),
+        weekStartDate,
+      ),
+    [busyState.busy, calendarColors, weekStartDate],
   )
 
   // ── scheduled blocks (per-week, D14) ───────────────────────────────────

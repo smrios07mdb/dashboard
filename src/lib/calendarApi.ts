@@ -190,7 +190,26 @@ async function callProxy(path: string, init: RequestInit): Promise<Envelope> {
 
 // ── public API ─────────────────────────────────────────────────────────
 
-export type DiscoveredCalendar = { url: string; name: string }
+export type DiscoveredCalendar = {
+  url: string
+  name: string
+  /** `#rrggbb` from iCloud's `calendar-color` (chunk 51b), when present. */
+  color?: string
+  /** A subscription (holidays, any webcal feed) — read-only upstream. */
+  subscribed?: boolean
+}
+
+/** Keep only the documented fields of a discovered calendar (or drop it). */
+function toDiscoveredCalendar(c: unknown): DiscoveredCalendar | null {
+  if (typeof c !== 'object' || c === null) return null
+  const { url, name, color, subscribed } = c as Record<string, unknown>
+  if (typeof url !== 'string' || typeof name !== 'string') return null
+  const out: DiscoveredCalendar = { url, name }
+  if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color))
+    out.color = color.toLowerCase()
+  if (subscribed === true) out.subscribed = true
+  return out
+}
 
 /** Run CalDAV discovery against the entered credentials and return the user's
  *  calendars. Does NOT persist anything (proxy pre-save check). */
@@ -229,13 +248,9 @@ export async function listCalendars(): Promise<{
   markVerified()
   return {
     calendars: Array.isArray(body.calendars)
-      ? (body.calendars as unknown[]).filter(
-          (c): c is DiscoveredCalendar =>
-            typeof c === 'object' &&
-            c !== null &&
-            typeof (c as DiscoveredCalendar).url === 'string' &&
-            typeof (c as DiscoveredCalendar).name === 'string',
-        )
+      ? (body.calendars as unknown[])
+          .map(toDiscoveredCalendar)
+          .filter((c): c is DiscoveredCalendar => c !== null)
       : [],
     writeTargetUrl:
       typeof body.writeTargetUrl === 'string' ? body.writeTargetUrl : null,
@@ -268,6 +283,8 @@ export interface BusySource extends BusyRange {
   /** iCloud only (chunk 51): display name of the calendar it came from.
    *  Absent from a pre-chunk-51 proxy and on the legacy single-calendar read. */
   calendar?: string
+  /** iCloud only (chunk 51b): that calendar's `#rrggbb` from the read set. */
+  color?: string
 }
 
 /** Per-source health from the busy endpoint. `outlook.status === 'stale'`
