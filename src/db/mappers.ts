@@ -15,6 +15,7 @@ import type {
   Settings,
   Subcategory,
   Task,
+  ReadCalendar,
 } from './types'
 
 // ---------- categories ----------
@@ -248,6 +249,7 @@ export type SettingsRow = {
   ai_api_key: string | null
   caldav_apple_id: string | null
   caldav_calendar_url: string | null
+  caldav_read_calendars?: unknown
   caldav_status: Settings['caldavStatus']
   outlook_status: Settings['outlookStatus']
   outlook_feed_name: string | null
@@ -257,12 +259,36 @@ export type SettingsRow = {
   last_daily_reset: string | null
 }
 
+/**
+ * Validate a `caldav_read_calendars` jsonb value. Mirrors the proxy's
+ * `parseReadCalendars` (dashboard-caldav-proxy `api/_lib/readSet.ts`):
+ * null / non-array → `null`; malformed entries dropped; deduped by url.
+ */
+export function parseReadCalendars(v: unknown): ReadCalendar[] | null {
+  if (!Array.isArray(v)) return null
+  const out: ReadCalendar[] = []
+  const seen = new Set<string>()
+  for (const item of v) {
+    if (typeof item !== 'object' || item === null) continue
+    const { url, name, enabled } = item as Record<string, unknown>
+    if (typeof url !== 'string' || !url) continue
+    if (typeof enabled !== 'boolean') continue
+    if (seen.has(url)) continue
+    seen.add(url)
+    out.push({ url, name: typeof name === 'string' ? name : '', enabled })
+  }
+  return out
+}
+
 export function settingsFromRow(row: SettingsRow): Settings {
   return {
     userId: row.user_id,
     aiApiKey: row.ai_api_key,
     caldavAppleId: row.caldav_apple_id,
     caldavCalendarUrl: row.caldav_calendar_url,
+    // Chunk 51: defensive parse — invalid jsonb (or a row cached before
+    // migration 13) reads as `null`, i.e. "not initialized".
+    caldavReadCalendars: parseReadCalendars(row.caldav_read_calendars),
     caldavStatus: row.caldav_status,
     // Rows cached before migration 09 may predate the column; default to the
     // DB default rather than persisting `undefined` into the Settings shape.
@@ -309,6 +335,8 @@ export function settingsToRow(
     row.caldav_apple_id = value.caldavAppleId
   if (value.caldavCalendarUrl !== undefined)
     row.caldav_calendar_url = value.caldavCalendarUrl
+  if (value.caldavReadCalendars !== undefined)
+    row.caldav_read_calendars = value.caldavReadCalendars
   if (value.caldavStatus !== undefined) row.caldav_status = value.caldavStatus
   if (value.outlookStatus !== undefined)
     row.outlook_status = value.outlookStatus

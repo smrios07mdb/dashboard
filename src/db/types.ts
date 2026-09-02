@@ -87,11 +87,21 @@ export type CaldavStatus = 'unconfigured' | 'ok' | 'auth_failed'
  *  (stale, not lost — amber in the UI, never destructive). */
 export type OutlookStatus = 'unconfigured' | 'ok' | 'unreachable'
 
+/** One iCloud event calendar in the READ set (chunk 51). */
+export type ReadCalendar = { url: string; name: string; enabled: boolean }
+
 export type Settings = {
   userId: string
   aiApiKey: string | null
   caldavAppleId: string | null
+  /** The single WRITE target for planner mirrors (chunk 39). */
   caldavCalendarUrl: string | null
+  /**
+   * Which iCloud calendars `/busy` reads (chunk 51). `null` = not
+   * initialized: the proxy reads the write target only until the Planner
+   * initializes the set to all-discovered / all-enabled on first mount.
+   */
+  caldavReadCalendars: ReadCalendar[] | null
   caldavStatus: CaldavStatus
   outlookStatus: OutlookStatus
   outlookFeedName: string | null

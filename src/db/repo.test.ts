@@ -192,6 +192,7 @@ describe('mappers', () => {
       ai_api_key: null,
       caldav_apple_id: null,
       caldav_calendar_url: null,
+      caldav_read_calendars: null,
       caldav_status: 'unconfigured' as const,
       outlook_status: 'unconfigured' as const,
       outlook_feed_name: null,
@@ -201,6 +202,71 @@ describe('mappers', () => {
       last_daily_reset: null,
     }
     expect(settingsToRow(settingsFromRow(row))).toEqual(row)
+  })
+
+  it('settings: caldav_read_calendars round-trips as the READ set (chunk 51)', () => {
+    const set = [
+      { url: 'https://caldav.icloud.com/1/calendars/home/', name: 'Home', enabled: true },
+      { url: 'https://caldav.icloud.com/1/calendars/work/', name: 'Work', enabled: false },
+    ]
+    const row = {
+      user_id: 'u-1',
+      ai_api_key: null,
+      caldav_apple_id: 'me@icloud.com',
+      caldav_calendar_url: 'https://caldav.icloud.com/1/calendars/home/',
+      caldav_read_calendars: set,
+      caldav_status: 'ok' as const,
+      outlook_status: 'unconfigured' as const,
+      outlook_feed_name: null,
+      outlook_fetched_at: null,
+      planner_writeout: true,
+      timezone: 'America/New_York',
+      last_daily_reset: null,
+    }
+    expect(settingsFromRow(row).caldavReadCalendars).toEqual(set)
+    expect(settingsToRow(settingsFromRow(row))).toEqual(row)
+    expect(settingsToRow({ caldavReadCalendars: null })).toEqual({ caldav_read_calendars: null })
+    // Undefined (not in the patch) is not written at all.
+    expect(settingsToRow({ plannerWriteout: true })).not.toHaveProperty('caldav_read_calendars')
+  })
+
+  it('settings: invalid or missing caldav_read_calendars jsonb reads as null; malformed entries drop', () => {
+    const base = {
+      user_id: 'u-1',
+      ai_api_key: null,
+      caldav_apple_id: null,
+      caldav_calendar_url: null,
+      caldav_status: 'ok' as const,
+      outlook_status: 'unconfigured' as const,
+      outlook_feed_name: null,
+      outlook_fetched_at: null,
+      timezone: 'America/New_York',
+      last_daily_reset: null,
+    }
+    // Pre-migration-13 cached row: the key is absent.
+    expect(settingsFromRow(base).caldavReadCalendars).toBeNull()
+    expect(settingsFromRow({ ...base, caldav_read_calendars: 'nope' }).caldavReadCalendars).toBeNull()
+    expect(
+      settingsFromRow({ ...base, caldav_read_calendars: { url: 'x' } }).caldavReadCalendars,
+    ).toBeNull()
+    expect(
+      settingsFromRow({
+        ...base,
+        caldav_read_calendars: [
+          { url: 'https://cal/a/', name: 'A', enabled: true },
+          { url: 'https://cal/a/', name: 'dup', enabled: false },
+          { url: '', name: 'no url', enabled: true },
+          { url: 'https://cal/b/', name: 'B', enabled: 'yes' },
+          { url: 'https://cal/c/', enabled: false },
+          null,
+        ],
+      }).caldavReadCalendars,
+    ).toEqual([
+      { url: 'https://cal/a/', name: 'A', enabled: true },
+      { url: 'https://cal/c/', name: '', enabled: false },
+    ])
+    // An empty array is an initialized, empty set — not null.
+    expect(settingsFromRow({ ...base, caldav_read_calendars: [] }).caldavReadCalendars).toEqual([])
   })
 
   it('settings: planner_writeout defaults to false on rows that predate migration 12', () => {

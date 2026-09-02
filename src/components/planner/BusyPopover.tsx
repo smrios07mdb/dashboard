@@ -82,7 +82,9 @@ export default function BusyPopover({
       </div>
       <hr className="my-[9px] border-line" />
       <div className="label" style={{ fontSize: 8.5 }}>
-        {cool ? 'OUTLOOK · WORK FEED' : 'ICLOUD · PERSONAL'}
+        {cool
+          ? 'OUTLOOK · WORK FEED'
+          : `ICLOUD · ${(block.calendar ?? 'Calendar').toUpperCase()}`}
       </div>
       <div
         className="num mono mt-1 text-[11px]"

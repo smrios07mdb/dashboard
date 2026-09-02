@@ -170,6 +170,8 @@ export type WeekBusyBlock = {
   endMin: number
   source: 'icloud' | 'outlook'
   title?: string
+  /** iCloud calendar display name (chunk 51); absent for Outlook / legacy. */
+  calendar?: string
 }
 
 /**
@@ -183,6 +185,7 @@ export function busyToWeekBlocks(
     end: string
     source: 'icloud' | 'outlook'
     title?: string
+    calendar?: string
   }>,
   start: Date,
 ): WeekBusyBlock[] {
@@ -209,6 +212,7 @@ export function busyToWeekBlocks(
         endMin,
         source: b.source,
         title: b.title,
+        ...(b.calendar !== undefined ? { calendar: b.calendar } : {}),
       })
     }
   }

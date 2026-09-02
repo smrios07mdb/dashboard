@@ -1,3 +1,4 @@
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -17,6 +18,8 @@ import type { GetBusyResult, PlannerEvent } from '@/lib/calendarApi'
 
 const mocks = vi.hoisted(() => ({
   settingsGet: vi.fn(),
+  settingsUpdate: vi.fn(),
+  listCalendars: vi.fn(),
   listByRange: vi.fn(),
   blockCreate: vi.fn(),
   blockUpdate: vi.fn(),
@@ -32,7 +35,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/db/repo', () => ({
   repo: {
-    settings: { get: mocks.settingsGet },
+    settings: { get: mocks.settingsGet, update: mocks.settingsUpdate },
     scheduledBlocks: {
       listByRange: mocks.listByRange,
       create: mocks.blockCreate,
@@ -62,6 +65,7 @@ vi.mock('@/lib/calendarApi', async (importOriginal) => {
   return {
     ...actual,
     getBusy: mocks.getBusy,
+    listCalendars: mocks.listCalendars,
     createEvent: mocks.createEvent,
     updateEvent: mocks.updateEvent,
     deleteEvent: mocks.deleteEvent,
@@ -98,6 +102,10 @@ describe('Planner — reconcile on week navigation (chunk 40, F1)', () => {
       userId: 'u1',
       plannerWriteout: true,
       caldavStatus: 'ok',
+      // Chunk 51: an initialized (empty) read set — these tests are about
+      // the reconcile, and a null set would trigger the one-shot init and
+      // its busyRefreshKey bump.
+      caldavReadCalendars: [],
       timezone: 'America/New_York',
     })
     mocks.listByRange.mockResolvedValue([])
@@ -242,5 +250,137 @@ describe('Planner — reconcile on week navigation (chunk 40, F1)', () => {
     )
     // No busyRefreshKey bump was needed: busy was fetched exactly once.
     expect(mocks.getBusy).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── Chunk 51: calendar read set ──────────────────────────────────────────────
+describe('Planner — calendar read set (chunk 51)', () => {
+  const HOME = 'https://caldav.icloud.com/1/calendars/home/'
+  const WORK = 'https://caldav.icloud.com/1/calendars/work/'
+  const SETTINGS = {
+    userId: 'u1',
+    plannerWriteout: false,
+    caldavStatus: 'ok',
+    caldavCalendarUrl: HOME,
+    caldavReadCalendars: null,
+    timezone: 'America/New_York',
+  }
+
+  beforeEach(() => {
+    if (typeof globalThis.ResizeObserver === 'undefined') {
+      globalThis.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver
+    }
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.settingsGet.mockResolvedValue(SETTINGS)
+    mocks.settingsUpdate.mockImplementation(async (_id, changes) => ({
+      ...SETTINGS,
+      ...changes,
+    }))
+    mocks.listCalendars.mockResolvedValue({
+      calendars: [
+        { url: HOME, name: 'Home' },
+        { url: WORK, name: 'Work' },
+      ],
+      writeTargetUrl: HOME,
+    })
+    mocks.listByRange.mockResolvedValue([])
+    mocks.categoriesList.mockResolvedValue([])
+    mocks.subcategoriesList.mockResolvedValue([])
+    mocks.tasksList.mockResolvedValue([])
+    mocks.getBusy.mockResolvedValue(busyResult([]))
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.clearAllMocks()
+  })
+
+  it('a null read set is initialized once — all discovered calendars enabled — and busy refetched, even under StrictMode', async () => {
+    const before = useUIStore.getState().busyRefreshKey
+    render(
+      <StrictMode>
+        <Planner />
+      </StrictMode>,
+    )
+    await waitFor(() =>
+      expect(mocks.settingsUpdate).toHaveBeenCalledWith('u1', {
+        caldavReadCalendars: [
+          { url: HOME, name: 'Home', enabled: true },
+          { url: WORK, name: 'Work', enabled: true },
+        ],
+      }),
+    )
+    await waitFor(() => expect(useUIStore.getState().busyRefreshKey).toBe(before + 1))
+    // Both breakpoint branches mount a chip; both read the initialized set.
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Calendars' })[0]).toHaveTextContent(
+        'CALENDARS · 2/2',
+      ),
+    )
+    // StrictMode double-invokes the effect; the ref guard keeps it to one
+    // discovery and one write.
+    expect(mocks.listCalendars).toHaveBeenCalledTimes(1)
+    expect(mocks.settingsUpdate).toHaveBeenCalledTimes(1)
+    // The bump re-ran the busy fetch: the last getBusy call is ordered
+    // after the read-set write (StrictMode's double mount already fires
+    // the mount fetch twice, so an exact count would be meaningless).
+    await waitFor(() => {
+      const writeOrder = mocks.settingsUpdate.mock.invocationCallOrder[0]!
+      const lastFetch = mocks.getBusy.mock.invocationCallOrder.at(-1)!
+      expect(lastFetch).toBeGreaterThan(writeOrder)
+    })
+  })
+
+  it('renders no chip and runs no discovery unless Apple Calendar is connected', async () => {
+    mocks.settingsGet.mockResolvedValue({ ...SETTINGS, caldavStatus: 'unconfigured' })
+    render(<Planner />)
+    await waitFor(() => expect(mocks.settingsGet).toHaveBeenCalled())
+    await waitFor(() => expect(mocks.getBusy).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: 'Calendars' })).toBeNull()
+    expect(mocks.listCalendars).not.toHaveBeenCalled()
+    expect(mocks.settingsUpdate).not.toHaveBeenCalled()
+  })
+
+  it('a failed initialization leaves the set null (chip “–”) and does not write', async () => {
+    mocks.listCalendars.mockRejectedValue(new Error('proxy down'))
+    const before = useUIStore.getState().busyRefreshKey
+    render(<Planner />)
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'Calendars' })[0]).toHaveTextContent(
+        'CALENDARS · –',
+      ),
+    )
+    expect(mocks.settingsUpdate).not.toHaveBeenCalled()
+    expect(useUIStore.getState().busyRefreshKey).toBe(before)
+  })
+
+  it('the busy popover names the calendar an iCloud interval came from', async () => {
+    const user = userEvent.setup()
+    mocks.settingsGet.mockResolvedValue({
+      ...SETTINGS,
+      caldavReadCalendars: [{ url: WORK, name: 'Work', enabled: true }],
+    })
+    // Monday 10:00–11:00 local of the visible week, inside the default window.
+    const start = new Date(thisWeekStart.getTime() + 10 * 3_600_000)
+    const end = new Date(thisWeekStart.getTime() + 11 * 3_600_000)
+    const result = [
+      {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        source: 'icloud' as const,
+        title: 'Standup',
+        calendar: 'Work',
+      },
+    ] as unknown as GetBusyResult
+    result.plannerEvents = []
+    mocks.getBusy.mockResolvedValue(result)
+    render(<Planner />)
+    const blocks = await screen.findAllByRole('button', { name: /Busy 10:00 to 11:00 — Standup/ })
+    await user.click(blocks[0])
+    expect(await screen.findByText('ICLOUD · WORK')).toBeInTheDocument()
   })
 })

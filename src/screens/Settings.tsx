@@ -656,6 +656,9 @@ function CalendarSection() {
       await repo.settings.update(userId, {
         caldavAppleId: null,
         caldavCalendarUrl: null,
+        // Chunk 51: the read set goes with the connection (the proxy also
+        // nulls it on re-save; the Planner re-initializes it).
+        caldavReadCalendars: null,
         caldavStatus: 'unconfigured',
         // No calendar to write to any more; existing events stay (D10).
         plannerWriteout: false,
@@ -762,18 +765,21 @@ function CalendarSection() {
           </Button>
 
           {calendars.length > 0 && (
-            <select
-              value={calendarUrl}
-              onChange={(e) => setCalendarUrl(e.target.value)}
-              aria-label="Calendar"
-              className="h-9 rounded-md border border-line bg-surface px-2 text-[13px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {calendars.map((c) => (
-                <option key={c.url} value={c.url}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <label className="flex items-center gap-2 text-[12px] text-ink-2">
+              Planner writes to
+              <select
+                value={calendarUrl}
+                onChange={(e) => setCalendarUrl(e.target.value)}
+                aria-label="Planner writes to"
+                className="h-9 rounded-md border border-line bg-surface px-2 text-[13px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {calendars.map((c) => (
+                  <option key={c.url} value={c.url}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
 
           <Button
@@ -784,6 +790,12 @@ function CalendarSection() {
             {saving ? 'Saving…' : 'Save'}
           </Button>
         </div>
+        {calendars.length > 0 && (
+          <p className="mt-1.5 text-[12px] text-ink-3">
+            Blocks you schedule on the Planner are created on this calendar.
+            Which calendars the Planner reads is set on the Planner itself.
+          </p>
+        )}
 
         {isConnected && (
           <div className="mt-2.5">

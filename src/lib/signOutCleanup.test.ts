@@ -52,6 +52,7 @@ function settings(): Settings {
     aiApiKey: null,
     caldavAppleId: null,
     caldavCalendarUrl: null,
+    caldavReadCalendars: null,
     caldavStatus: 'unconfigured',
     outlookStatus: 'unconfigured',
     outlookFeedName: null,

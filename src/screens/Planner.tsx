@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 
 import { ChevronLeft, ChevronRight, Sparkles } from '@/components/icons'
 import BlockActionSheet from '@/components/planner/BlockActionSheet'
+import CalendarPicker from '@/components/planner/CalendarPicker'
 import DayStrip from '@/components/planner/DayStrip'
 import DayTimeline from '@/components/planner/DayTimeline'
 import PlannerTray, {
@@ -27,13 +28,20 @@ import WeekGrid, {
 import { Button } from '@/components/ui/button'
 import { IconButton } from '@/components/ui/icon-button'
 import { repo } from '@/db/repo'
-import type { Category, ScheduledBlock, Subcategory, Task } from '@/db/types'
+import type {
+  Category,
+  ScheduledBlock,
+  Settings,
+  Subcategory,
+  Task,
+} from '@/db/types'
 import { useSession } from '@/lib/auth'
 import {
   CalendarError,
   createEvent,
   deleteEvent,
   getBusy,
+  listCalendars,
   updateEvent,
   type BusySources,
   type GetBusyResult,
@@ -202,10 +210,10 @@ export default function Planner() {
   const busyRefreshKey = useUIStore((s) => s.busyRefreshKey)
   const isTouch = useIsTouchDevice()
 
-  // ── Apple Calendar mirror opt-in (chunk 39) ────────────────────────────
+  // ── settings: mirror opt-in (chunk 39) + calendar read set (chunk 51) ──
   // Re-read on `dashboardRefreshKey` so a Settings toggle (realtime settings
   // echo) takes effect without a reload. Online-ness is checked per call.
-  const [writeoutOn, setWriteoutOn] = useState(false)
+  const [settings, setSettings] = useState<Settings | null>(null)
   useEffect(() => {
     if (!userId) return
     let cancelled = false
@@ -213,7 +221,7 @@ export default function Planner() {
       .get(userId)
       .then((s) => {
         if (cancelled) return
-        setWriteoutOn(Boolean(s?.plannerWriteout && s.caldavStatus === 'ok'))
+        setSettings(s)
       })
       .catch((e) => {
         console.error('Planner: load settings failed', e)
@@ -222,6 +230,45 @@ export default function Planner() {
       cancelled = true
     }
   }, [userId, dashboardRefreshKey])
+  const writeoutOn = Boolean(
+    settings?.plannerWriteout && settings.caldavStatus === 'ok',
+  )
+  const calendarConnected = settings?.caldavStatus === 'ok'
+
+  // Read-set initialization (chunk 51, D1 "default all on"): a `null` set
+  // (every pre-chunk-51 row, and after any credential re-save) is filled
+  // once per mount with every discovered calendar, all enabled, then the
+  // busy cache is dropped so `/busy` widens on the next fetch. The ref keeps
+  // StrictMode's double-invoke and re-renders from writing twice; a failure
+  // leaves the set `null` (chip reads `CALENDARS · –`) and retries only on
+  // the next mount — an auth failure has already flipped `caldav_status`
+  // server-side, so the existing reconnect path covers it.
+  const readSetInitRef = useRef(false)
+  const [readSetInitializing, setReadSetInitializing] = useState(false)
+  const readCalendars = settings?.caldavReadCalendars ?? null
+  useEffect(() => {
+    if (!userId || !calendarConnected || readCalendars !== null) return
+    if (readSetInitRef.current) return
+    readSetInitRef.current = true
+    // Deliberately no cancel-on-cleanup: StrictMode runs cleanup between its
+    // two invocations and the ref already stops the second one, so a
+    // cancelled first write would leave the DB initialized but this screen
+    // (and the busy cache) unaware until the next settings echo.
+    setReadSetInitializing(true)
+    withSessionRetry(() => listCalendars())
+      .then(async ({ calendars }) => {
+        const next = calendars.map((c) => ({ ...c, enabled: true }))
+        const saved = await repo.settings.update(userId, {
+          caldavReadCalendars: next,
+        })
+        setSettings(saved)
+        useUIStore.getState().forceBusyRefresh()
+      })
+      .catch((e: unknown) => {
+        console.error('Planner: initialize calendar read set failed', e)
+      })
+      .finally(() => setReadSetInitializing(false))
+  }, [userId, calendarConnected, readCalendars])
 
   // Local clock — re-ticks every minute for the now-line / capacity-from-now.
   const [now, setNow] = useState(() => new Date())
@@ -1152,6 +1199,17 @@ export default function Planner() {
       </div>
       <span className="ml-auto" />
       {stale && <StaleChip />}
+      {calendarConnected && userId && (
+        <CalendarPicker
+          userId={userId}
+          calendars={readCalendars}
+          writeTargetUrl={settings?.caldavCalendarUrl ?? null}
+          initializing={readSetInitializing}
+          onPersisted={(next) =>
+            setSettings((s) => (s ? { ...s, caldavReadCalendars: next } : s))
+          }
+        />
+      )}
       {withFill && proposals.length === 0 && (
         <Button variant="outline" size="sm" onClick={fill} disabled={!fillable}>
           <Sparkles size={13} aria-hidden />

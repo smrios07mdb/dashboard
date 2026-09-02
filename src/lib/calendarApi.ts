@@ -214,6 +214,34 @@ export async function testCredentials(args: {
   }
 }
 
+/**
+ * List the account's event calendars using the STORED credentials (chunk 51,
+ * `GET /api/calendar/calendars`) — the Planner's calendar picker uses this to
+ * initialize and refresh the read set. `writeTargetUrl` is the current
+ * `caldav_calendar_url` so the picker can tag the write-target row. Errors map
+ * like `getBusy`: 412 → `not_configured`, 401 auth_failed → `auth_failed`.
+ */
+export async function listCalendars(): Promise<{
+  calendars: DiscoveredCalendar[]
+  writeTargetUrl: string | null
+}> {
+  const body = await callProxy('/api/calendar/calendars', { method: 'GET' })
+  markVerified()
+  return {
+    calendars: Array.isArray(body.calendars)
+      ? (body.calendars as unknown[]).filter(
+          (c): c is DiscoveredCalendar =>
+            typeof c === 'object' &&
+            c !== null &&
+            typeof (c as DiscoveredCalendar).url === 'string' &&
+            typeof (c as DiscoveredCalendar).name === 'string',
+        )
+      : [],
+    writeTargetUrl:
+      typeof body.writeTargetUrl === 'string' ? body.writeTargetUrl : null,
+  }
+}
+
 /** Persist credentials: the proxy AES-GCM-encrypts the password, writes the
  *  three caldav columns, and sets `caldav_status='ok'` server-side. */
 export async function saveCredentials(args: {
@@ -237,12 +265,21 @@ export async function saveCredentials(args: {
 export interface BusySource extends BusyRange {
   source: 'icloud' | 'outlook'
   title?: string
+  /** iCloud only (chunk 51): display name of the calendar it came from.
+   *  Absent from a pre-chunk-51 proxy and on the legacy single-calendar read. */
+  calendar?: string
 }
 
 /** Per-source health from the busy endpoint. `outlook.status === 'stale'`
  *  means cached data is being served because the feed stopped responding. */
 export interface BusySources {
-  icloud: { configured: boolean; ok: boolean }
+  icloud: {
+    configured: boolean
+    ok: boolean
+    /** Per-calendar outcome of the read-set fan-out (chunk 51). Optional:
+     *  a pre-chunk-51 proxy omits it. */
+    calendars?: { url: string; name: string; ok: boolean }[]
+  }
   outlook: {
     configured: boolean
     status: 'ok' | 'stale' | 'unconfigured'

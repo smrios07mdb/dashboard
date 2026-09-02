@@ -23,6 +23,14 @@ vi.mock('@/lib/auth', () => ({
 // test doesn't pull in sample-data machinery.
 vi.mock('@/components/DeveloperSection', () => ({ default: () => null }))
 
+// Chunk 51: the write-target row's label test drives the Test-connection
+// flow, so discovery is stubbed; everything else in calendarApi stays real.
+const { testCredentialsMock } = vi.hoisted(() => ({ testCredentialsMock: vi.fn() }))
+vi.mock('@/lib/calendarApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/calendarApi')>()
+  return { ...actual, testCredentials: testCredentialsMock }
+})
+
 import Settings from './Settings'
 
 describe('Settings — AI key', () => {
@@ -337,5 +345,83 @@ describe('Settings — planner write-out row (chunk 39)', () => {
       expect(settingsUpdateMock).toHaveBeenCalledWith('u1', { plannerWriteout: false }),
     )
     expect(useUIStore.getState().busyRefreshKey).toBe(before)
+  })
+})
+
+/**
+ * Chunk 51 — the Settings dropdown is the WRITE target only; the READ set
+ * lives on the Planner. The label and help text say so, and disconnecting
+ * clears the read set with the connection.
+ */
+describe('Settings — write target vs read set (chunk 51)', () => {
+  const base = {
+    userId: 'u1',
+    aiApiKey: null,
+    caldavAppleId: null,
+    caldavCalendarUrl: null,
+    caldavReadCalendars: null,
+    caldavStatus: 'unconfigured' as const,
+    outlookStatus: 'unconfigured' as const,
+    outlookFeedName: null,
+    outlookFetchedAt: null,
+    plannerWriteout: false,
+    timezone: 'America/New_York',
+    lastDailyReset: null,
+  }
+  beforeEach(() => {
+    settingsGetMock.mockResolvedValue(base)
+    settingsUpdateMock.mockImplementation(async (_id, changes) => ({ ...base, ...changes }))
+  })
+  afterEach(() => vi.clearAllMocks())
+
+  it('labels the dropdown "Planner writes to" with the read-set help text after Test connection', async () => {
+    const user = userEvent.setup()
+    testCredentialsMock.mockResolvedValue({
+      calendars: [
+        { url: 'https://cal/home/', name: 'Home' },
+        { url: 'https://cal/work/', name: 'Work' },
+      ],
+    })
+    render(<Settings />)
+    await user.type(await screen.findByLabelText('Apple ID'), 'me@icloud.com')
+    await user.type(screen.getByLabelText('App-specific password'), 'xxxx-xxxx')
+    await user.click(screen.getByRole('button', { name: /test connection/i }))
+    const select = await screen.findByRole('combobox', { name: 'Planner writes to' })
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Home',
+      'Work',
+    ])
+    expect(
+      screen.getByText(
+        /Blocks you schedule on the Planner are created on this calendar\. Which calendars the Planner reads is set on the Planner itself\./,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Calendar' })).toBeNull()
+  })
+
+  it('Disconnect clears the read set along with the connection', async () => {
+    const user = userEvent.setup()
+    settingsGetMock.mockResolvedValue({
+      ...base,
+      caldavAppleId: 'me@icloud.com',
+      caldavCalendarUrl: 'https://cal/home/',
+      caldavReadCalendars: [{ url: 'https://cal/home/', name: 'Home', enabled: true }],
+      caldavStatus: 'ok',
+    })
+    render(<Settings />)
+    await user.click(await screen.findByRole('button', { name: 'Disconnect' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }))
+    await waitFor(() =>
+      expect(settingsUpdateMock).toHaveBeenCalledWith(
+        'u1',
+        expect.objectContaining({
+          caldavAppleId: null,
+          caldavCalendarUrl: null,
+          caldavReadCalendars: null,
+          caldavStatus: 'unconfigured',
+        }),
+      ),
+    )
   })
 })

@@ -20,6 +20,7 @@ import {
   deleteEvent,
   disconnectOutlookFeed,
   getBusy,
+  listCalendars,
   saveOutlookFeed,
   updateEvent,
 } from './calendarApi'
@@ -229,5 +230,80 @@ describe('planner mirror endpoints (chunk 39)', () => {
     )
     const result = await getBusy({ from: 'x', to: 'y' })
     expect(result.plannerEvents).toBeUndefined()
+  })
+})
+
+describe('listCalendars (chunk 51)', () => {
+  it('GETs /api/calendar/calendars with the JWT and returns calendars + writeTargetUrl', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        ok: true,
+        calendars: [
+          { url: 'https://cal/home/', name: 'Home' },
+          { url: 'https://cal/work/', name: 'Work' },
+          { url: 42, name: 'junk' },
+        ],
+        writeTargetUrl: 'https://cal/home/',
+      }),
+    )
+    const out = await listCalendars()
+    expect(out).toEqual({
+      calendars: [
+        { url: 'https://cal/home/', name: 'Home' },
+        { url: 'https://cal/work/', name: 'Work' },
+      ],
+      writeTargetUrl: 'https://cal/home/',
+    })
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://proxy.test/api/calendar/calendars')
+    expect(init.method).toBe('GET')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer jwt-token')
+  })
+
+  it('maps 412 no_credentials to not_configured', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(412, { ok: false, error: 'no_credentials' }))
+    const err = await listCalendars().catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(CalendarError)
+    expect((err as CalendarError).kind).toBe('not_configured')
+  })
+
+  it('maps 401 auth_failed to auth_failed (reconnect path), not signed_out', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(401, { ok: false, error: 'auth_failed' }))
+    const err = await listCalendars().catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(CalendarError)
+    expect((err as CalendarError).kind).toBe('auth_failed')
+  })
+})
+
+describe('getBusy (chunk 51 calendar tag)', () => {
+  it('passes `calendar` through on iCloud intervals and sources.icloud.calendars', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        ok: true,
+        busy: [
+          {
+            start: '2026-09-01T14:00:00.000Z',
+            end: '2026-09-01T15:00:00.000Z',
+            source: 'icloud',
+            title: 'Dentist',
+            calendar: 'Home',
+          },
+        ],
+        plannerEvents: [],
+        sources: {
+          icloud: {
+            configured: true,
+            ok: true,
+            calendars: [{ url: 'https://cal/home/', name: 'Home', ok: true }],
+          },
+          outlook: { configured: false, status: 'unconfigured', fetchedAt: null, feedName: null },
+        },
+      }),
+    )
+    const out = await getBusy({ from: '2026-08-31T04:00:00Z', to: '2026-09-07T04:00:00Z' })
+    expect(out[0]?.calendar).toBe('Home')
+    expect(out.sources?.icloud.calendars).toEqual([
+      { url: 'https://cal/home/', name: 'Home', ok: true },
+    ])
   })
 })
