@@ -113,7 +113,10 @@ settings
   ai_api_key text,
   caldav_apple_id text,
   caldav_app_password_encrypted bytea,
-  caldav_calendar_url text,
+  caldav_calendar_url text,               -- the single WRITE target (chunk 39 mirrors)
+  -- chunk 51 / migration 13: the READ set, [{ url, name, enabled }]. null =
+  -- not initialized → the proxy reads the write target only (see §7)
+  caldav_read_calendars jsonb,
   caldav_status text not null default 'unconfigured'
     check (caldav_status in ('unconfigured','ok','auth_failed')),
   timezone text not null default 'America/New_York',
@@ -214,15 +217,16 @@ Cache mirrors of all user-scoped Postgres tables live in Dexie (no `user_id` col
 2. Enters Apple ID + password in Settings → clicks "Test connection".
 3. App POSTs `/api/calendar/test-credentials` with Supabase JWT in `Authorization` header.
 4. Proxy verifies JWT, runs CalDAV discovery against `caldav.icloud.com`, returns list of calendars.
-5. User picks a calendar, clicks Save.
-6. App POSTs `/api/calendar/save-credentials`. Proxy AES-GCM-encrypts password with `CALDAV_ENCRYPTION_KEY` env var, writes `caldav_apple_id`, encrypted password, `caldav_calendar_url`, sets `caldav_status = 'ok'`.
+5. User picks the calendar the Planner **writes to** ("Planner writes to"), clicks Save.
+6. App POSTs `/api/calendar/save-credentials`. Proxy AES-GCM-encrypts password with `CALDAV_ENCRYPTION_KEY` env var, writes `caldav_apple_id`, encrypted password, `caldav_calendar_url`, sets `caldav_status = 'ok'`, and resets `caldav_read_calendars` to `null` (chunk 51) — the Planner re-initializes the read set to every discovered calendar, all enabled, on its next mount (see "Read set vs write target" below).
 
 **Runtime endpoints:**
 | Endpoint | Purpose |
 |---|---|
 | `POST /api/calendar/test-credentials` | Discovery + return calendars |
-| `POST /api/calendar/save-credentials` | Encrypt + persist |
-| `GET /api/calendar/busy?from&to` | Return merged `busy: [{ start, end, source, title? }]` for range + `sources` health + `plannerEvents: [{ uid, start, end }]` (iCloud objects tagged `hupo-block-…`, excluded from `busy`) |
+| `POST /api/calendar/save-credentials` | Encrypt + persist (also resets `caldav_read_calendars` to `null`) |
+| `GET /api/calendar/calendars` | Discovery with the **stored** credentials (no password in the request): `{ calendars: [{ url, name }], writeTargetUrl }`. 412 when iCloud isn't configured; 401 `auth_failed` flips `caldav_status` like `busy` (chunk 51) |
+| `GET /api/calendar/busy?from&to` | Return merged `busy: [{ start, end, source, title?, calendar? }]` for range (`calendar` = iCloud display name, chunk 51) + `sources` health (`sources.icloud.calendars: [{ url, name, ok }]` per fetched calendar; `sources.icloud.ok` = at least one answered) + `plannerEvents: [{ uid, start, end }]` (iCloud objects tagged `hupo-block-…`, excluded from `busy`) |
 | `POST /api/calendar/events` | Create VEVENT, return `{ uid }`; `source: 'planner'` tags the uid `hupo-block-<uuid>` and defaults the description to `Planned in Hupomnemata` |
 | `PATCH /api/calendar/events` | `{ uid, title, start, end, description? }` — rebuild the VEVENT at `<calendar_url><uid>.ics` (unconditional PUT, no etag), return `{ ok }` |
 | `DELETE /api/calendar/events?uid=…` | Delete the VEVENT; an upstream 404 answers `{ ok, missing: true }` (idempotent) |
@@ -236,6 +240,8 @@ Cache mirrors of all user-scoped Postgres tables live in Dexie (no `user_id` col
 - JWT validated via `jose.jwtVerify` against Supabase JWKS.
 
 **Outlook ICS feed (chunk 34 proxy / chunk 35 client).** A second, read-only busy source: the user publishes their work calendar from Outlook and pastes the ICS link into Settings. `POST /api/calendar/outlook` with `{ icsUrl }` verifies the feed and persists it AES-GCM-encrypted (`outlook_ics_url_encrypted`) along with `outlook_feed_name`/`outlook_status`; `{ icsUrl: null }` disconnects. Verification failures return `422 { ok: false, error: 'invalid_url' | 'unreachable' | 'invalid_feed' }`. `GET /api/calendar/busy` merges both sources — `busy` entries carry `source: 'icloud' | 'outlook'` (+ optional `title`) and the response includes a `sources` block with per-source health; it 412s only when NEITHER source is configured. When the feed stops responding the proxy serves `outlook_cached_busy` (stamped `outlook_fetched_at`) and flips `outlook_status='unreachable'` — the UI treats this as stale-not-lost (amber, never destructive). The ICS URL is write-only from the client: never mapped into the client `Settings` type, never prefilled, never read back. Nothing is ever written to Outlook.
+
+**Read set vs write target (chunk 51, D2).** The proxy reads **all** of the account's event calendars but writes to one. `caldav_calendar_url` is the single **write target** — chosen in Settings at connect time, unchanged by chunk 51, and where every planner mirror lands. `caldav_read_calendars` (jsonb, `[{ url, name, enabled }]`) is the **read set**: `busy` fans out across the enabled calendars in parallel (`Promise.allSettled`, at most 6 in flight), merges the intervals and tags each `calendar: <display name>`; one failing calendar never fails the response (it is reported `ok: false` in `sources.icloud.calendars`), and the request throws only when every calendar failed — all-auth still flips `caldav_status` and answers `401 auth_failed`. The write target is **always fetched**, even when disabled or absent from the set, because planner mirrors live there and the reconcile depends on `plannerEvents`; a disabled write target contributes `plannerEvents` but no busy intervals, and the `hupo-block-` exclusion runs per calendar so a mirror never counts as busy anywhere. `null` is "not initialized" — every pre-chunk-51 row, and every row after a credential re-save or disconnect — and means the legacy single-calendar read of the write target (unnamed: no `calendar` field). The toggles live on the **Planner** (D1), not in Settings: a `CALENDARS · n/m` header chip opens a popover with a switch per calendar (default all on — subscribed and holiday calendars included, the toggle is the remedy), a `WRITE` tag on the write-target row, and a link to Settings; each toggle writes the set through the repo and bumps `busyRefreshKey` so the per-week cache drops; opening the popover re-runs discovery (`GET /api/calendar/calendars`) and appends new calendars enabled / drops vanished ones. The Planner initializes a `null` set once per mount (all discovered, all enabled) and refetches busy; a failed initialization stays `null` (`CALENDARS · –`) and retries on the next mount. The Dashboard busy strip consumes the same merged `busy` and so reflects the union without change. Nothing is written to any calendar other than the write target (D5: no app → Outlook write).
 
 **Planner block mirror (chunk 39).** The Week Planner writes its blocks to the selected iCloud calendar through the same events endpoint family (see §4 for the client-side semantics). The exclusion of mirrored events from busy is **proxy-side by design**: the client's capacity math (`plannerCapacity.ts`) subtracts busy *and* scheduled, and the only place the `hupo-block-` tag is visible is the raw VEVENT's `UID` line — so `caldav.getBusy` splits objects into `intervals` and `plannerEvents` before anything reaches the client. `uid`s are validated `^[A-Za-z0-9-]{1,80}$` (no path characters). The Outlook path is untouched; `plannerEvents` is `[]` when iCloud is not configured.
 
