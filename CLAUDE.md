@@ -11,7 +11,7 @@ Four agents work this repo; each owns one lane.
 - **Claude (orchestrator)** — reads committed source at exact SHAs, authors prompts / specs / briefs, verifies results independently, makes scope calls.
 - **Claude Code** — implements chunks; updates `PROGRESS.md`, the Decisions log and routine doc edits in the same commit pass.
 - **Cowork (Chrome MCP)** — live smoke runs; no push credentials, reports the SHA back.
-- **Claude Design** — visual passes only. Output is committed under `design/` as an unwired reference and is never imported by `src/`. Code does not design; Design does not wire.
+- **Claude Design** — visual passes only. Output is committed under `hupomnemata_handoff/<feature>/` (planner and notebook precedent), not `design/`, as an unwired reference and is never imported by `src/`. Code does not design; Design does not wire.
 
 ## Progress tracking
 
