@@ -4,9 +4,13 @@ const {
   bulkUpsert,
   bulkDeleteAllForUser,
   existingIds,
+  noteBodiesForTasks,
   outboxClear,
   wipeLocalCacheMock,
 } = vi.hoisted(() => ({
+    noteBodiesForTasks: vi.fn<
+      (taskIds: string[]) => Promise<{ task_id: string; body: string }[]>
+    >(() => Promise.resolve([])),
     bulkUpsert: vi.fn<(...args: unknown[]) => Promise<void>>(),
     bulkDeleteAllForUser: vi.fn<(...args: unknown[]) => Promise<void>>(),
     existingIds: vi.fn<(table: string, ids: string[]) => Promise<string[]>>(
@@ -17,7 +21,9 @@ const {
   }))
 
 vi.mock('@/db/repo', () => ({
-  repo: { data: { bulkUpsert, bulkDeleteAllForUser, existingIds } },
+  repo: {
+    data: { bulkUpsert, bulkDeleteAllForUser, existingIds, noteBodiesForTasks },
+  },
 }))
 vi.mock('@/db/dexie', () => ({ db: { outbox: { clear: outboxClear } } }))
 vi.mock('@/db/localCache', () => ({ wipeLocalCache: wipeLocalCacheMock }))
@@ -510,4 +516,109 @@ describe('notes (chunk 58)', () => {
       ])
     },
   )
+})
+
+describe('legacy tasks.notes → notes (chunk 59, D3)', () => {
+  const T = (id: string, notes: unknown, n = 1) => ({
+    id,
+    user_id: 'u1',
+    title: id,
+    notes,
+    created_at: `2026-0${n}-01T00:00:00+00:00`,
+    updated_at: `2026-0${n}-02T00:00:00+00:00`,
+  })
+  /** A file written before chunk 58: tasks carry `notes`, there is no `notes` key. */
+  const pre58 = () =>
+    validPayload({
+      tasks: [
+        T('t1', 'Call the vendor\nask about lead time', 1),
+        T('t2', '   \n  ', 2),
+        T('t3', null, 3),
+        T('t4', '  padded  ', 4),
+      ],
+    })
+
+  it.each(['replace', 'merge'] as const)(
+    '%s: a pre-58 file imports one note per non-blank task note',
+    async (mode) => {
+      await importData(pre58(), mode, 'u1')
+
+      const notes = upsertedRows('notes')!
+      expect(notes.map((n) => n.task_id)).toEqual(['t1', 't4'])
+      expect(notes[0]).toMatchObject({
+        user_id: 'u1',
+        title: '',
+        body: 'Call the vendor\nask about lead time',
+        task_id: 't1',
+        subcategory_id: null,
+        pinned: false,
+        detached_label: null,
+        detached_at: null,
+        created_at: '2026-01-01T00:00:00+00:00',
+        updated_at: '2026-01-02T00:00:00+00:00',
+      })
+      expect(notes[0].id).toMatch(/^[0-9a-f-]{36}$/)
+      expect(notes[0].id).not.toBe(notes[1].id)
+      // Blank and null notes are skipped; the body is kept as written.
+      expect(notes[1].body).toBe('  padded  ')
+      // Synthesized notes go out with the file's own, after tasks.
+      const order = bulkUpsert.mock.calls.map((c) => c[0])
+      expect(order.indexOf('notes')).toBeGreaterThan(order.indexOf('tasks'))
+      expect(order.filter((t) => t === 'notes')).toHaveLength(1)
+    },
+  )
+
+  it.each(['replace', 'merge'] as const)(
+    '%s: task rows are written without `notes`',
+    async (mode) => {
+      await importData(pre58(), mode, 'u1')
+      const tasks = upsertedRows('tasks')!
+      expect(tasks).toHaveLength(4)
+      for (const row of tasks) expect(row).not.toHaveProperty('notes')
+      expect(tasks[0]).toMatchObject({ id: 't1', title: 't1' })
+    },
+  )
+
+  it('re-importing a chunk-59 export (column + copied note) creates no duplicate', async () => {
+    const copied = {
+      id: 'n-copied',
+      user_id: 'u1',
+      title: '',
+      // Migration 17 dedupes on the trimmed body; so does the import.
+      body: 'Call the vendor\nask about lead time  ',
+      task_id: 't1',
+      subcategory_id: null,
+      pinned: false,
+      detached_label: null,
+      detached_at: null,
+      created_at: '2026-01-01T00:00:00+00:00',
+      updated_at: '2026-01-02T00:00:00+00:00',
+    }
+    await importData(
+      validPayload({
+        tasks: [T('t1', 'Call the vendor\nask about lead time')],
+        notes: [copied],
+      }),
+      'merge',
+      'u1',
+    )
+    expect(upsertedRows('notes')).toEqual([copied])
+  })
+
+  it('a live note with the same task and body is not duplicated', async () => {
+    noteBodiesForTasks.mockResolvedValueOnce([
+      { task_id: 't1', body: 'Call the vendor\nask about lead time' },
+      // Same body on another task does not count.
+      { task_id: 't-other', body: 'padded' },
+    ])
+    await importData(pre58(), 'merge', 'u1')
+
+    expect(noteBodiesForTasks).toHaveBeenCalledWith(['t1', 't4'])
+    expect(upsertedRows('notes')!.map((n) => n.task_id)).toEqual(['t4'])
+  })
+
+  it('a file with no legacy notes makes no live read', async () => {
+    await importData(validPayload(), 'merge', 'u1')
+    expect(noteBodiesForTasks).not.toHaveBeenCalled()
+  })
 })

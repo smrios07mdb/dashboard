@@ -20,7 +20,6 @@ function task(overrides: Partial<Task> & { id: string }): Task {
     userId: 'u1',
     subcategoryId: 's-work',
     title: overrides.id,
-    notes: null,
     estimateMinutes: 30,
     dueAt: null,
     remindAt: null,

@@ -238,7 +238,6 @@ export default function Dashboard() {
           userId,
           subcategoryId: input.subcategoryId,
           title: input.title,
-          notes: null,
           estimateMinutes: input.estimateMinutes,
           dueAt: null,
           remindAt: null,
@@ -359,20 +358,6 @@ export default function Dashboard() {
         toast(priority ? `Priority set to P${priority}` : 'Priority cleared')
       } catch (e) {
         console.error('Set priority failed', e)
-        toast.error(SAVE_ERROR)
-      }
-    },
-    [upsertTask],
-  )
-
-  const onEditTaskNotes = useCallback(
-    async (id: string, notes: string | null) => {
-      try {
-        const updated = await repo.tasks.update(id, { notes })
-        upsertTask(updated)
-        toast('Notes saved')
-      } catch (e) {
-        console.error('Edit notes failed', e)
         toast.error(SAVE_ERROR)
       }
     },
@@ -646,7 +631,6 @@ export default function Dashboard() {
           onMoveTaskToSubcategory={onMoveTaskToSubcategory}
           onSetTaskReminder={onSetTaskReminder}
           onSetTaskPriority={onSetTaskPriority}
-          onEditTaskNotes={onEditTaskNotes}
           sortKey={sortKey}
           onChangeSortKey={onChangeSortKey}
           onCreateSubcategory={onCreateSubcategory}

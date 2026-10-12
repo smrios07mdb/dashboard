@@ -67,7 +67,6 @@ const task = (
   userId: 'u1',
   subcategoryId,
   title: 't',
-  notes: null,
   estimateMinutes,
   dueAt: null,
   remindAt: null,

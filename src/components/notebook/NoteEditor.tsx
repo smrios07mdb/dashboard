@@ -8,8 +8,24 @@ import {
 } from 'react'
 
 import DeleteConfirm from '@/components/DeleteConfirm'
-import { ChevronLeft, Link, Pin, Trash, Unlink } from '@/components/icons'
+import {
+  BookOpen,
+  ChevronLeft,
+  Link,
+  MoreHorizontal,
+  Pin,
+  Plus,
+  Trash,
+  Unlink,
+} from '@/components/icons'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { IconButton } from '@/components/ui/icon-button'
 import { SyncDot } from '@/components/ui/sync-badge'
 import { countOutboxFor } from '@/db/outbox'
@@ -41,6 +57,10 @@ import AttachmentChip from './AttachmentChip'
  * keystrokes the fields render from `draft`, otherwise from the `note` prop,
  * so a realtime refetch can never clobber typing and no effect copies props
  * into state.
+ *
+ * Embedded in the task sheet (chunk 59) it is given a `menu`: a ⋯ dropdown
+ * holding Open in Notebook, New note on this task and Delete note, which
+ * replaces the standalone header trash. The Notebook screen passes none.
  */
 
 const AUTOSAVE_MS = 600
@@ -63,8 +83,19 @@ type NoteEditorProps = {
   /** Detach from the header's unlink control — immediate. */
   onDetach: () => void
   onDelete: () => void | Promise<void>
-  /** Phone only: back to the list. */
-  onBack: () => void
+  /** Phone only: back to the list. Omitted where the host has its own way back. */
+  onBack?: () => void
+  /**
+   * Task sheet only: a ⋯ menu in place of the header trash. Delete note in it
+   * is the same confirm as the trash, wired to `onDelete`.
+   */
+  menu?: NoteEditorMenu
+}
+
+export type NoteEditorMenu = {
+  /** Absent for a draft nothing has been written for — it is not in the Notebook yet. */
+  onOpenInNotebook?: () => void
+  onNewNote: () => void
 }
 
 export default function NoteEditor({
@@ -78,6 +109,7 @@ export default function NoteEditor({
   onDetach,
   onDelete,
   onBack,
+  menu,
 }: NoteEditorProps) {
   const [draft, setDraft] = useState<TextChanges | null>(null)
   // A blank note opens straight into the textarea.
@@ -188,18 +220,35 @@ export default function NoteEditor({
   const glyph = touch ? 18 : 16
   const linked = attachment && attachment.kind !== 'detached' ? attachment : null
 
+  const deleteCopy = linked ? (
+    <>
+      This cannot be undone. The {linked.kind === 'task' ? 'task' : 'list'}{' '}
+      <strong className="font-semibold text-ink">{linked.name}</strong> is not
+      affected.
+    </>
+  ) : (
+    'This cannot be undone.'
+  )
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex min-w-0 items-center gap-2 border-b border-line py-2 pl-1.5 pr-2.5 sm:px-[18px] sm:py-3.5">
-        <IconButton
-          label="Back to notes"
-          size={44}
-          tone="ink"
-          onClick={onBack}
-          className="sm:hidden"
-        >
-          <ChevronLeft size={20} />
-        </IconButton>
+      <header
+        className={cn(
+          'flex min-w-0 items-center gap-2 border-b border-line py-2 pr-2.5',
+          menu ? 'pl-3.5' : 'pl-1.5 sm:px-[18px] sm:py-3.5',
+        )}
+      >
+        {onBack && (
+          <IconButton
+            label="Back to notes"
+            size={44}
+            tone="ink"
+            onClick={onBack}
+            className="sm:hidden"
+          >
+            <ChevronLeft size={20} />
+          </IconButton>
+        )}
         <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
           {linked ? (
             <>
@@ -250,31 +299,64 @@ export default function NoteEditor({
         >
           <Pin size={glyph} fill={note.pinned ? 'currentColor' : 'none'} />
         </IconButton>
-        <DeleteConfirm
-          trigger={
-            <IconButton label="Delete note" size={ctl}>
-              <Trash size={glyph} />
-            </IconButton>
-          }
-          title="Delete this note?"
-          description={
-            linked ? (
-              <>
-                This cannot be undone. The{' '}
-                {linked.kind === 'task' ? 'task' : 'list'}{' '}
-                <strong className="font-semibold text-ink">{linked.name}</strong>{' '}
-                is not affected.
-              </>
-            ) : (
-              'This cannot be undone.'
-            )
-          }
-          onConfirm={onDelete}
-        />
+        {menu ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton label="Note actions" size={ctl}>
+                <MoreHorizontal size={glyph} />
+              </IconButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                disabled={!menu.onOpenInNotebook}
+                onSelect={() => menu.onOpenInNotebook?.()}
+              >
+                <BookOpen size={14} aria-hidden />
+                Open in Notebook
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => menu.onNewNote()}>
+                <Plus size={14} aria-hidden />
+                New note on this task
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DeleteConfirm
+                trigger={
+                  <DropdownMenuItem
+                    // Keep the menu open until the AlertDialog has focus.
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash size={14} aria-hidden />
+                    Delete note
+                  </DropdownMenuItem>
+                }
+                title="Delete this note?"
+                description={deleteCopy}
+                onConfirm={onDelete}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <DeleteConfirm
+            trigger={
+              <IconButton label="Delete note" size={ctl}>
+                <Trash size={glyph} />
+              </IconButton>
+            }
+            title="Delete this note?"
+            description={deleteCopy}
+            onConfirm={onDelete}
+          />
+        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="w-full max-w-[720px] px-5 pb-10 pt-3.5 sm:px-9 sm:pb-[60px] sm:pt-[26px]">
+        <div
+          className={cn(
+            'w-full max-w-[720px] px-5 pb-10 pt-3.5',
+            !menu && 'sm:px-9 sm:pb-[60px] sm:pt-[26px]',
+          )}
+        >
           {attachment?.kind === 'detached' && (
             <div
               data-testid="detached-strip"
@@ -299,7 +381,10 @@ export default function NoteEditor({
             onBlur={flush}
             placeholder="Untitled"
             aria-label="Title"
-            className="title mb-2 w-full border-0 bg-transparent p-0 text-[26px] leading-[1.15] outline-none placeholder:text-ink-4 sm:mb-3 sm:text-[30px]"
+            className={cn(
+              'title mb-2 w-full border-0 bg-transparent p-0 leading-[1.15] outline-none placeholder:text-ink-4',
+              menu ? 'text-[22px]' : 'text-[26px] sm:mb-3 sm:text-[30px]',
+            )}
           />
           {editing ? (
             <textarea

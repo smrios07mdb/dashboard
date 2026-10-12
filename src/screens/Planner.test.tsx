@@ -197,7 +197,6 @@ describe('Planner — reconcile on week navigation (chunk 40, F1)', () => {
         userId: 'u1',
         subcategoryId: 's1',
         title: 'Deep work',
-        notes: null,
         estimateMinutes: 60,
         dueAt: null,
         remindAt: null,

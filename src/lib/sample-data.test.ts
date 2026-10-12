@@ -116,7 +116,6 @@ describe('wipeMyData — clears the outbox (chunk-15 resolution 10b)', () => {
       userId: 'u1',
       subcategoryId: 's1',
       title: 'cached',
-      notes: null,
       estimateMinutes: 0,
       dueAt: null,
       remindAt: null,

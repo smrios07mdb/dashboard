@@ -16,7 +16,6 @@ function task(overrides: Partial<Task> = {}): Task {
     userId: 'u1',
     subcategoryId: 's1',
     title: `Task ${seq}`,
-    notes: null,
     estimateMinutes: 30,
     dueAt: null,
     remindAt: null,

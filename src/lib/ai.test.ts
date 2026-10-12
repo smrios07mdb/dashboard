@@ -34,7 +34,6 @@ function task(over: Partial<Task> = {}): Task {
     userId: 'u1',
     subcategoryId: 'sub-1',
     title: 'Write report',
-    notes: null,
     estimateMinutes: 25,
     dueAt: null,
     remindAt: null,

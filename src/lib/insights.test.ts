@@ -31,7 +31,6 @@ function task(
     userId: 'u1',
     subcategoryId,
     title: id,
-    notes: null,
     estimateMinutes,
     dueAt: null,
     remindAt: null,

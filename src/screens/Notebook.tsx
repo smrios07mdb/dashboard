@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Navigate,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom'
 import { toast } from 'sonner'
 
 import AttachPicker, {
@@ -7,6 +12,7 @@ import AttachPicker, {
 } from '@/components/notebook/AttachPicker'
 import NoteEditor from '@/components/notebook/NoteEditor'
 import NoteList from '@/components/notebook/NoteList'
+import { useNoteWriter } from '@/components/notebook/useNoteWriter'
 import { repo } from '@/db/repo'
 import type { Category, Note, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
@@ -26,23 +32,9 @@ import { useUIStore } from '@/state/uiStore'
  *
  * New note opens an unsaved draft: nothing is written until its title or body
  * is non-empty, and walking away from an empty draft simply drops it. Emptying
- * a note that already exists does not delete it.
+ * a note that already exists does not delete it. That write path is
+ * `useNoteWriter`, shared with the task sheet since chunk 59.
  */
-
-const SAVE_ERROR = 'Could not save — retry'
-
-type NoteChanges = Partial<
-  Pick<
-    Note,
-    | 'title'
-    | 'body'
-    | 'pinned'
-    | 'taskId'
-    | 'subcategoryId'
-    | 'detachedLabel'
-    | 'detachedAt'
-  >
->
 
 type ViewData = {
   notes: Note[]
@@ -51,12 +43,10 @@ type ViewData = {
   tasks: Task[]
 }
 
-const isBlank = (n: Pick<Note, 'title' | 'body'>) =>
-  n.title.trim() === '' && n.body.trim() === ''
-
 export default function Notebook() {
   const { noteId } = useParams<{ noteId?: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { user } = useSession()
   const userId = user?.id ?? null
   const touch = useIsTouchDevice()
@@ -69,22 +59,33 @@ export default function Notebook() {
     tasks: [],
   })
   const [loaded, setLoaded] = useState(false)
-  const [draft, setDraft] = useState<Note | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
 
-  /**
-   * Unsaved drafts as the save path sees them, by id. State lags a render, and
-   * a draft's last keystrokes are flushed as its editor unmounts — by which
-   * time New note may already have opened the next one.
-   */
-  const draftsRef = useRef(new Map<string, Note>())
-  /**
-   * Notes created here that a refetch has not returned yet. A read that began
-   * before the insert landed must not drop the note the user is typing in.
-   */
-  const createdRef = useRef(new Set<string>())
-  /** Writes run one at a time, so an update never overtakes its insert. */
-  const chainRef = useRef<Promise<unknown>>(Promise.resolve())
+  // The draft / create / update / delete path lives in `useNoteWriter` (chunk
+  // 59), shared with the task sheet. This screen keeps its own list, so each
+  // successful write is applied to it here as well.
+  const {
+    draft,
+    openDraft,
+    save,
+    attach,
+    detach: detachNote,
+    remove: removeNote,
+    keepCreated,
+  } = useNoteWriter({
+    onCreated: (created) =>
+      setData((prev) => ({ ...prev, notes: [created, ...prev.notes] })),
+    onUpdated: (updated) =>
+      setData((prev) => ({
+        ...prev,
+        notes: prev.notes.map((n) => (n.id === updated.id ? updated : n)),
+      })),
+    onDeleted: (id) =>
+      setData((prev) => ({
+        ...prev,
+        notes: prev.notes.filter((n) => n.id !== id),
+      })),
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -96,12 +97,9 @@ export default function Notebook() {
         repo.tasks.list(),
       ])
       if (cancelled) return
-      for (const n of notes) createdRef.current.delete(n.id)
+      const merge = keepCreated(notes)
       setData((prev) => ({
-        notes: [
-          ...prev.notes.filter((n) => createdRef.current.has(n.id)),
-          ...notes,
-        ],
+        notes: merge(prev.notes),
         categories,
         subcategories,
         tasks,
@@ -115,7 +113,7 @@ export default function Notebook() {
     return () => {
       cancelled = true
     }
-  }, [dashboardRefreshKey])
+  }, [dashboardRefreshKey, keepCreated])
 
   const ctx: NoteContext = useMemo(
     () => ({
@@ -131,83 +129,29 @@ export default function Notebook() {
     (draft && draft.id === noteId ? draft : null)
   const selectedIsDraft = selected !== null && selected === draft
 
-  /** Apply one change to one note: the draft, a first insert, or an update. */
-  const write = useCallback(
-    async (id: string, changes: NoteChanges): Promise<void> => {
-      const drafts = draftsRef.current
-      const d = drafts.get(id)
-      const show = (next: Note | null) =>
-        setDraft((cur) => (cur && cur.id === id ? next : cur))
-      if (d) {
-        const merged: Note = { ...d, ...changes }
-        if (isBlank(merged)) {
-          drafts.set(id, merged)
-          show(merged)
-          return
-        }
-        drafts.delete(id)
-        try {
-          const created = await repo.notes.create({
-            userId: merged.userId,
-            id: merged.id,
-            title: merged.title,
-            body: merged.body,
-            pinned: merged.pinned,
-            taskId: merged.taskId,
-            subcategoryId: merged.subcategoryId,
-          })
-          createdRef.current.add(created.id)
-          setData((prev) => ({ ...prev, notes: [created, ...prev.notes] }))
-          show(null)
-        } catch (e) {
-          drafts.set(id, merged)
-          show(merged)
-          throw e
-        }
-        return
-      }
-      const updated = await repo.notes.update(id, changes)
-      setData((prev) => ({
-        ...prev,
-        notes: prev.notes.map((n) => (n.id === id ? updated : n)),
-      }))
-    },
-    [],
-  )
-
-  const save = useCallback(
-    (id: string, changes: NoteChanges): Promise<void> => {
-      const run = chainRef.current.then(() => write(id, changes))
-      chainRef.current = run.catch(() => undefined)
-      return run.catch((e) => {
-        console.error('Note save failed', e)
-        toast.error(SAVE_ERROR)
-        throw e
-      })
-    },
-    [write],
-  )
-
   function newNote() {
     if (!userId) return
-    const now = new Date().toISOString()
-    const fresh: Note = {
-      id: crypto.randomUUID(),
-      userId,
-      title: '',
-      body: '',
-      pinned: false,
-      taskId: null,
-      subcategoryId: null,
-      detachedLabel: null,
-      detachedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    }
-    draftsRef.current.set(fresh.id, fresh)
-    setDraft(fresh)
-    navigate(`/notebook/${fresh.id}`)
+    navigate(`/notebook/${openDraft(userId).id}`)
   }
+
+  // `/notebook?attach=subcategory:<id>` (the drill-down's "New note here"):
+  // read once, open an unsaved draft already attached to that list, and put
+  // the draft's own URL in place of this one. An id that names no live list —
+  // unknown, or archived — is ignored and the param dropped.
+  const attachParam = searchParams.get('attach')
+  const attachHandled = useRef(false)
+  useEffect(() => {
+    if (!attachParam || !loaded || !userId || attachHandled.current) return
+    attachHandled.current = true
+    const id = /^subcategory:(.+)$/.exec(attachParam)?.[1]
+    const list = data.subcategories.find((s) => s.id === id && !s.archivedAt)
+    navigate(
+      list
+        ? `/notebook/${openDraft(userId, { subcategoryId: list.id }).id}`
+        : '/notebook',
+      { replace: true },
+    )
+  }, [attachParam, loaded, userId, data.subcategories, navigate, openDraft])
 
   const attachment = selected ? resolveAttachment(selected, ctx) : null
   const linkedName =
@@ -215,7 +159,7 @@ export default function Notebook() {
 
   function detach(note: Note) {
     const name = linkedName ?? 'its list'
-    void save(note.id, { taskId: null, subcategoryId: null }).then(
+    void detachNote(note.id).then(
       () => toast.success(`Detached from ${name}.`),
       () => undefined,
     )
@@ -227,39 +171,14 @@ export default function Notebook() {
       detach(note)
       return
     }
-    void save(note.id, {
-      taskId: target.kind === 'task' ? target.id : null,
-      subcategoryId: target.kind === 'subcategory' ? target.id : null,
-      detachedLabel: null,
-      detachedAt: null,
-    }).then(
+    void attach(note.id, target).then(
       () => toast.success(`Attached to ${target.name}.`),
       () => undefined,
     )
   }
 
-  async function remove(note: Note, isDraft: boolean) {
-    if (isDraft) {
-      draftsRef.current.delete(note.id)
-      setDraft(null)
-      navigate('/notebook')
-      return
-    }
-    try {
-      // Behind any write still queued for this note.
-      await chainRef.current
-      await repo.notes.delete(note.id)
-      createdRef.current.delete(note.id)
-      setData((prev) => ({
-        ...prev,
-        notes: prev.notes.filter((n) => n.id !== note.id),
-      }))
-      navigate('/notebook')
-      toast.success('Note deleted.')
-    } catch (e) {
-      console.error('Note delete failed', e)
-      toast.error(SAVE_ERROR)
-    }
+  async function remove(note: Note) {
+    if (await removeNote(note)) navigate('/notebook')
   }
 
   // An id that names neither a note nor the open draft: back to the list.
@@ -308,7 +227,7 @@ export default function Notebook() {
             }
             onAttach={() => setPickerOpen(true)}
             onDetach={() => detach(selected)}
-            onDelete={() => remove(selected, selectedIsDraft)}
+            onDelete={() => remove(selected)}
             onBack={() => navigate('/notebook')}
           />
         )}

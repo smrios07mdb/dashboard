@@ -208,7 +208,6 @@ const aTask = (overrides: Partial<Task> = {}): Task => ({
   userId: 'u-1',
   subcategoryId: 'sub-1',
   title: 'Draft launch brief',
-  notes: null,
   estimateMinutes: 45,
   dueAt: null,
   remindAt: null,

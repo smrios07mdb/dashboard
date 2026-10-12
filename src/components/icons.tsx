@@ -63,3 +63,5 @@ export const User = icon(Lucide.User, 'User')
 export const BookOpen = icon(Lucide.BookOpen, 'BookOpen')
 export const Pin = icon(Lucide.Pin, 'Pin')
 export const Unlink = icon(Lucide.Unlink, 'Unlink')
+// Note glyph (chunk 59): task rows, list headers, planner blocks
+export const Note = icon(Lucide.StickyNote, 'Note')

@@ -18,7 +18,6 @@ const task: Task = {
   userId: 'u-1',
   subcategoryId: 'sub-1',
   title: 'Task',
-  notes: null,
   estimateMinutes: 45,
   dueAt: null,
   remindAt: null,

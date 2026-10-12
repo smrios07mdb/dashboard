@@ -2,7 +2,6 @@ import { useState } from 'react'
 import {
   Bell,
   CalendarClock,
-  FileText,
   ListFilter,
   MoreHorizontal,
   Trash2,
@@ -10,7 +9,7 @@ import {
 
 import BlockTimeSheet from '@/components/BlockTimeSheet'
 import DeleteConfirm from '@/components/DeleteConfirm'
-import EditNotesDialog from '@/components/EditNotesDialog'
+import { Note as NoteGlyph } from '@/components/icons'
 import MoveToPicker from '@/components/MoveToPicker'
 import {
   DropdownMenu,
@@ -19,7 +18,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { Category, Subcategory, Task } from '@/db/types'
+import type { Category, Note, Subcategory, Task } from '@/db/types'
+import { noteRel } from '@/lib/notes'
 import { cn } from '@/lib/utils'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 
@@ -28,8 +28,9 @@ import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
  *
  * Items per chunk 9: Move to (cascading MoveToPicker), Set reminder…
  * (delegates to the parent — the reminder popover is anchored on
- * TaskRow's bell icon, so its open state lives there), Edit notes
- * (EditNotesDialog mounted right here), Delete (DeleteConfirm).
+ * TaskRow's bell icon, so its open state lives there), Notes / Add a
+ * note (chunk 59 — opens the task notes sheet NotesProvider owns; it
+ * replaced the old notes dialog), Delete (DeleteConfirm).
  *
  * "Move to" uses MoveToPicker as a DropdownMenuSub branch — picking a
  * target closes the dropdown via Radix's default item-select behavior
@@ -49,7 +50,9 @@ export type TaskMenuProps = {
   onOpenReminder: () => void
   /** Opens the priority picker that lives in TaskRow (chip + this item). */
   onOpenPriority: () => void
-  onEditNotes: (notes: string | null) => void | Promise<void>
+  /** The task's notes, newest first — picks the item's label and right side. */
+  notes: Note[]
+  onOpenNotes: () => void
   onDelete: () => void | Promise<void>
 }
 
@@ -60,10 +63,10 @@ export default function TaskMenu({
   onMoveToSubcategoryId,
   onOpenReminder,
   onOpenPriority,
-  onEditNotes,
+  notes,
+  onOpenNotes,
   onDelete,
 }: TaskMenuProps) {
-  const [notesOpen, setNotesOpen] = useState(false)
   const isTouch = useIsTouchDevice()
   const [blockTimeOpen, setBlockTimeOpen] = useState(false)
 
@@ -106,9 +109,14 @@ export default function TaskMenu({
             <CalendarClock className="size-3.5" aria-hidden />
             Block time
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setNotesOpen(true)}>
-            <FileText className="size-3.5" aria-hidden />
-            Edit notes
+          <DropdownMenuItem onSelect={() => onOpenNotes()}>
+            <NoteGlyph size={14} aria-hidden />
+            {notes.length > 0 ? 'Notes' : 'Add a note'}
+            {notes.length > 0 && (
+              <span className="num ml-auto pl-4 text-[11px] text-ink-3">
+                {notes.length > 1 ? notes.length : noteRel(notes[0].updatedAt)}
+              </span>
+            )}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DeleteConfirm
@@ -131,14 +139,6 @@ export default function TaskMenu({
           />
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <EditNotesDialog
-        open={notesOpen}
-        onOpenChange={setNotesOpen}
-        taskTitle={task.title}
-        notes={task.notes}
-        onSave={onEditNotes}
-      />
 
       <BlockTimeSheet
         task={task}

@@ -14,7 +14,6 @@ const aTask = (overrides: Partial<Task> = {}): Task => ({
   userId: 'u-1',
   subcategoryId: 'sub-1',
   title: 'Write API changelog',
-  notes: null,
   estimateMinutes: 30,
   dueAt: '2026-05-05T00:00:00.000Z',
   remindAt: null,

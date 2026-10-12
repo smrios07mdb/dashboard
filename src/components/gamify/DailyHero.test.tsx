@@ -35,7 +35,6 @@ const doneTask = (id: string, subcategoryId: string): Task => ({
   userId: 'u1',
   subcategoryId,
   title: 't',
-  notes: null,
   estimateMinutes: 30,
   dueAt: null,
   remindAt: null,

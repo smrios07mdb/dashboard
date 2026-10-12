@@ -18,7 +18,6 @@ export function mkTask(over: Partial<Task> & { id: string }): Task {
     userId: 'u1',
     subcategoryId: 's-atlas',
     title: over.id,
-    notes: null,
     estimateMinutes: 30,
     dueAt: null,
     remindAt: null,

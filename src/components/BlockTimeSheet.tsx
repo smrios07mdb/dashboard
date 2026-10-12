@@ -4,6 +4,7 @@ import { CalendarPlus, Clock } from 'lucide-react'
 import { formatInTimeZone } from 'date-fns-tz'
 import { toast } from 'sonner'
 
+import { useTaskNotes } from '@/components/notebook/notesContext'
 import ReconnectBanner from '@/components/ReconnectBanner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ import { useSession } from '@/lib/auth'
 import { bustBusyDays, getBusyDay } from '@/lib/busyCache'
 import { CalendarError, createEvent, isAuthFailed } from '@/lib/calendarApi'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
+import { notesDescription } from '@/lib/notes'
 import { withSessionRetry } from '@/lib/session'
 import { proposeSlots, type ProposedSlot } from '@/lib/slots'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
@@ -78,10 +80,13 @@ export default function BlockTimeSheet({
   // Notes are NOT written to the calendar event unless the user opts in
   // (PRIV-03) — they'd otherwise sync to every device on the Apple ID.
   const [includeNotes, setIncludeNotes] = useState(false)
+  // The task's notes come from the notes table (chunk 59): every non-blank
+  // note, newest first. Empty string = nothing to include, so no checkbox.
+  const notesText = notesDescription(useTaskNotes(task.id))
 
   // Reset to the loading state when the sheet opens — done during render via
-  // the prevOpen-compare pattern (NOT a useEffect), matching EditNotesDialog and
-  // the project convention, so it doesn't trip the React-19 set-state-in-effect
+  // the prevOpen-compare pattern (NOT a useEffect), matching the
+  // project convention, so it doesn't trip the React-19 set-state-in-effect
   // lint. The effect below then only setStates after an await.
   const [prevOpen, setPrevOpen] = useState(open)
   if (prevOpen !== open) {
@@ -162,7 +167,7 @@ export default function BlockTimeSheet({
           // Title-only by default (PRIV-03). Notes only leave the device — and
           // sync to every device on the Apple ID + any shared calendars — when
           // the user explicitly opts in via the toggle below.
-          description: includeNotes ? (task.notes ?? undefined) : undefined,
+          description: includeNotes && notesText ? notesText : undefined,
         }),
       )
       // Bust the affected day(s) so the next strip/sheet refresh sees the new
@@ -265,7 +270,7 @@ export default function BlockTimeSheet({
                   />
                 ))}
               </div>
-              {task.notes && (
+              {notesText && (
                 <div className="flex items-center gap-2 pt-1">
                   <Checkbox
                     id="include-notes"
@@ -282,7 +287,7 @@ export default function BlockTimeSheet({
               )}
               <p className="text-[12px] leading-relaxed text-ink-3">
                 The event title
-                {task.notes ? ' (and notes, if included above)' : ''} is saved to
+                {notesText ? ' (and notes, if included above)' : ''} is saved to
                 Apple Calendar and syncs to all devices on your Apple ID.
               </p>
               <div className="pt-1">

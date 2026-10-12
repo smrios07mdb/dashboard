@@ -13,6 +13,8 @@
  */
 import type { ReactNode } from 'react'
 
+import { NOTE_LINK_SOURCE } from './notes'
+
 const SAFE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:'])
 
 /** The URL as an href when its scheme is allowed, else `null`. */
@@ -27,9 +29,10 @@ export function safeHref(raw: string): string | null {
   return SAFE_PROTOCOLS.has(protocol) ? url : null
 }
 
-// `[text](target)` — or a bare http(s) URL, which stops at whitespace and at a
-// closing parenthesis so "(see https://x.y)" does not swallow the bracket.
-const INLINE = /\[([^\]]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s)]+)/g
+// `[text](target)` (the pattern `notes.ts` shares with the list excerpt) — or a
+// bare http(s) URL, which stops at whitespace and at a closing parenthesis so
+// "(see https://x.y)" does not swallow the bracket.
+const INLINE = new RegExp(`${NOTE_LINK_SOURCE}|(https?:\\/\\/[^\\s)]+)`, 'g')
 
 function link(href: string, text: string, key: string): ReactNode {
   return (

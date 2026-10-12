@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react'
 
+import { Note } from '@/components/icons'
 import DeleteSubcategoryDialog from '@/components/DeleteSubcategoryDialog'
 import MergeSubcategoryDialog from '@/components/MergeSubcategoryDialog'
 import {
@@ -52,6 +53,8 @@ export type SubcategoryHeaderProps = {
   incompleteMinutes: number
   /** Total tasks attached to this subcategory (live + completed). */
   taskCount: number
+  /** Notes on this list and its tasks (chunk 59); the glyph shows above 0. */
+  noteCount?: number
   /** Other non-archived subs in the same category — exclude self. */
   otherSubsInCategory: Subcategory[]
   canMoveUp: boolean
@@ -81,6 +84,7 @@ export default function SubcategoryHeader({
   incompleteCount,
   incompleteMinutes,
   taskCount,
+  noteCount = 0,
   otherSubsInCategory,
   canMoveUp,
   canMoveDown,
@@ -227,6 +231,16 @@ export default function SubcategoryHeader({
       <span className="font-mono text-[12px] tabular-nums text-ink-3">
         {incompleteCount}
       </span>
+      {noteCount > 0 && (
+        <span
+          data-testid="list-note-count"
+          title={`${noteCount} ${noteCount === 1 ? 'note' : 'notes'} on this list`}
+          className="num inline-flex items-center gap-1 text-[11px] text-ink-3"
+        >
+          <Note size={13} aria-hidden />
+          {noteCount}
+        </span>
+      )}
       <span className="min-w-[50px] text-right font-mono text-[12px] tabular-nums text-ink-3">
         {fmtMin(incompleteMinutes)}
       </span>

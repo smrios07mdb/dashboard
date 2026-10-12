@@ -29,7 +29,6 @@ function task(
     userId: 'u1',
     subcategoryId: opts.subcategoryId ?? 's1',
     title: id,
-    notes: null,
     estimateMinutes: 30,
     dueAt: null,
     remindAt: null,

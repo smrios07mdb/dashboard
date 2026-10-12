@@ -14,12 +14,23 @@ export function isNoteEditorPath(pathname: string): boolean {
 
 // ---------- list text ----------
 
+/**
+ * `[text](url)` as a pattern source, shared by the list excerpt below and the
+ * renderer (`noteMarkdown.tsx`) so the two can never disagree about where a
+ * link ends (chunk 59, D9). The URL may hold one level of balanced
+ * parentheses — `https://en.wikipedia.org/wiki/Foo_(bar)` is one URL.
+ * Group 1 is the text, group 2 the URL.
+ */
+export const NOTE_LINK_SOURCE = String.raw`\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)`
+
+const NOTE_LINK = new RegExp(NOTE_LINK_SOURCE, 'g')
+
 /** Markdown source → the plain text a list row shows. */
 export function stripNoteMarkdown(md: string): string {
   return md
     .replace(/^#+\s*/gm, '')
     .replace(/^-\s+/gm, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(NOTE_LINK, '$1')
 }
 
 function plainLines(body: string): string[] {
@@ -129,6 +140,50 @@ export function filterNotes(
           : isAttached(n),
     )
     .filter((n) => noteMatches(n, query))
+}
+
+/** Neither a title nor a body — nothing a reader could see. */
+export function isBlankNote(note: Pick<Note, 'title' | 'body'>): boolean {
+  return note.title.trim() === '' && note.body.trim() === ''
+}
+
+/** One task's notes, newest first. */
+export function notesForTask(notes: Note[], taskId: string | null): Note[] {
+  if (!taskId) return []
+  return notes.filter((n) => n.taskId === taskId).sort(byUpdatedDesc)
+}
+
+/**
+ * A list's notes (chunk 59): those attached to the list itself and those on
+ * any of `taskIds`, newest first (handoff pushback 5 — a list page that left
+ * out task notes would under-count what was written there).
+ */
+export function notesForList(
+  notes: Note[],
+  subcategoryId: string,
+  taskIds: readonly string[],
+): Note[] {
+  const ids = new Set(taskIds)
+  return notes
+    .filter(
+      (n) =>
+        n.subcategoryId === subcategoryId ||
+        (n.taskId !== null && ids.has(n.taskId)),
+    )
+    .sort(byUpdatedDesc)
+}
+
+/**
+ * A calendar event's description from a task's notes (chunk 59, D8): every
+ * non-blank note, newest first, each as `title\n\nbody` (or whichever half it
+ * has), joined by a blank line. Raw Markdown, as written.
+ */
+export function notesDescription(notes: Note[]): string {
+  return [...notes]
+    .filter((n) => !isBlankNote(n))
+    .sort(byUpdatedDesc)
+    .map((n) => [n.title.trim(), n.body.trim()].filter(Boolean).join('\n\n'))
+    .join('\n\n')
 }
 
 // ---------- attachment ----------

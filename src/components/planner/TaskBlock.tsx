@@ -1,6 +1,7 @@
 import { useState, type CSSProperties, type PointerEvent } from 'react'
 
-import { ArrowRight, Check, X } from '@/components/icons'
+import { ArrowRight, Check, Note, X } from '@/components/icons'
+import { useTaskNotes } from '@/components/notebook/notesContext'
 import PriorityChip from '@/components/PriorityChip'
 import type { Task } from '@/db/types'
 import { catColor } from '@/lib/cat'
@@ -22,6 +23,9 @@ import type { WeekScheduledBlock } from '@/lib/plannerSchedule'
  * Hover (or `touch` + done/carry) reveals the 16px action row: `→` move
  * to next open slot (carry only), done-check and `×` unschedule. A 7px
  * bottom strip starts a resize (hidden when done).
+ *
+ * Chunk 59: a 14px note glyph follows the title when the task has notes and
+ * the block is not `tight`.
  *
  * Style rule (chunk 37 closeout): no inline shorthand next to its
  * longhand — the border variants live in class names, `borderLeft` is
@@ -85,6 +89,7 @@ export default function TaskBlock({
   onOpenActions,
 }: TaskBlockProps) {
   const [hover, setHover] = useState(false)
+  const hasNotes = useTaskNotes(task.id).length > 0
   const pos = blockPos(
     block.startMin,
     block.endMin,
@@ -161,6 +166,15 @@ export default function TaskBlock({
         >
           {task.title}
         </span>
+        {/* Note glyph (chunk 59): only on a block tall enough to show its range. */}
+        {hasNotes && !tight && (
+          <Note
+            size={14}
+            aria-hidden
+            data-testid="block-note-glyph"
+            className="shrink-0 text-ink-3"
+          />
+        )}
         {task.priority === 1 && !tight && !done && (
           <PriorityChip priority={1} className="px-1 py-px text-[9px]" />
         )}

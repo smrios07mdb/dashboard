@@ -76,10 +76,6 @@ export type CategoryColumnProps = {
     id: string,
     priority: 1 | 2 | 3 | null,
   ) => void | Promise<void>
-  onEditTaskNotes: (
-    id: string,
-    notes: string | null,
-  ) => void | Promise<void>
   /** Global sort preference (chunk 33) — one control per column, shared state. */
   sortKey: TaskSortKey
   onChangeSortKey: (key: TaskSortKey) => void
@@ -124,7 +120,6 @@ export default function CategoryColumn({
   onMoveTaskToSubcategory,
   onSetTaskReminder,
   onSetTaskPriority,
-  onEditTaskNotes,
   sortKey,
   onChangeSortKey,
   onCreateSubcategory,
@@ -296,7 +291,6 @@ export default function CategoryColumn({
                   onMoveTaskToSubcategory={onMoveTaskToSubcategory}
                   onSetTaskReminder={onSetTaskReminder}
                   onSetTaskPriority={onSetTaskPriority}
-                  onEditTaskNotes={onEditTaskNotes}
                   sortKey={sortKey}
                   onRenameSubcategory={onRenameSubcategory}
                   onDeleteSubcategory={onDeleteSubcategory}
@@ -350,7 +344,6 @@ type SortableSubSectionProps = {
     id: string,
     priority: 1 | 2 | 3 | null,
   ) => void | Promise<void>
-  onEditTaskNotes: (id: string, notes: string | null) => void | Promise<void>
   sortKey: TaskSortKey
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (

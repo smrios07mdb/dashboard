@@ -32,7 +32,6 @@ export type Task = {
   userId: string
   subcategoryId: string
   title: string
-  notes: string | null
   estimateMinutes: number
   dueAt: string | null
   remindAt: string | null

@@ -148,3 +148,23 @@ describe('safeHref', () => {
     expect(safeHref('not a url')).toBeNull()
   })
 })
+
+describe('links with parentheses in the URL (chunk 59, D9)', () => {
+  it('renders a URL holding balanced parentheses as one link', () => {
+    const root = mount('[x](https://en.wikipedia.org/wiki/Foo_(bar)) after')
+    const links = root.querySelectorAll('a')
+    expect(links).toHaveLength(1)
+    expect(links[0]).toHaveAttribute(
+      'href',
+      'https://en.wikipedia.org/wiki/Foo_(bar)',
+    )
+    expect(links[0]).toHaveTextContent('x')
+    expect(root.textContent).toBe('x after')
+  })
+
+  it('still renders a javascript: link as the text that was typed', () => {
+    const root = mount('[bad](javascript:alert(1))')
+    expect(root.querySelector('a')).toBeNull()
+    expect(root.textContent).toBe('[bad](javascript:alert(1))')
+  })
+})

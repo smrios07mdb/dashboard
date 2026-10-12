@@ -9,6 +9,10 @@ import {
 import { toast } from 'sonner'
 
 import { ChevronLeft, ChevronRight, Sparkles } from '@/components/icons'
+import {
+  useOpenTaskNotes,
+  useTaskNotes,
+} from '@/components/notebook/notesContext'
 import BlockActionSheet from '@/components/planner/BlockActionSheet'
 import CalendarPicker from '@/components/planner/CalendarPicker'
 import DayStrip from '@/components/planner/DayStrip'
@@ -1113,6 +1117,9 @@ export default function Planner() {
   const actionEntry = actionBlock
     ? gridBlocks.find((g) => g.block.id === actionBlock.id) ?? null
     : null
+  // The action sheet's read-only note preview (chunk 59, D7).
+  const actionNotes = useTaskNotes(actionEntry?.task.id ?? null)
+  const openTaskNotes = useOpenTaskNotes()
 
   const openScheduleDesktop = useCallback(
     (item: TrayItem) =>
@@ -1417,6 +1424,11 @@ export default function Planner() {
         }
         done={actionEntry?.done ?? false}
         carry={actionEntry?.carry ?? false}
+        notes={actionNotes}
+        onOpenNotes={(noteId) => {
+          if (actionEntry) openTaskNotes(actionEntry.task.id, noteId)
+          setActionBlock(null)
+        }}
         onCarryMove={() => {
           if (actionEntry) void carryMove(actionEntry.block)
           setActionBlock(null)

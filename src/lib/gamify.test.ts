@@ -9,7 +9,6 @@ function mkTask(over: Partial<Task> = {}): Task {
     userId: 'u',
     subcategoryId: 's',
     title: 't',
-    notes: null,
     estimateMinutes: 0,
     dueAt: null,
     remindAt: null,

@@ -4,7 +4,11 @@ import { CSS } from '@dnd-kit/utilities'
 import { Bell, GripVertical, Trash2 } from 'lucide-react'
 
 import DeleteConfirm from '@/components/DeleteConfirm'
-import { Sun } from '@/components/icons'
+import { Note, Sun } from '@/components/icons'
+import {
+  useOpenTaskNotes,
+  useTaskNotes,
+} from '@/components/notebook/notesContext'
 import PriorityChip from '@/components/PriorityChip'
 import PriorityPicker from '@/components/PriorityPicker'
 import SetReminderPopover from '@/components/SetReminderPopover'
@@ -33,6 +37,12 @@ import { cn } from '@/lib/utils'
  *     title; the rest of the row stays click-friendly so inline
  *     title/minutes edit still works. Touch devices hide the grip
  *     and rely on the three-dot menu's Move-to picker.
+ *
+ * Chunk 59: a note indicator sits in its own always-reserved column between
+ * the priority slot and the minutes (24px; 44px on touch), so a row never
+ * shifts when a note appears. Glyph when the task has notes, plus a count at
+ * two or more; an empty cell otherwise. The count and the sheet both come
+ * from NotesProvider — nothing is drilled through the screens.
  *
  * Why a dedicated grip handle and not row-level drag listeners: the
  * row contains buttons (checkbox, title, minutes, bell, trash, menu)
@@ -84,7 +94,6 @@ export type TaskRowProps = {
     id: string,
     priority: 1 | 2 | 3 | null,
   ) => void | Promise<void>
-  onEditNotes: (id: string, notes: string | null) => void | Promise<void>
   /**
    * Optional bulk-select adornments. When `selectable` is true, a
    * second checkbox renders to the left of the completion checkbox.
@@ -129,7 +138,6 @@ export default function TaskRow({
   onMoveToSubcategory,
   onSetReminder,
   onSetPriority,
-  onEditNotes,
   selectable = false,
   selected = false,
   onToggleSelected,
@@ -145,6 +153,9 @@ export default function TaskRow({
   // Priority picker open state lives here (two entry points: the chip
   // and TaskMenu → "Set priority…"), mirroring the reminder popover.
   const [priorityOpen, setPriorityOpen] = useState(false)
+  const notes = useTaskNotes(task.id)
+  const openTaskNotes = useOpenTaskNotes()
+  const noteSlot = isTouch ? 44 : 24
   // Chips hide on completed rows (DESIGN_NOTES § Priority system). The
   // grid slot exists only while a chip shows or the picker is open —
   // unlike the left edge, chip presence may shift layout (matches the
@@ -205,6 +216,7 @@ export default function TaskRow({
     canDrag ? '14px' : null,    // grip
     '1fr',                      // title
     prioritySlot ? 'auto' : null, // priority chip / picker anchor
+    `${noteSlot}px`,            // note indicator — reserved even when empty
     'auto',                     // minutes
     onToggleToday ? 'auto' : null, // Today sun toggle (dashboard rows only)
     'auto',                     // bell
@@ -298,6 +310,28 @@ export default function TaskRow({
           onPick={(p) => onSetPriority(task.id, p)}
         />
       )}
+      {notes.length > 0 ? (
+        <button
+          type="button"
+          data-testid="note-indicator"
+          aria-label={
+            notes.length > 1
+              ? `${notes.length} notes for "${task.title}"`
+              : `Notes for "${task.title}"`
+          }
+          title={notes.length > 1 ? `${notes.length} notes` : 'Notes'}
+          onClick={() => openTaskNotes(task.id)}
+          className="inline-flex items-center justify-center gap-[3px] rounded-sm text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={{ minWidth: noteSlot, height: noteSlot }}
+        >
+          <Note size={14} aria-hidden />
+          {notes.length > 1 && (
+            <span className="num text-[11px]">{notes.length}</span>
+          )}
+        </button>
+      ) : (
+        <span aria-hidden data-testid="note-indicator-empty" />
+      )}
       <MinutesField
         task={task}
         onCommit={(minutes) => onEditMinutes(task.id, minutes)}
@@ -374,7 +408,8 @@ export default function TaskRow({
         }
         onOpenReminder={() => setReminderOpen(true)}
         onOpenPriority={() => setPriorityOpen(true)}
-        onEditNotes={(notes) => onEditNotes(task.id, notes)}
+        notes={notes}
+        onOpenNotes={() => openTaskNotes(task.id)}
         onDelete={() => onDelete(task.id)}
       />
     </div>

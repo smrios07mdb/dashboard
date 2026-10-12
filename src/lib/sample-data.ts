@@ -197,7 +197,6 @@ export async function loadSampleData(userId: string): Promise<void> {
       userId,
       subcategoryId: sub.id,
       title: t.title,
-      notes: null,
       estimateMinutes: t.estimate,
       dueAt,
       remindAt: null,

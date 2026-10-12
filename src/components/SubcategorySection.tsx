@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 import AddTaskInline from '@/components/AddTaskInline'
+import { useListNotes } from '@/components/notebook/notesContext'
 import SubcategoryHeader from '@/components/SubcategoryHeader'
 import TaskRow from '@/components/TaskRow'
 import type { Category, Subcategory, Task } from '@/db/types'
@@ -59,7 +60,6 @@ export type SubcategorySectionProps = {
     id: string,
     priority: 1 | 2 | 3 | null,
   ) => void | Promise<void>
-  onEditTaskNotes: (id: string, notes: string | null) => void | Promise<void>
   /**
    * Global list-sort preference (chunk 33). Applies to the open set
    * only — the collapsed completed bucket keeps its existing order.
@@ -99,7 +99,6 @@ export default function SubcategorySection({
   onMoveTaskToSubcategory,
   onSetTaskReminder,
   onSetTaskPriority,
-  onEditTaskNotes,
   sortKey,
   onRenameSubcategory,
   onDeleteSubcategory,
@@ -110,6 +109,11 @@ export default function SubcategorySection({
 }: SubcategorySectionProps) {
   const [showCompleted, setShowCompleted] = useState(false)
   const hue = subColor(subcategory.id)
+  // Notes on the list and on any of its tasks, completed ones included.
+  const noteCount = useListNotes(
+    subcategory.id,
+    tasks.map((t) => t.id),
+  ).length
   const incomplete = tasks.filter((t) => !t.completedAt)
   const completed = tasks.filter((t) => !!t.completedAt)
   const minutes = incomplete.reduce((sum, t) => sum + t.estimateMinutes, 0)
@@ -199,6 +203,7 @@ export default function SubcategorySection({
         incompleteCount={incomplete.length}
         incompleteMinutes={minutes}
         taskCount={tasks.length}
+        noteCount={noteCount}
         otherSubsInCategory={otherSubsInCategory}
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
@@ -235,7 +240,6 @@ export default function SubcategorySection({
               onMoveToSubcategory={onMoveTaskToSubcategory}
               onSetReminder={onSetTaskReminder}
               onSetPriority={onSetTaskPriority}
-              onEditNotes={onEditTaskNotes}
               inToday={todaySet?.has(t.id)}
               onToggleToday={onToggleToday}
             />
@@ -273,7 +277,6 @@ export default function SubcategorySection({
                   onMoveToSubcategory={onMoveTaskToSubcategory}
                   onSetReminder={onSetTaskReminder}
                   onSetPriority={onSetTaskPriority}
-                  onEditNotes={onEditTaskNotes}
                   inToday={todaySet?.has(t.id)}
                   onToggleToday={onToggleToday}
                 />

@@ -136,7 +136,18 @@ type RowList = Record<string, unknown>[]
  */
 async function upsertContent(payload: ExportPayload): Promise<void> {
   await repo.data.bulkUpsert('subcategories', payload.subcategories as RowList)
-  await repo.data.bulkUpsert('tasks', payload.tasks as RowList)
+  // Task rows are written WITHOUT `notes` (chunk 59, D3): the app no longer
+  // reads or writes `tasks.notes`. Omitting the key leaves an existing column
+  // value alone on Merge and null on Replace; the text itself is carried over
+  // as a note by `legacyTaskNotes` below.
+  await repo.data.bulkUpsert(
+    'tasks',
+    (payload.tasks as RowList).map((row) => {
+      const next = { ...row }
+      delete next.notes
+      return next
+    }),
+  )
   // Planner blocks after tasks (FK `task_id`), with two chunk-50 rules:
   //
   // 1. `calendar_uid` is forced to NULL on every incoming row. A re-imported uid
@@ -175,7 +186,11 @@ async function upsertContent(payload: ExportPayload): Promise<void> {
   // Notes after tasks (FK `task_id` / `subcategory_id`, chunk 58). Upsert on
   // `id` — a task or a subcategory may hold many notes, so `id` is the only
   // invariant.
-  await repo.data.bulkUpsert('notes', await withLiveLinks(payload))
+  const fileNotes = await withLiveLinks(payload)
+  await repo.data.bulkUpsert('notes', [
+    ...fileNotes,
+    ...(await legacyTaskNotes(payload, fileNotes)),
+  ])
   await repo.data.bulkUpsert('routine_items', payload.routine_items as RowList)
   await repo.data.bulkUpsert('routine_logs', payload.routine_logs as RowList)
   if (payload.settings) {
@@ -241,6 +256,58 @@ async function withLiveLinks(payload: ExportPayload): Promise<RowList> {
         ? n.subcategory_id
         : null,
   }))
+}
+
+const bodyKey = (taskId: unknown, body: unknown) =>
+  `${String(taskId)}\n${typeof body === 'string' ? body.trim() : ''}`
+
+/**
+ * Legacy `tasks.notes` → notes (chunk 59, D3). Every incoming task row with a
+ * non-blank `notes` string becomes one untitled note on that task, carrying
+ * the task's own timestamps so it does not jump to the top of RECENT — the
+ * same shape migration 17 writes.
+ *
+ * Skipped when a note with the same `task_id` and the same trimmed body is
+ * already in the file (a chunk-59 export carries both the column and the
+ * copied note) or already live (the file was imported before). So a pre-58
+ * file imports into notes, and importing anything twice adds nothing.
+ *
+ * Runs after `tasks` is upserted, and its rows go out in the same `notes`
+ * upsert as the file's own.
+ */
+async function legacyTaskNotes(
+  payload: ExportPayload,
+  fileNotes: RowList,
+): Promise<RowList> {
+  const legacy = (payload.tasks as RowList).filter(
+    (row) => typeof row.notes === 'string' && row.notes.trim() !== '',
+  )
+  if (legacy.length === 0) return []
+  const seen = new Set(fileNotes.map((n) => bodyKey(n.task_id, n.body)))
+  const live = await repo.data.noteBodiesForTasks(
+    legacy.map((row) => row.id as string),
+  )
+  for (const n of live) seen.add(bodyKey(n.task_id, n.body))
+  const out: RowList = []
+  for (const row of legacy) {
+    const key = bodyKey(row.id, row.notes)
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({
+      id: crypto.randomUUID(),
+      user_id: row.user_id,
+      title: '',
+      body: row.notes,
+      task_id: row.id,
+      subcategory_id: null,
+      pinned: false,
+      detached_label: null,
+      detached_at: null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    })
+  }
+  return out
 }
 
 /**

@@ -34,7 +34,6 @@ function task(): Task {
     userId: 'u1',
     subcategoryId: 'sub1',
     title: 'Secret task',
-    notes: 'private notes',
     estimateMinutes: 25,
     dueAt: null,
     remindAt: null,

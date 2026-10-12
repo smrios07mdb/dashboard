@@ -57,7 +57,6 @@ function aTask(overrides: Partial<Task> = {}): Task {
     userId: 'u-1',
     subcategoryId: 'sub-1',
     title: 'Task',
-    notes: null,
     estimateMinutes: 30,
     dueAt: null,
     remindAt: null,

@@ -4,6 +4,7 @@ import { isNoteEditorPath } from '@/lib/notes'
 
 import AppShell from './AppShell'
 import InstallHint from './InstallHint'
+import NotesProvider from './notebook/NotesProvider'
 import Protected from './Protected'
 import SyncIndicator from './SyncIndicator'
 import Tabs from './Tabs'
@@ -20,16 +21,19 @@ export default function ProtectedLayout() {
   const { pathname } = useLocation()
   return (
     <Protected>
-      <AppShell
-        topBanner={<InstallHint />}
-        headerEnd={<SyncIndicator />}
-        bottomNav={!isNoteEditorPath(pathname)}
-      >
-        <Tabs />
-        <div className="pt-6">
-          <Outlet />
-        </div>
-      </AppShell>
+      {/* Every note, plus the task notes sheet, for every screen (chunk 59). */}
+      <NotesProvider>
+        <AppShell
+          topBanner={<InstallHint />}
+          headerEnd={<SyncIndicator />}
+          bottomNav={!isNoteEditorPath(pathname)}
+        >
+          <Tabs />
+          <div className="pt-6">
+            <Outlet />
+          </div>
+        </AppShell>
+      </NotesProvider>
     </Protected>
   )
 }

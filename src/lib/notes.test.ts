@@ -4,13 +4,18 @@ import { CTX, mkNote } from '@/components/notebook/fixtures'
 
 import {
   isNoteEditorPath,
+  NOTE_LINK_SOURCE,
   noteExcerpt,
   noteFirstLine,
   noteMatchLine,
   noteRel,
   noteRelLong,
   noteSaveState,
+  notesDescription,
+  notesForList,
+  notesForTask,
   resolveAttachment,
+  stripNoteMarkdown,
 } from './notes'
 
 describe('isNoteEditorPath', () => {
@@ -104,5 +109,66 @@ describe('noteSaveState', () => {
     expect(noteSaveState({ sync: 'offline', queued: 1, pending: true }).label).toBe(
       'Offline · 2 changes queued',
     )
+  })
+})
+
+describe('link pattern shared with the renderer (chunk 59, D9)', () => {
+  it('keeps one level of balanced parentheses inside the URL', () => {
+    expect(
+      stripNoteMarkdown('see [x](https://en.wikipedia.org/wiki/Foo_(bar)) now'),
+    ).toBe('see x now')
+    expect(
+      noteExcerpt({
+        title: 'T',
+        body: '[x](https://en.wikipedia.org/wiki/Foo_(bar))',
+      }),
+    ).toBe('x')
+  })
+
+  it('strips a disallowed-scheme link down to its text', () => {
+    expect(noteExcerpt({ title: 'T', body: '[bad](javascript:alert(1))' })).toBe(
+      'bad',
+    )
+  })
+
+  it('NOTE_LINK_SOURCE captures text and the whole URL', () => {
+    const m = new RegExp(NOTE_LINK_SOURCE).exec(
+      '[x](https://en.wikipedia.org/wiki/Foo_(bar))',
+    )
+    expect(m?.[1]).toBe('x')
+    expect(m?.[2]).toBe('https://en.wikipedia.org/wiki/Foo_(bar)')
+  })
+})
+
+describe('task and list selections (chunk 59)', () => {
+  const notes = [
+    mkNote({ id: 'a', taskId: 't-open', updatedAt: '2026-10-01T00:00:00.000Z' }),
+    mkNote({ id: 'b', taskId: 't-open', updatedAt: '2026-10-03T00:00:00.000Z' }),
+    mkNote({ id: 'c', subcategoryId: 's-atlas', updatedAt: '2026-10-02T00:00:00.000Z' }),
+    mkNote({ id: 'd', taskId: 't-elsewhere' }),
+    mkNote({ id: 'e' }),
+  ]
+
+  it('notesForTask returns that task’s notes, newest first', () => {
+    expect(notesForTask(notes, 't-open').map((n) => n.id)).toEqual(['b', 'a'])
+    expect(notesForTask(notes, null)).toEqual([])
+  })
+
+  it('notesForList includes notes on the list and on its tasks', () => {
+    expect(
+      notesForList(notes, 's-atlas', ['t-open']).map((n) => n.id),
+    ).toEqual(['b', 'c', 'a'])
+  })
+
+  it('notesDescription: newest first, title then body, blanks dropped', () => {
+    expect(
+      notesDescription([
+        mkNote({ id: 'old', title: 'Old', body: 'first', updatedAt: '2026-10-01T00:00:00.000Z' }),
+        mkNote({ id: 'new', title: '', body: '- raw *markdown*', updatedAt: '2026-10-05T00:00:00.000Z' }),
+        mkNote({ id: 'blank', title: ' ', body: '\n', updatedAt: '2026-10-09T00:00:00.000Z' }),
+        mkNote({ id: 'title-only', title: 'Just a title', body: '', updatedAt: '2026-10-03T00:00:00.000Z' }),
+      ]),
+    ).toBe('- raw *markdown*\n\nJust a title\n\nOld\n\nfirst')
+    expect(notesDescription([])).toBe('')
   })
 })

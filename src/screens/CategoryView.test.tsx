@@ -65,7 +65,6 @@ function mkTask(id: string, subcategoryId: string) {
     userId: 'u1',
     subcategoryId,
     title: id,
-    notes: null,
     estimateMinutes: 30,
     dueAt: null,
     remindAt: null,

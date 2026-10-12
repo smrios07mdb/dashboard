@@ -413,7 +413,6 @@ const tasksRepo = {
       userId: input.userId,
       subcategoryId: input.subcategoryId,
       title: input.title,
-      notes: input.notes,
       estimateMinutes: input.estimateMinutes,
       dueAt: input.dueAt,
       remindAt: input.remindAt,
@@ -1400,6 +1399,26 @@ const dataRepo = {
         .in('id', ids.slice(i, i + 100))
       throwIfClientError(error as SupabaseError | null)
       for (const row of (data ?? []) as { id: string }[]) found.push(row.id)
+    }
+    return found
+  },
+
+  /**
+   * `task_id` + `body` of every live note on these tasks (chunk 59, D3) — what
+   * the import needs to tell a legacy `tasks.notes` value it has already
+   * copied from one it has not. Chunked like `existingIds`.
+   */
+  async noteBodiesForTasks(
+    taskIds: string[],
+  ): Promise<{ task_id: string; body: string }[]> {
+    const found: { task_id: string; body: string }[] = []
+    for (let i = 0; i < taskIds.length; i += 100) {
+      const { data, error } = await supabase
+        .from(TABLES.notes)
+        .select('task_id, body')
+        .in('task_id', taskIds.slice(i, i + 100))
+      throwIfClientError(error as SupabaseError | null)
+      found.push(...((data ?? []) as { task_id: string; body: string }[]))
     }
     return found
   },

@@ -77,7 +77,6 @@ export type TaskRow = {
   user_id: string
   subcategory_id: string
   title: string
-  notes: string | null
   estimate_minutes: number
   due_at: string | null
   remind_at: string | null
@@ -94,7 +93,6 @@ export function taskFromRow(row: TaskRow): Task {
     userId: row.user_id,
     subcategoryId: row.subcategory_id,
     title: row.title,
-    notes: row.notes,
     estimateMinutes: row.estimate_minutes,
     dueAt: row.due_at,
     remindAt: row.remind_at,
@@ -115,7 +113,6 @@ export function taskToRow(
   if (value.userId !== undefined) row.user_id = value.userId
   if (value.subcategoryId !== undefined) row.subcategory_id = value.subcategoryId
   if (value.title !== undefined) row.title = value.title
-  if (value.notes !== undefined) row.notes = value.notes
   if (value.estimateMinutes !== undefined)
     row.estimate_minutes = value.estimateMinutes
   if (value.dueAt !== undefined) row.due_at = value.dueAt

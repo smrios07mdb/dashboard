@@ -64,7 +64,6 @@ function mkTask(id: string, opts: { priority?: number | null } = {}) {
     userId: 'u1',
     subcategoryId: 'sub-1',
     title: id,
-    notes: null,
     estimateMinutes: 30,
     dueAt: null,
     remindAt: null,

@@ -212,7 +212,6 @@ export default function CategoryView() {
           userId,
           subcategoryId: input.subcategoryId,
           title: input.title,
-          notes: null,
           estimateMinutes: input.estimateMinutes,
           dueAt: null,
           remindAt: null,
@@ -328,20 +327,6 @@ export default function CategoryView() {
         toast(priority ? `Priority set to P${priority}` : 'Priority cleared')
       } catch (e) {
         console.error('Set priority failed', e)
-        toast.error(SAVE_ERROR)
-      }
-    },
-    [upsertTask],
-  )
-
-  const onEditTaskNotes = useCallback(
-    async (id: string, notes: string | null) => {
-      try {
-        const updated = await repo.tasks.update(id, { notes })
-        upsertTask(updated)
-        toast('Notes saved')
-      } catch (e) {
-        console.error('Edit notes failed', e)
         toast.error(SAVE_ERROR)
       }
     },
@@ -617,7 +602,6 @@ export default function CategoryView() {
                   onMoveTaskToSubcategory={onMoveTaskToSubcategory}
                   onSetTaskReminder={onSetTaskReminder}
                   onSetTaskPriority={onSetTaskPriority}
-                  onEditTaskNotes={onEditTaskNotes}
                   sortKey={sortKey}
                   onRenameSubcategory={onRenameSubcategory}
                   onDeleteSubcategory={onDeleteSubcategory}
@@ -675,7 +659,6 @@ type SortableSubSectionProps = {
     id: string,
     priority: 1 | 2 | 3 | null,
   ) => void | Promise<void>
-  onEditTaskNotes: (id: string, notes: string | null) => void | Promise<void>
   sortKey: TaskSortKey
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (

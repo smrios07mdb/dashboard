@@ -7,6 +7,7 @@ import AddTaskInline from '@/components/AddTaskInline'
 import Breadcrumbs from '@/components/Breadcrumbs'
 import DeleteConfirm from '@/components/DeleteConfirm'
 import { MoveToPickerContent } from '@/components/MoveToPicker'
+import ListNotesSection from '@/components/notebook/ListNotesSection'
 import TaskRow from '@/components/TaskRow'
 import TaskSortControl from '@/components/TaskSortControl'
 import { Button } from '@/components/ui/button'
@@ -238,7 +239,6 @@ export default function SubcategoryView() {
           userId,
           subcategoryId: input.subcategoryId,
           title: input.title,
-          notes: null,
           estimateMinutes: input.estimateMinutes,
           dueAt: null,
           remindAt: null,
@@ -360,20 +360,6 @@ export default function SubcategoryView() {
         toast(priority ? `Priority set to P${priority}` : 'Priority cleared')
       } catch (e) {
         console.error('Set priority failed', e)
-        toast.error(SAVE_ERROR)
-      }
-    },
-    [upsertTask],
-  )
-
-  const onEditTaskNotes = useCallback(
-    async (id: string, notes: string | null) => {
-      try {
-        const updated = await repo.tasks.update(id, { notes })
-        upsertTask(updated)
-        toast('Notes saved')
-      } catch (e) {
-        console.error('Edit notes failed', e)
         toast.error(SAVE_ERROR)
       }
     },
@@ -573,7 +559,6 @@ export default function SubcategoryView() {
                   onMoveToSubcategory={onMoveTaskToSubcategory}
                   onSetReminder={onSetTaskReminder}
                   onSetPriority={onSetTaskPriority}
-                  onEditNotes={onEditTaskNotes}
                 />
               </div>
             ))}
@@ -589,6 +574,8 @@ export default function SubcategoryView() {
           }
         />
       </div>
+
+      <ListNotesSection subcategoryId={subcategoryId!} tasks={allTasks} />
     </div>
   )
 }
