@@ -813,6 +813,7 @@ const routineLogsRepo = {
     dateKey: string
     completed: boolean
   }): Promise<RoutineLog> {
+    // eslint-disable-next-line no-useless-catch -- intentional passthrough hook; see the doc comment above (Revisions chunk-5, 2026-05-27).
     try {
       const existing = await db.routine_logs
         .where('[routineItemId+dateKey]')
