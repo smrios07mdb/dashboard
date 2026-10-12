@@ -31,7 +31,7 @@ import type {
   OutboxRow,
   OutlookStatus,
 } from '@/db/types'
-import { AiError, removeAiKey, saveAiKey, TRIAGE_MODEL } from '@/lib/ai'
+import { AiError, removeAiKey, saveAiKey } from '@/lib/ai'
 import { useSession } from '@/lib/auth'
 import {
   downloadExport,
@@ -561,7 +561,7 @@ function AiKeySection() {
               {busy === 'save' ? 'Saving…' : 'Save key'}
             </Button>
           )}
-          <span className="num text-[11px] text-ink-3">Uses {TRIAGE_MODEL}</span>
+          <span className="num text-[11px] text-ink-3">Uses the latest Claude Haiku</span>
         </div>
 
         <p className="mt-3 max-w-md text-[12px] leading-relaxed text-ink-3">

@@ -32,7 +32,7 @@ vi.mock('@/lib/calendarApi', async (importOriginal) => {
 })
 
 // Chunk 55: the key goes to the proxy, never through the repo. Keep the real
-// AiError / TRIAGE_MODEL; stub only the two network calls.
+// AiError; stub only the two network calls.
 const { saveAiKeyMock, removeAiKeyMock } = vi.hoisted(() => ({
   saveAiKeyMock: vi.fn(),
   removeAiKeyMock: vi.fn(),
@@ -72,7 +72,7 @@ describe('Settings — AI key (chunk 55, write-only)', () => {
     expect(
       screen.getByText(/encrypted and stored server-side; never sent back/i),
     ).toBeInTheDocument()
-    expect(screen.getByText(/uses claude-haiku-5-5/i)).toBeInTheDocument()
+    expect(screen.getByText('Uses the latest Claude Haiku')).toBeInTheDocument()
   })
 
   it('unconfigured: empty password input + Save key, no Replace/Remove, no reveal toggle', async () => {

@@ -18,13 +18,6 @@ import type { Category, Subcategory, Task } from '@/db/types'
 
 const PROXY_URL = import.meta.env.VITE_CALDAV_PROXY_URL as string | undefined
 
-/**
- * Display-only label for Settings' "Uses …" line. The model is chosen by the
- * proxy — keep this in sync with `MODEL` in dashboard-caldav-proxy
- * `api/_lib/ai.ts`.
- */
-export const TRIAGE_MODEL = 'claude-haiku-5-5'
-
 const SESSION_EXPIRED = 'Your session expired — sign in again.'
 
 export type AiErrorKind = 'missing-key' | 'network' | 'auth' | 'malformed'
