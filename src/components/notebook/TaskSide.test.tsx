@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,14 +11,54 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * needs.
  */
 
-const { touchMock } = vi.hoisted(() => ({ touchMock: { value: false } }))
+const { touchMock, sessionMock, repoMock } = vi.hoisted(() => ({
+  touchMock: { value: false },
+  sessionMock: { ready: Promise.resolve() as Promise<void> },
+  repoMock: {
+    settings: { get: vi.fn() },
+    notes: {
+      listAll: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
+    categories: { list: vi.fn() },
+    subcategories: { list: vi.fn() },
+    tasks: { list: vi.fn() },
+  },
+}))
 vi.mock('@/lib/useIsTouchDevice', () => ({
   useIsTouchDevice: () => touchMock.value,
 }))
-vi.mock('@/lib/auth', () => ({
-  useSession: () => ({ user: { id: 'u1' }, session: {}, loading: false }),
+// `useSession` as it really behaves: per-instance state that starts with no
+// user and gains one only after its own async `getSession()` settles. A
+// synchronous mock hid chunk 59a's F1 — a sheet that asked for the session on
+// its first render always got `null`.
+vi.mock('@/lib/auth', async () => {
+  const { useEffect, useState } = await import('react')
+  return {
+    useSession: () => {
+      const [user, setUser] = useState<{ id: string } | null>(null)
+      useEffect(() => {
+        let cancelled = false
+        void sessionMock.ready.then(() => {
+          if (!cancelled) setUser({ id: 'u1' })
+        })
+        return () => {
+          cancelled = true
+        }
+      }, [])
+      return { user, session: user ? {} : null, loading: user === null }
+    },
+  }
+})
+vi.mock('@/db/repo', () => ({ repo: repoMock }))
+vi.mock('@/db/outbox', () => ({ countOutboxFor: () => Promise.resolve(0) }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+vi.mock('@/state/uiStore', () => ({
+  useUIStore: (selector: (s: { dashboardRefreshKey: number }) => unknown) =>
+    selector({ dashboardRefreshKey: 0 }),
 }))
-vi.mock('@/db/repo', () => ({ repo: { settings: { get: vi.fn() } } }))
 
 import BlockActionSheet from '@/components/planner/BlockActionSheet'
 import TaskBlock from '@/components/planner/TaskBlock'
@@ -28,7 +68,8 @@ import type { Note } from '@/db/types'
 
 import { CATEGORIES, mkNote, SUBCATEGORIES, TASKS } from './fixtures'
 import ListNotesSection from './ListNotesSection'
-import { NotesContext } from './notesContext'
+import { NotesContext, useOpenTaskNotes } from './notesContext'
+import NotesProvider from './NotesProvider'
 
 const openTaskNotes = vi.fn()
 
@@ -179,6 +220,33 @@ describe('subcategory header count (D6)', () => {
     header(0)
     expect(screen.queryByTestId('list-note-count')).toBeNull()
   })
+
+  // F3 (chunk 59a): with the count showing, the header wrapped its ⋯ button to
+  // a second row. Layout is not measurable in jsdom, so this pins the contract
+  // that keeps it on one: the grid still has exactly its six cells, the name
+  // truncates, and everything after it refuses to shrink.
+  it.each([0, 2])('stays one row of six cells with noteCount=%i', (n) => {
+    const { container } = header(n)
+    const root = container.querySelector('header') as HTMLElement
+    expect(root.className).toContain(
+      '[grid-template-columns:auto_1fr_auto_auto_auto_auto]',
+    )
+    expect(root.children).toHaveLength(6)
+
+    const name = screen.getByTitle('Atlas launch')
+    expect(name).toHaveClass('min-w-0', 'truncate')
+    expect(name.parentElement).toHaveClass('min-w-0')
+
+    const counts = screen.getByTestId('list-counts')
+    expect(counts).toHaveClass('shrink-0')
+    expect(counts).toHaveTextContent(n ? '32' : '3')
+    if (n) expect(screen.getByTestId('list-note-count')).toHaveClass('shrink-0')
+    expect(screen.getByText('1h 30m')).toHaveClass('shrink-0')
+    expect(screen.getByRole('button', { name: 'Open Atlas launch' })).toHaveClass('shrink-0')
+    expect(
+      screen.getByRole('button', { name: 'Actions for Atlas launch' }),
+    ).toHaveClass('shrink-0')
+  })
 })
 
 describe('subcategory drill-down Notes section (D6)', () => {
@@ -309,3 +377,83 @@ describe('planner block (D7)', () => {
   })
 })
 
+describe('task notes sheet with a session that resolves late (chunk 59a, F1)', () => {
+  function Opener() {
+    const open = useOpenTaskNotes()
+    return (
+      <button type="button" onClick={() => open('t-archived')}>
+        add a note
+      </button>
+    )
+  }
+
+  beforeEach(() => {
+    for (const group of Object.values(repoMock)) {
+      for (const fn of Object.values(group)) fn.mockReset()
+    }
+    repoMock.notes.listAll.mockResolvedValue([])
+    repoMock.categories.list.mockResolvedValue(CATEGORIES)
+    repoMock.subcategories.list.mockResolvedValue(SUBCATEGORIES)
+    repoMock.tasks.list.mockResolvedValue(TASKS)
+  })
+
+  it('a 0-note task opens on the draft editor, not the empty list, and writes nothing', async () => {
+    // The session is still unresolved when the provider first renders AND
+    // when the task's notes are asked for.
+    let resolveSession!: () => void
+    sessionMock.ready = new Promise<void>((r) => (resolveSession = r))
+
+    render(
+      <MemoryRouter>
+        <NotesProvider>
+          <Opener />
+        </NotesProvider>
+      </MemoryRouter>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'add a note' }))
+    await act(async () => {
+      resolveSession()
+      await sessionMock.ready
+    })
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading')).toHaveTextContent('Legacy cleanup')
+    expect(await screen.findByLabelText('Title')).toHaveValue('')
+    expect(screen.getByLabelText('Note body')).toHaveValue('')
+    // Not the empty list with its lone button.
+    expect(screen.queryByRole('button', { name: 'New note' })).toBeNull()
+
+    // Still D4: nothing is written while the draft is empty.
+    const body = screen.getByLabelText('Note body')
+    fireEvent.change(body, { target: { value: '  ' } })
+    fireEvent.blur(body)
+    await Promise.resolve()
+    expect(repoMock.notes.create).not.toHaveBeenCalled()
+
+    fireEvent.change(body, { target: { value: 'Now it counts' } })
+    fireEvent.blur(body)
+    await waitFor(() => expect(repoMock.notes.create).toHaveBeenCalledTimes(1))
+    expect(repoMock.notes.create).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', taskId: 't-archived' }),
+    )
+    sessionMock.ready = Promise.resolve()
+  })
+
+  it('same, when the session resolved before the click (the usual order)', async () => {
+    sessionMock.ready = Promise.resolve()
+    render(
+      <MemoryRouter>
+        <NotesProvider>
+          <Opener />
+        </NotesProvider>
+      </MemoryRouter>,
+    )
+    await act(async () => {
+      await sessionMock.ready
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'add a note' }))
+    expect(await screen.findByLabelText('Title')).toHaveValue('')
+    expect(screen.queryByRole('button', { name: 'New note' })).toBeNull()
+    expect(repoMock.notes.create).not.toHaveBeenCalled()
+  })
+})

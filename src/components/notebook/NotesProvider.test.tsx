@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /*
@@ -292,6 +293,8 @@ describe('task notes sheet (D6)', () => {
     await waitFor(() =>
       expect(screen.getByTestId('open-count')).toHaveTextContent('0'),
     )
+    // The task's last note: the sheet closes, as it does for move and unlink.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
   it('menu → Open in Notebook goes to the note and closes the sheet', async () => {
@@ -398,5 +401,74 @@ describe('task notes sheet (D6)', () => {
     await mount()
     click('open t-open')
     expect(await sheet()).toHaveAttribute('data-side', 'bottom')
+  })
+
+  it('F2: deleting the task’s only note closes the sheet (real pointer events)', async () => {
+    const user = userEvent.setup()
+    await mount()
+    await user.click(screen.getByRole('button', { name: 'open t-open' }))
+    await titleInput()
+    await user.click(screen.getByRole('button', { name: 'Note actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete note' }))
+    const confirm = await screen.findByRole('alertdialog')
+    await user.click(within(confirm).getByRole('button', { name: 'Delete' }))
+    await waitFor(() =>
+      expect(repoMock.notes.delete).toHaveBeenCalledWith('n-task'),
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.queryByRole('button', { name: 'New note' })).toBeNull()
+  })
+
+  async function deleteShown() {
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Note actions' }), {
+      key: 'Enter',
+    })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete note' }))
+    const confirm = await screen.findByRole('alertdialog')
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Delete' }))
+  }
+
+  it('F2: deleting one of three returns to the list of the two that remain', async () => {
+    const third = mkNote({ id: 'n-task-3', title: 'Third', taskId: 't-open', updatedAt: '2026-10-03T12:00:00.000Z' })
+    await mount([...NOTES, SECOND, third])
+    click('open t-open')
+    fireEvent.click((await screen.findAllByTestId('task-note-row'))[0])
+    expect(await titleInput()).toHaveValue('On open task')
+    await deleteShown()
+
+    await waitFor(() =>
+      expect(repoMock.notes.delete).toHaveBeenCalledWith('n-task'),
+    )
+    const rows = await screen.findAllByTestId('task-note-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveTextContent('Second thought')
+    expect(rows[1]).toHaveTextContent('Third')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('F2: deleting one of two leaves the sheet open on the note that remains', async () => {
+    await mount([...NOTES, SECOND])
+    click('open t-open')
+    fireEvent.click((await screen.findAllByTestId('task-note-row'))[0])
+    await titleInput()
+    await deleteShown()
+
+    await waitFor(() =>
+      expect(repoMock.notes.delete).toHaveBeenCalledWith('n-task'),
+    )
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue(''))
+    expect(screen.getByText(/Second thought/)).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('F2: the sheet closes when the task’s last note is deleted from elsewhere', async () => {
+    await mount()
+    click('open t-open')
+    await titleInput()
+    // Another writer (another screen, or a refetch after another device's
+    // delete) removes the note this sheet is showing.
+    // (Behind the modal sheet the page is aria-hidden, so find it by text.)
+    fireEvent.click(screen.getByText('delete n-task'))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 })

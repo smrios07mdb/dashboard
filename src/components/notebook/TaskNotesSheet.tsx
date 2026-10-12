@@ -8,7 +8,6 @@ import { IconButton } from '@/components/ui/icon-button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { repo } from '@/db/repo'
 import type { Note } from '@/db/types'
-import { useSession } from '@/lib/auth'
 import { catColor } from '@/lib/cat'
 import {
   noteExcerpt,
@@ -46,6 +45,12 @@ import { newDraftNote, useNoteWriter } from './useNoteWriter'
  */
 
 type TaskNotesSheetProps = {
+  /**
+   * From `NotesProvider`, already resolved. Not `useSession()` here: that hook
+   * has no user on its first render, which is the render that decides whether
+   * to open a draft.
+   */
+  userId: string
   taskId: string
   /** Open straight at this note. */
   noteId: string | null
@@ -56,6 +61,7 @@ type TaskNotesSheetProps = {
 const EMPTY_CTX: NoteContext = { categories: [], subcategories: [], tasks: [] }
 
 export default function TaskNotesSheet({
+  userId,
   taskId,
   noteId,
   open,
@@ -63,8 +69,6 @@ export default function TaskNotesSheet({
 }: TaskNotesSheetProps) {
   const navigate = useNavigate()
   const touch = useIsTouchDevice()
-  const { user } = useSession()
-  const userId = user?.id ?? null
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
   const { notes } = useNotes()
   const taskNotes = useTaskNotes(taskId)
@@ -73,7 +77,7 @@ export default function TaskNotesSheet({
   // this component each time).
   const [initial] = useState(() => {
     if (noteId) return { viewId: noteId, draft: null }
-    if (taskNotes.length === 0 && userId) {
+    if (taskNotes.length === 0) {
       const draft = newDraftNote(userId, { taskId })
       return { viewId: draft.id, draft }
     }
@@ -124,7 +128,6 @@ export default function TaskNotesSheet({
   const others = shown ? taskNotes.filter((n) => n.id !== shown.id).length : 0
 
   function newNote() {
-    if (!userId) return
     setViewId(openDraft(userId, { taskId }).id)
   }
 
@@ -133,19 +136,37 @@ export default function TaskNotesSheet({
     navigate(`/notebook/${id}`)
   }
 
-  /** The note left this task: back to the list, or close on the last one. */
-  function left(note: Note) {
-    setViewId(null)
-    if (taskNotes.every((n) => n.id === note.id)) onClose()
+  /**
+   * `note` is about to leave this task (moved, unlinked or deleted). Whether
+   * it is the task's last is read here, from the notes as they stand BEFORE
+   * the write; the returned function then goes back to the list, or closes
+   * the sheet when that was the last one.
+   */
+  function leaving(note: Note) {
+    const wasLast = taskNotes.every((n) => n.id === note.id)
+    return () => {
+      setViewId(null)
+      if (wasLast) onClose()
+    }
   }
 
+  // Belt and braces for the same rule (chunk 59a, F2): an open sheet with no
+  // note on screen and none on the task has nothing to show — the last note
+  // went, here or on another device — so it closes rather than sit on an
+  // empty list. A 0-note opening never lands here: it starts on a draft.
+  const nothingLeft = open && !shown && taskNotes.length === 0
+  useEffect(() => {
+    if (nothingLeft) onClose()
+  }, [nothingLeft, onClose])
+
   function detachNote(note: Note) {
+    const left = leaving(note)
     void detach(note.id).then(
       () => {
         toast.success(
           `Detached from ${task?.title ?? 'the task'}. It is now a freeform note.`,
         )
-        left(note)
+        left()
       },
       () => undefined,
     )
@@ -159,17 +180,19 @@ export default function TaskNotesSheet({
     }
     // Picking the task it is already on changes nothing.
     if (target.kind === 'task' && target.id === taskId) return
+    const left = leaving(note)
     void attach(note.id, target).then(
       () => {
         toast.success('Note moved.')
-        left(note)
+        left()
       },
       () => undefined,
     )
   }
 
   async function removeNote(note: Note) {
-    if (await remove(note)) left(note)
+    const left = leaving(note)
+    if (await remove(note)) left()
   }
 
   return (

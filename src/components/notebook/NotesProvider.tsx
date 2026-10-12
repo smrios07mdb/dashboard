@@ -11,6 +11,7 @@ import {
 
 import { repo } from '@/db/repo'
 import type { Note } from '@/db/types'
+import { useSession } from '@/lib/auth'
 import { useUIStore } from '@/state/uiStore'
 
 import {
@@ -46,6 +47,13 @@ export default function NotesProvider({ children }: { children: ReactNode }) {
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
   const [notes, setNotes] = useState<Note[]>([])
   const [sheet, setSheet] = useState<SheetState | null>(null)
+  // `useSession` is per-instance and starts with no user until its own
+  // `getSession()` resolves. This instance mounts with the layout, so by the
+  // time anyone opens a task's notes it has long settled — which is why the
+  // sheet is handed the id from here instead of asking for itself (chunk 59a:
+  // a sheet that asked on its first render always saw `null` and could not
+  // open the 0-note draft).
+  const userId = useSession().user?.id ?? null
 
   /** The read in flight, if any; 0 when idle. */
   const loadRef = useRef(0)
@@ -114,10 +122,11 @@ export default function NotesProvider({ children }: { children: ReactNode }) {
   return (
     <NotesContext.Provider value={value}>
       {children}
-      {sheet && (
+      {sheet && userId && (
         <Suspense fallback={null}>
           <TaskNotesSheet
             key={sheet.key}
+            userId={userId}
             taskId={sheet.taskId}
             noteId={sheet.noteId}
             open={sheet.open}

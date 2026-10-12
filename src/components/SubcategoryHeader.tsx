@@ -228,20 +228,28 @@ export default function SubcategoryHeader({
         )}
       </div>
 
-      <span className="font-mono text-[12px] tabular-nums text-ink-3">
-        {incompleteCount}
-      </span>
-      {noteCount > 0 && (
-        <span
-          data-testid="list-note-count"
-          title={`${noteCount} ${noteCount === 1 ? 'note' : 'notes'} on this list`}
-          className="num inline-flex items-center gap-1 text-[11px] text-ink-3"
-        >
-          <Note size={13} aria-hidden />
-          {noteCount}
+      {/* One grid cell for both counts. The header's template has six fixed
+          columns; a seventh child (the note count on its own, chunk 59) wrapped
+          the ⋯ button onto a second row (chunk 59a, F3). */}
+      <span
+        data-testid="list-counts"
+        className="inline-flex shrink-0 items-center gap-2"
+      >
+        <span className="font-mono text-[12px] tabular-nums text-ink-3">
+          {incompleteCount}
         </span>
-      )}
-      <span className="min-w-[50px] text-right font-mono text-[12px] tabular-nums text-ink-3">
+        {noteCount > 0 && (
+          <span
+            data-testid="list-note-count"
+            title={`${noteCount} ${noteCount === 1 ? 'note' : 'notes'} on this list`}
+            className="num inline-flex shrink-0 items-center gap-1 text-[11px] text-ink-3"
+          >
+            <Note size={13} aria-hidden />
+            {noteCount}
+          </span>
+        )}
+      </span>
+      <span className="min-w-[50px] shrink-0 text-right font-mono text-[12px] tabular-nums text-ink-3">
         {fmtMin(incompleteMinutes)}
       </span>
 
@@ -253,7 +261,7 @@ export default function SubcategoryHeader({
           onDrillDown(subcategory.id)
         }}
         className={cn(
-          'inline-flex items-center justify-center rounded-sm text-[16px] leading-none text-ink-3 transition-colors hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          'inline-flex shrink-0 items-center justify-center rounded-sm text-[16px] leading-none text-ink-3 transition-colors hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
           isTouch ? 'h-11 w-11' : 'h-6 w-6',
         )}
       >
@@ -267,7 +275,7 @@ export default function SubcategoryHeader({
             aria-label={`Actions for ${subcategory.name}`}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'inline-flex items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'inline-flex shrink-0 items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isTouch ? 'h-11 w-11' : 'h-6 w-6',
             )}
           >
