@@ -45,9 +45,9 @@ Single-user installable PWA. Runs on iPhone, iPad, and Mac (Safari + installable
 - `jose` for JWT verification against Supabase JWKS
 
 **AI**
-- Anthropic API called client-side with `anthropic-dangerous-direct-browser-access: true`
-- Model: `claude-haiku-4-5`
-- User-supplied API key stored in `settings.ai_api_key`
+- Anthropic API called **by the proxy** (`POST /api/ai/triage`, chunk 55) — the browser never talks to Anthropic
+- Model: `claude-haiku-5-5`, owned by the proxy (`api/_lib/ai.ts`)
+- User-supplied API key stored AES-GCM-encrypted in `settings.ai_api_key_encrypted`; the app reads only `settings.ai_status`
 
 ---
 
@@ -110,7 +110,12 @@ routine_logs
 
 settings
   user_id uuid primary key references auth.users(id) on delete cascade,
-  ai_api_key text,
+  ai_api_key text,                        -- LEGACY plaintext; lazily migrated by the proxy (chunk 55 D5), dropped next chunk
+  -- chunk 55 / migration 14: proxy-owned. The app never reads or writes the
+  -- ciphertext; it reads only ai_status (see §10)
+  ai_api_key_encrypted bytea,
+  ai_status text not null default 'unconfigured'
+    check (ai_status in ('unconfigured','ok','auth_failed')),
   caldav_apple_id text,
   caldav_app_password_encrypted bytea,
   caldav_calendar_url text,               -- the single WRITE target (chunk 39 mirrors)
@@ -230,6 +235,9 @@ Cache mirrors of all user-scoped Postgres tables live in Dexie (no `user_id` col
 | `POST /api/calendar/events` | Create VEVENT, return `{ uid }`; `source: 'planner'` tags the uid `hupo-block-<uuid>` and defaults the description to `Planned in Hupomnemata` |
 | `PATCH /api/calendar/events` | `{ uid, title, start, end, description? }` — rebuild the VEVENT at `<calendar_url><uid>.ics` (unconditional PUT, no etag), return `{ ok }` |
 | `DELETE /api/calendar/events?uid=…` | Delete the VEVENT; an upstream 404 answers `{ ok, missing: true }` (idempotent) |
+| `POST /api/ai/key` | `{ api_key }` — validate against Anthropic (`GET /v1/models?limit=1`), AES-GCM-encrypt, persist, `ai_status = 'ok'`. 422 `bad_key` / 502 `upstream` store nothing (chunk 55, §10) |
+| `DELETE /api/ai/key` | Clear the stored key, `ai_status = 'unconfigured'` |
+| `POST /api/ai/triage` | `{ tasks, available_minutes, timezone }` → `{ ok, data }`, `data` = Anthropic's Messages JSON unmodified. 412 `missing_key`; 422 `bad_key` (also flips `ai_status = 'auth_failed'`); 502 `upstream` (§10) |
 | `GET /api/health` | `{ ok: true }` |
 
 **On 401 from iCloud:** proxy sets `caldav_status = 'auth_failed'` and returns error. App replaces the busy strip with a "Reconnect Apple Calendar" banner linking to Settings.
@@ -291,18 +299,30 @@ The Week Planner (chunk 36/37) applies the same freshness model at week granular
 
 ## 10. AI triage
 
-Client-side call to `https://api.anthropic.com/v1/messages`:
-- Header `anthropic-dangerous-direct-browser-access: true`
-- Header `x-api-key: <user key from settings>`
-- Header `anthropic-version: 2023-06-01`
-- Model `claude-haiku-4-5`, `max_tokens: 800`
+Triage runs **through the proxy** (chunk 55; supersedes the original client-side call). The browser never holds, reads or sends the Anthropic key after it is saved.
+
+**Key lifecycle.** The user pastes their own Anthropic key in Settings → `POST /api/ai/key`. The proxy validates it (`GET https://api.anthropic.com/v1/models?limit=1`), AES-GCM-encrypts it with the existing `CALDAV_ENCRYPTION_KEY` (the iCloud-password / Outlook-URL pattern — no new secret) and writes `settings.ai_api_key_encrypted` + `ai_status = 'ok'`. A rejected key (422 `bad_key`) or an unreachable Anthropic (502 `upstream`) stores nothing. `DELETE /api/ai/key` clears it. The Settings field is write-only: it renders from `ai_status` (`unconfigured` → input + Save; `ok` → "Key saved" + Replace / Remove; `auth_failed` → "Anthropic rejected the saved key" + Replace / Remove) and refetches settings after every save/remove — never optimistic, the `caldav_status` rule.
+
+**Triage call.** `POST /api/ai/triage` with the Supabase JWT and body `{ tasks: TriageTask[] (≤300), available_minutes: 1–1440, timezone }`, where `TriageTask` is `{ task_id, title, subcategory_name, category_name, estimate_minutes, due_at, priority }` (zod-validated, strict). The proxy owns the Anthropic request:
+- `POST https://api.anthropic.com/v1/messages`, headers `x-api-key: <decrypted key>` and `anthropic-version: 2023-06-01`
+- Model `claude-haiku-5-5`, `max_tokens: 800`
 - System prompt frames Claude as a triage assistant
-- User message: JSON of incomplete tasks (id, title, subcategory_name, category_name, estimate_minutes, due_at, priority) + available minutes
-- Expected response: `{ recommendations: [{ task_id, reason }], note: string }`
+- User message: JSON of the tasks + available minutes + timezone
+- Expected model output: `{ recommendations: [{ task_id, reason }], note: string }`
 
-**Security tradeoff (documented):** The API key is visible in browser network traffic on the user's device. Acceptable for single-user personal use. Future hardening: route through the proxy with key as server env var.
+The proxy returns `{ ok: true, data }` with Anthropic's Messages JSON **unmodified**; extracting the text block and parsing the recommendations stays client-side (`src/lib/ai.ts`).
 
-**Compensating control (chunk 17, SRV-01):** a build-time `<meta http-equiv="Content-Security-Policy">` (injected by a `build`-only Vite plugin so dev is unconstrained) restricts `connect-src` to Supabase — including `wss://*.supabase.co` for Realtime — the Anthropic API, and the CalDAV proxy, and blocks inline/cross-origin scripts; this bounds where an injected script could exfiltrate the in-DOM key. `style-src` retains `'unsafe-inline'` for recharts' inline styles (§12) pending deployed-console confirmation that dropping it is safe.
+| Proxy response | Meaning | App error kind |
+|---|---|---|
+| 412 `missing_key` | no key stored | `missing-key` |
+| 422 `bad_key` | Anthropic 401/403; proxy also sets `ai_status = 'auth_failed'` | `auth` |
+| 401 | the Supabase JWT was rejected (not the AI key) | `network`, "Your session expired — sign in again." |
+| 502 `upstream` / 5xx / fetch reject | Anthropic or the proxy unreachable | `network` |
+| non-JSON, or `ok:false` with no mapped code | — | `malformed` |
+
+**Legacy key migration (chunk 55 D5).** Before chunk 55 the key lived in plaintext in `settings.ai_api_key` and was sent from the browser. On a triage where `ai_api_key_encrypted` is null and the legacy column is non-empty, the proxy encrypts it, sets `ai_status = 'ok'`, nulls the legacy column and proceeds. The legacy column is read only there, in its own select. Dropping it is a follow-up chunk with a fixed order: the proxy stops selecting the column and deploys **before** the drop, or every triage 500s.
+
+**Security posture.** The key is no longer visible in browser network traffic or the DOM after the one `POST /api/ai/key`. `api.anthropic.com` is no longer in the CSP's `connect-src` (chunk 55 D6), so an injected script cannot reach Anthropic at all. The remaining CSP (chunk 17, SRV-01: a build-time `<meta http-equiv="Content-Security-Policy">` injected by a `build`-only Vite plugin so dev is unconstrained) restricts `connect-src` to Supabase — including `wss://*.supabase.co` for Realtime — and the CalDAV proxy, and blocks inline/cross-origin scripts. `style-src` retains `'unsafe-inline'` for recharts' inline styles (§12) pending deployed-console confirmation that dropping it is safe. See `docs/security.md`.
 
 ---
 
@@ -368,7 +388,7 @@ If more than 8 subcategories appear in the filtered range, group all but the top
 | Supabase realtime free tier: 200 concurrent connections, 2M messages/month | Single-user — not a constraint |
 | CalDAV latency 1–3s | Busy ranges cached 5min client-side |
 | No push from iCloud to proxy | Poll busy ranges on focus + every 5min |
-| AI key exposed in browser traffic | Documented (docs/security.md). NOT cached at rest — `aiApiKey`/`caldavAppleId` are never written to Dexie (chunk 18); future: proxy AI calls |
+| ~~AI key exposed in browser traffic~~ | Closed in chunk 55: triage goes through the proxy and the key is AES-GCM-encrypted in `settings.ai_api_key_encrypted`, never returned to the app (§10). Residual: the proxy's `CALDAV_ENCRYPTION_KEY` now protects three secrets; `caldavAppleId` is still never written to Dexie (chunk 18) |
 | iOS PWA sessions evicted after ~7 days inactivity | Re-login is expected; documented |
 | iOS Web Push requires installed PWA + 16.4+ | In-app fallback for other contexts |
 

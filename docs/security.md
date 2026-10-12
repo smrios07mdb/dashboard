@@ -1,66 +1,66 @@
 # Security notes
 
-## AI triage key (client-side Anthropic call)
+## AI triage key (proxied; encrypted at rest — chunk 55)
 
-The "What's next?" triage (ARCHITECTURE.md §10) calls the Anthropic
-Messages API **directly from the browser**, using the
-`anthropic-dangerous-direct-browser-access: true` header and the user's
-own API key.
+The "What's next?" triage (ARCHITECTURE.md §10) is made **by the calendar
+proxy**, not the browser. The user's own Anthropic key is stored
+AES-GCM-encrypted in `settings.ai_api_key_encrypted`, the same way the
+iCloud app-specific password and the Outlook ICS URL are.
 
-### The tradeoff
+### What the browser can and cannot see
 
-The API key is sent in a request header from the user's device. That
-means:
+- The key leaves the device **once**: as the HTTPS body of
+  `POST /api/ai/key` when it is saved or replaced. It is not kept in the
+  form, not written to Dexie, and not in the `Settings` type.
+- After that the app reads only `settings.ai_status`
+  (`unconfigured` / `ok` / `auth_failed`). The Settings field is
+  write-only — there is no reveal toggle because there is nothing to
+  reveal.
+- Triage requests go to `POST /api/ai/triage` with the Supabase JWT. The
+  proxy decrypts the key in memory, calls Anthropic, and returns
+  Anthropic's response. No proxy response ever contains the key.
+- `api.anthropic.com` is no longer in the CSP `connect-src`, so no script
+  on the page can reach Anthropic directly.
 
-- The key is **visible in the browser's network traffic** (DevTools →
-  Network) on that device, and to any browser extension with request
-  access.
-- There is **no server-side secret**: anyone with access to the signed-in
-  browser session can read the key.
+### Where the key is protected
 
-### Why this is acceptable here
+- **At rest:** AES-256-GCM with the proxy's `CALDAV_ENCRYPTION_KEY`
+  (Vercel env var), on top of Supabase at-rest encryption. The ciphertext
+  is useless without that env var. Note the ciphertext column is still
+  covered by the owner's row-level-security read access, as the other two
+  `*_encrypted` columns are; the app never selects it by name and never
+  maps it.
+- **Validation before storage:** a key is checked against Anthropic
+  (`GET /v1/models?limit=1`) before it is written, so a rejected or
+  unverifiable key never overwrites a working one.
+- **Export/import:** all three `*_encrypted` columns are redacted to
+  `null` in an export and omitted from an import's settings upsert
+  (`CREDENTIAL_SETTINGS_KEYS`). Before chunk 55 the Outlook ciphertext
+  was missing from that list.
 
-This is a **single-user personal-productivity app** (ARCHITECTURE.md §1,
-§14). The key:
+### Data disclosure
 
-- Is supplied by the same person who owns the device and the session.
-- Is stored in `settings.ai_api_key`, protected by Supabase **row-level
-  security** — only its owner can read or write that row.
-- Is never shared with any third party other than Anthropic, the service
-  the key is for.
-
-In other words, the only party who can see the key is the person who
-typed it in. The "exposure" is to the user's own browser. For a personal
-app, that is an acceptable tradeoff — the alternative (a server-side
-proxy) adds infrastructure and a second place to leak from, for no real
-gain at single-user scale.
+Triage sends incomplete task titles, their category and subcategory,
+time estimate, due date and priority to Anthropic — never notes. It now
+transits the proxy on the way; the proxy does not log or store it.
 
 ### Cost / abuse note
 
-Because the key is the user's own Anthropic key, all triage usage bills
-to the user's Anthropic account. The call is capped at `max_tokens: 800`
-and is only made on an explicit "Get recommendations" click (never
-automatically, never streamed, never stored).
+The key is the user's own, so triage bills to their Anthropic account.
+The call is capped at `max_tokens: 800` and is only made on an explicit
+click (never automatically, never streamed, never stored). The endpoint
+requires a valid Supabase JWT and has no per-user rate limit — acceptable
+at single-user scale, and the first thing to add if that changes.
 
-### Future hardening path
+### History
 
-If this app ever opens to multiple users, or the key needs to be hidden
-from the client, route the AI call through the existing CalDAV proxy
-(`dashboard-caldav-proxy`, ARCHITECTURE.md §7) instead of calling
-Anthropic from the browser:
-
-- Store the Anthropic key as a **server-side env var** on the proxy
-  (never sent to the client), the same way `CALDAV_ENCRYPTION_KEY` and
-  the Supabase service-role key already live there.
-- Add a `POST /api/ai/triage` endpoint that verifies the Supabase JWT
-  (as the calendar endpoints already do), reads the incomplete tasks /
-  available time from the request, and makes the Anthropic call
-  server-side.
-- The browser then only ever talks to the proxy, and the key never
-  appears in client network traffic.
-
-This is explicitly **out of scope for chunk 11** (see the chunk prompt's
-"Do NOT" list) — documented here, not built.
+Until chunk 55 the browser called Anthropic directly
+(`anthropic-dangerous-direct-browser-access`) with a plaintext key in
+`settings.ai_api_key`; the "future hardening path" recorded here was to
+route the call through the proxy, which chunk 55 did — with the user's
+key encrypted in `settings` rather than a proxy env var. The legacy
+plaintext column is lazily migrated by the proxy on the first triage and
+dropped in a follow-up chunk.
 
 ## Local data at rest (chunk 18 — PRIV-01 / PRIV-02)
 
@@ -84,7 +84,9 @@ have persisted there:
   (`toCachedSettings` strips them at every cache-write site). They're only used
   online — the AI call hits `api.anthropic.com` and CalDAV ops hit the proxy —
   so they're read from the live Supabase fetch and never persisted locally,
-  exactly as the encrypted CalDAV password already was.
+  exactly as the encrypted CalDAV password already was. *(Chunk 55: `aiApiKey`
+  no longer exists client-side at all — see the section above; the strip now
+  covers `caldavAppleId` only.)*
 - A single app-wide `SIGNED_OUT` listener **wipes the cache mirror on sign-out**
   (`clearLocalDataOnSignOut`), including on token expiry and sign-out from
   another tab/device — not just the account-menu button. The offline outbox is
