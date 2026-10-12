@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dashboard-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "vars": {
+    // Repo this server is allowed to touch. Nothing else is reachable.
+    "REPO_OWNER": "smrios07mdb",
+    "REPO_NAME": "dashboard",
+    "REPO_BRANCH": "main",
+    // Only this GitHub login may complete the OAuth flow.
+    "ALLOWED_GITHUB_LOGIN": "smrios07mdb"
+  },
+  "durable_objects": {
+    "bindings": [{ "class_name": "HandoffMCP", "name": "MCP_OBJECT" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HandoffMCP"] }],
+  "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "REPLACE_WITH_NEW_KV_ID" }]
+}

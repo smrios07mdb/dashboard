@@ -150,6 +150,6 @@ export default defineConfig({
     // Supabase tests run separately via `npm run test:supabase` against a
     // hosted project — they need node env + real network and shouldn't
     // get pulled into the default `npm test` discovery.
-    exclude: ['**/node_modules/**', '**/dist/**', 'supabase/**'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'supabase/**', 'infra/**'],
   },
 })
