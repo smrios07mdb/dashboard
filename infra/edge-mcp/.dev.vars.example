@@ -1,0 +1,6 @@
+# Local dev only. Never commit .dev.vars — it is gitignored.
+# Production values are set with: npx wrangler secret put <NAME>
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GITHUB_REPO_PAT=
+COOKIE_SECRET=
