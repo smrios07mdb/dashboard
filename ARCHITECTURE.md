@@ -46,7 +46,7 @@ Single-user installable PWA. Runs on iPhone, iPad, and Mac (Safari + installable
 
 **AI**
 - Anthropic API called **by the proxy** (`POST /api/ai/triage`, chunk 55) — the browser never talks to Anthropic
-- Model: `claude-haiku-5-5`, owned by the proxy (`api/_lib/ai.ts`)
+- Model: the latest active Claude Haiku, resolved at runtime by the proxy (`api/_lib/ai.ts`, chunk 57 D1–D4); floor `claude-haiku-5-5`
 - User-supplied API key stored AES-GCM-encrypted in `settings.ai_api_key_encrypted`; the app reads only `settings.ai_status`
 
 ---
@@ -304,7 +304,13 @@ Triage runs **through the proxy** (chunk 55; supersedes the original client-side
 
 **Triage call.** `POST /api/ai/triage` with the Supabase JWT and body `{ tasks: TriageTask[] (≤300), available_minutes: 1–1440, timezone }`, where `TriageTask` is `{ task_id, title, subcategory_name, category_name, estimate_minutes, due_at, priority }` (zod-validated, strict). The proxy owns the Anthropic request:
 - `POST https://api.anthropic.com/v1/messages`, headers `x-api-key: <decrypted key>` and `anthropic-version: 2023-06-01`
-- Model `claude-haiku-5-5`, `max_tokens: 800`
+- Model: the latest active Haiku, resolved per chunk 57 D1–D4; floor `claude-haiku-5-5`. `max_tokens: 800`
+  - **Resolve (D1).** `GET /v1/models?limit=100` with the caller's key, at most 3 pages (no `lifecycle` query filter — Anthropic answered it with 400 on 2026-10-12); the entry with `line === 'haiku'`, `lifecycle === 'active'` and the greatest `created_at` wins. The `id` text is never matched (Anthropic has no `-latest` alias, and a new model ships under a new ID).
+  - **Floor (D2).** `claude-haiku-5-5` when that call fails, times out or lists no active Haiku — never another model line.
+  - **Cache (D3).** In memory per warm instance, keyed by SHA-256 of the key: 24 h for a resolved model, 5 min for the floor. Nothing is persisted; Supabase is unaware of the model.
+  - **Retired model (D4).** A `404 not_found_error` from `/v1/messages` drops the cache entry, re-resolves and retries once; a second failure is 502 `upstream`.
+  - Resolution and the Messages call share the one 12 s budget. Each triage logs `triage model=<id> source=<resolved|floor|cache>`, with no key material.
+  - The app names no model; Settings reads "Uses the latest Claude Haiku".
 - System prompt frames Claude as a triage assistant
 - User message: JSON of the tasks + available minutes + timezone
 - Expected model output: `{ recommendations: [{ task_id, reason }], note: string }`
