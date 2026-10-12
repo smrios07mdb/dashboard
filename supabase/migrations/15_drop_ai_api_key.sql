@@ -1,0 +1,14 @@
+-- Chunk 56 — drop the legacy plaintext `settings.ai_api_key` column.
+-- Chunk 55 D5 left it in place so the proxy could lazily migrate the key into
+-- `ai_api_key_encrypted` on the first triage; that ran once on 2026-10-12
+-- (`ai_api_key` null, `ai_api_key_encrypted` set, `ai_status = 'ok'`).
+--
+-- Ordering matters: PostgREST rejects an unknown column on select AND update,
+-- so this is applied only after (1) the proxy stopped naming the column in
+-- /api/ai/key and /api/ai/triage and was deployed, and (2) the app's import
+-- stopped upserting it from pre-chunk-55 export files (chunk 56 D1/D2).
+--
+-- No RLS / publication / replica-identity changes. Applied out-of-band to the
+-- dev project via raw SQL (MCP `execute_sql`, migration-13/14 precedent).
+-- Idempotent.
+alter table public.settings drop column if exists ai_api_key;

@@ -36,7 +36,12 @@ iCloud app-specific password and the Outlook ICS URL are.
 - **Export/import:** all three `*_encrypted` columns are redacted to
   `null` in an export and omitted from an import's settings upsert
   (`CREDENTIAL_SETTINGS_KEYS`). Before chunk 55 the Outlook ciphertext
-  was missing from that list.
+  was missing from that list. An import also never writes the three
+  status columns (`ai_status`, `caldav_status`, `outlook_status`) or the
+  retired `ai_api_key` key that old export files carry
+  (`IMPORT_STRIPPED_SETTINGS_KEYS`, chunk 56): a status describes a secret
+  the file does not hold, so only the live row's value is truthful. The
+  export does not redact those four.
 
 ### Data disclosure
 
@@ -58,9 +63,9 @@ Until chunk 55 the browser called Anthropic directly
 (`anthropic-dangerous-direct-browser-access`) with a plaintext key in
 `settings.ai_api_key`; the "future hardening path" recorded here was to
 route the call through the proxy, which chunk 55 did — with the user's
-key encrypted in `settings` rather than a proxy env var. The legacy
-plaintext column is lazily migrated by the proxy on the first triage and
-dropped in a follow-up chunk.
+key encrypted in `settings` rather than a proxy env var. The proxy
+migrated the legacy plaintext value once, on 2026-10-12, and chunk 56
+dropped the column (migration 15). No plaintext key column exists.
 
 ## Local data at rest (chunk 18 — PRIV-01 / PRIV-02)
 

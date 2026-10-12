@@ -110,7 +110,6 @@ routine_logs
 
 settings
   user_id uuid primary key references auth.users(id) on delete cascade,
-  ai_api_key text,                        -- LEGACY plaintext; lazily migrated by the proxy (chunk 55 D5), dropped next chunk
   -- chunk 55 / migration 14: proxy-owned. The app never reads or writes the
   -- ciphertext; it reads only ai_status (see §10)
   ai_api_key_encrypted bytea,
@@ -320,7 +319,9 @@ The proxy returns `{ ok: true, data }` with Anthropic's Messages JSON **unmodifi
 | 502 `upstream` / 5xx / fetch reject | Anthropic or the proxy unreachable | `network` |
 | non-JSON, or `ok:false` with no mapped code | — | `malformed` |
 
-**Legacy key migration (chunk 55 D5).** Before chunk 55 the key lived in plaintext in `settings.ai_api_key` and was sent from the browser. On a triage where `ai_api_key_encrypted` is null and the legacy column is non-empty, the proxy encrypts it, sets `ai_status = 'ok'`, nulls the legacy column and proceeds. The legacy column is read only there, in its own select. Dropping it is a follow-up chunk with a fixed order: the proxy stops selecting the column and deploys **before** the drop, or every triage 500s.
+**Legacy key (history).** Before chunk 55 the key lived in plaintext in `settings.ai_api_key` and was sent from the browser; the proxy migrated it into `ai_api_key_encrypted` once, on 2026-10-12 (chunk 55 D5), and chunk 56 removed every proxy reference and dropped the column (migration 15).
+
+**Settings in export/import (chunk 16 / 55 D7 / 56 D2).** Two key lists in `src/lib/export.ts` govern the settings row. `CREDENTIAL_SETTINGS_KEYS` — the three proxy-owned ciphertexts (`caldav_app_password_encrypted`, `ai_api_key_encrypted`, `outlook_ics_url_encrypted`) — is redacted to `null` on export **and** omitted from the import's settings upsert, so a redacted null never overwrites a live secret. `IMPORT_STRIPPED_SETTINGS_KEYS` — `ai_api_key`, `ai_status`, `caldav_status`, `outlook_status` — is **not** redacted on export (the file stays a faithful dump) but is omitted on import: `ai_api_key` is the dropped legacy column that pre-chunk-55 files still carry, and the three statuses describe secrets the file does not carry, so the live row's value is the only truthful one (importing `ai_status: 'ok'` onto an account with no key would show "Key saved" while triage 412s). Both are denylists by design — no column allowlist, which would drift on every migration.
 
 **Security posture.** The key is no longer visible in browser network traffic or the DOM after the one `POST /api/ai/key`. `api.anthropic.com` is no longer in the CSP's `connect-src` (chunk 55 D6), so an injected script cannot reach Anthropic at all. The remaining CSP (chunk 17, SRV-01: a build-time `<meta http-equiv="Content-Security-Policy">` injected by a `build`-only Vite plugin so dev is unconstrained) restricts `connect-src` to Supabase — including `wss://*.supabase.co` for Realtime — and the CalDAV proxy, and blocks inline/cross-origin scripts. `style-src` retains `'unsafe-inline'` for recharts' inline styles (§12) pending deployed-console confirmation that dropping it is safe. See `docs/security.md`.
 
