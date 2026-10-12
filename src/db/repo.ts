@@ -1042,7 +1042,7 @@ const settingsRepo = {
     const existing = await db.settings.get(userId)
     const base: Settings = existing ?? {
       userId,
-      aiApiKey: null,
+      aiStatus: 'unconfigured',
       caldavAppleId: null,
       caldavCalendarUrl: null,
       caldavReadCalendars: null,

@@ -1,45 +1,38 @@
 /*
- * AI triage client (ARCHITECTURE.md §10).
+ * AI triage client (ARCHITECTURE.md §10, chunk 55).
  *
- * Calls the Anthropic Messages API directly from the browser with the
- * user-supplied key (`anthropic-dangerous-direct-browser-access`). The
- * key lives in `settings.ai_api_key`, readable only by its owner via
- * RLS. The exposure tradeoff is documented in docs/security.md — this
- * module deliberately does NOT try to hide the key.
+ * Triage goes through the calendar proxy (`POST /api/ai/triage`), which
+ * holds the user's Anthropic key AES-GCM-encrypted at rest and owns the
+ * model, token cap and system prompt. The browser never reads the key:
+ * it leaves this device once, as the HTTPS body of `POST /api/ai/key`,
+ * and the app only ever sees `settings.ai_status`. See docs/security.md.
  *
  * Design split for testability: the join (`buildTriageTasks`), the
  * response-block extraction (`extractTextBlock`), and the JSON parse
  * (`parseTriageResult`) are pure and unit-tested without mocks. Only
- * `triage()` touches the network / session / settings boundary.
- *
- * Model: `claude-haiku-4-5`. Triage just ranks a small JSON payload by
- * deadline / priority / time-fit — no reasoning-heavy generation — so
- * Haiku is sufficient and meaningfully cheaper per call than Sonnet.
- * `claude-haiku-4-5` is the convenience alias for the current Haiku 4.5
- * snapshot.
+ * `triage()` / `saveAiKey()` / `removeAiKey()` touch the network / session
+ * boundary.
  */
-import { repo } from '@/db/repo'
 import { supabase } from '@/lib/supabase'
 import type { Category, Subcategory, Task } from '@/db/types'
 
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-haiku-4-5'
-const MAX_TOKENS = 800
+const PROXY_URL = import.meta.env.VITE_CALDAV_PROXY_URL as string | undefined
 
-const SYSTEM_PROMPT =
-  "You are a triage assistant for a personal productivity dashboard. " +
-  "Given a list of the user's incomplete tasks and their available time, " +
-  'recommend 1–3 tasks to do next. Consider deadlines, time fit, priority, ' +
-  'and category balance. Respond with valid JSON only: ' +
-  '{ "recommendations": [{ "task_id": "...", "reason": "<one sentence>" }], ' +
-  '"note": "<optional brief note>" }. Do not include any text outside the JSON.'
+/**
+ * Display-only label for Settings' "Uses …" line. The model is chosen by the
+ * proxy — keep this in sync with `MODEL` in dashboard-caldav-proxy
+ * `api/_lib/ai.ts`.
+ */
+export const TRIAGE_MODEL = 'claude-haiku-5-5'
+
+const SESSION_EXPIRED = 'Your session expired — sign in again.'
 
 export type AiErrorKind = 'missing-key' | 'network' | 'auth' | 'malformed'
 
 const MESSAGES: Record<AiErrorKind, string> = {
-  'missing-key': 'Add your API key in Settings.',
+  'missing-key': 'Add your Anthropic key in Settings.',
   network: "Couldn't reach the AI. Try again.",
-  auth: 'API key rejected. Update it in Settings.',
+  auth: 'Anthropic rejected the key. Replace it in Settings.',
   malformed: 'AI response was malformed. Try again.',
 }
 
@@ -161,72 +154,91 @@ export function parseTriageResult(rawText: string): TriageResult {
   return note ? { recommendations, note } : { recommendations }
 }
 
+type ProxyReply = { status: number; body: unknown }
+
 /**
- * The §10 call. Reads the key from settings (throws `missing-key` if
- * absent), POSTs the assembled task payload, and maps transport failures
- * to typed errors: 401 → `auth`, fetch-reject / non-OK → `network`,
- * non-JSON body or non-conforming JSON → `malformed`.
+ * One authenticated call to the proxy's `/api/ai/*`. The session is read per
+ * request (tokens refresh in the background — same reasoning as
+ * `calendarApi.ts`'s `authHeader`). Transport failures, a missing session
+ * and an unset proxy URL all surface as `network`; `body` is `undefined`
+ * when the response was not JSON.
+ */
+async function callAiProxy(path: string, init: RequestInit): Promise<ProxyReply> {
+  if (!PROXY_URL) throw new AiError('network')
+  const { data, error } = await supabase.auth.getSession()
+  if (error || !data?.session) throw new AiError('network', SESSION_EXPIRED)
+
+  let res: { status: number; json: () => Promise<unknown> }
+  try {
+    res = await fetch(`${PROXY_URL.replace(/\/+$/, '')}${path}`, {
+      ...init,
+      headers: {
+        ...(init.headers ?? {}),
+        Authorization: `Bearer ${data.session.access_token}`,
+      },
+    })
+  } catch {
+    throw new AiError('network')
+  }
+
+  // Status first: these carry their meaning without a body (chunk 55 D8).
+  // 401 is our Supabase JWT being rejected — not the Anthropic key.
+  if (res.status === 401) throw new AiError('network', SESSION_EXPIRED)
+  if (res.status === 412) throw new AiError('missing-key')
+  if (res.status === 422) throw new AiError('auth')
+  if (res.status >= 500) throw new AiError('network')
+
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    throw new AiError('malformed')
+  }
+  if ((body as { ok?: unknown } | null)?.ok !== true) {
+    throw new AiError('malformed')
+  }
+  return { status: res.status, body }
+}
+
+/**
+ * The §10 call, via the proxy. Maps the proxy's statuses to typed errors:
+ * 412 → `missing-key`, 422 → `auth`, 401 / fetch-reject / 5xx → `network`,
+ * non-JSON or an unmapped `ok:false` → `malformed`. The proxy returns
+ * Anthropic's Messages JSON unmodified in `data`; parsing stays here.
  */
 export async function triage(args: {
   tasks: TriageTask[]
   availableMinutes: number
   timezone: string
 }): Promise<TriageResult> {
-  const apiKey = await resolveApiKey()
-
-  const body = {
-    model: MODEL,
-    max_tokens: MAX_TOKENS,
-    system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: 'user',
-        content: JSON.stringify({
-          tasks: args.tasks,
-          available_minutes: args.availableMinutes,
-          timezone: args.timezone,
-        }),
-      },
-    ],
-  }
-
-  let res: { ok: boolean; status: number; json: () => Promise<unknown> }
-  try {
-    res = await fetch(ANTHROPIC_URL, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    })
-  } catch {
-    throw new AiError('network')
-  }
-
-  if (res.status === 401) throw new AiError('auth')
-  if (!res.ok) throw new AiError('network')
-
-  let data: unknown
-  try {
-    data = await res.json()
-  } catch {
-    throw new AiError('malformed')
-  }
-
-  return parseTriageResult(extractTextBlock(data))
+  const { body } = await callAiProxy('/api/ai/triage', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      tasks: args.tasks,
+      available_minutes: args.availableMinutes,
+      timezone: args.timezone,
+    }),
+  })
+  return parseTriageResult(extractTextBlock((body as { data?: unknown }).data))
 }
 
-async function resolveApiKey(): Promise<string> {
-  const { data } = await supabase.auth.getSession()
-  const userId = data?.session?.user?.id
-  if (!userId) throw new AiError('missing-key')
-  const settings = await repo.settings.get(userId)
-  const key = settings?.aiApiKey?.trim()
-  if (!key) throw new AiError('missing-key')
-  return key
+/**
+ * Hand the key to the proxy, which validates it with Anthropic, encrypts it
+ * and writes `ai_status` server-side. Callers refetch settings afterwards —
+ * never set the status optimistically. Rejected key → `auth`.
+ */
+export async function saveAiKey(apiKey: string): Promise<void> {
+  await callAiProxy('/api/ai/key', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey }),
+  })
+}
+
+/** Delete the stored key server-side (`ai_status` → `unconfigured`). */
+export async function removeAiKey(): Promise<void> {
+  await callAiProxy('/api/ai/key', { method: 'DELETE' })
 }
 
 function stripFence(s: string): string {

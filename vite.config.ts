@@ -56,7 +56,7 @@ function versionJsonPlugin(): PluginOption {
 function cspMetaPlugin(): PluginOption {
   const csp = [
     "default-src 'self'",
-    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.anthropic.com https://dashboard-caldav-proxy.vercel.app",
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://dashboard-caldav-proxy.vercel.app",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",

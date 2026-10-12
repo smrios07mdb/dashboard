@@ -5,6 +5,7 @@ vi.mock('@/lib/supabase', () => ({ supabase: { from: fromMock } }))
 
 import {
   buildExportPayload,
+  CREDENTIAL_SETTINGS_KEYS,
   EXPORT_VERSION,
   exportAllData,
   redactSettings,
@@ -24,17 +25,35 @@ const BLOCK = {
 
 afterEach(() => vi.clearAllMocks())
 
+describe('CREDENTIAL_SETTINGS_KEYS (chunk 55 D7)', () => {
+  it('is exactly the three proxy-owned ciphertext columns', () => {
+    expect([...CREDENTIAL_SETTINGS_KEYS]).toEqual([
+      'caldav_app_password_encrypted',
+      'ai_api_key_encrypted',
+      'outlook_ics_url_encrypted',
+    ])
+  })
+})
+
 describe('redactSettings', () => {
   it('nulls every device-local credential but preserves config fields', () => {
     const out = redactSettings({
       user_id: 'u1',
       timezone: 'America/New_York',
       caldav_apple_id: 'me@icloud.com',
-      ai_api_key: 'sk-ant-LIVE',
+      ai_api_key_encrypted: '\\xA1',
+      ai_status: 'ok',
+      outlook_ics_url_encrypted: '\\x0B',
+      outlook_status: 'ok',
       caldav_app_password_encrypted: 'SUPER-SECRET',
     })
     expect(out?.caldav_app_password_encrypted).toBeNull()
-    expect(out?.ai_api_key).toBeNull() // credential — must not leave the device
+    // Proxy-owned ciphertexts — must not leave the device (chunk 55 D7; the
+    // Outlook column was a pre-existing gap).
+    expect(out?.ai_api_key_encrypted).toBeNull()
+    expect(out?.outlook_ics_url_encrypted).toBeNull()
+    expect(out?.ai_status).toBe('ok') // status, not a secret
+    expect(out?.outlook_status).toBe('ok')
     expect(out?.timezone).toBe('America/New_York')
     expect(out?.caldav_apple_id).toBe('me@icloud.com') // config, not a secret
   })
@@ -59,7 +78,8 @@ describe('buildExportPayload', () => {
       },
       settings: {
         user_id: 'u1',
-        ai_api_key: 'sk-ant-LIVE',
+        ai_api_key_encrypted: '\\xA1',
+        outlook_ics_url_encrypted: '\\x0B',
         caldav_app_password_encrypted: 'SECRET',
       },
     })
@@ -73,7 +93,8 @@ describe('buildExportPayload', () => {
     // the way IN instead; see import.ts). The export stays a faithful dump.
     expect(payload.scheduled_blocks).toEqual([BLOCK])
     expect(payload.settings?.caldav_app_password_encrypted).toBeNull()
-    expect(payload.settings?.ai_api_key).toBeNull()
+    expect(payload.settings?.ai_api_key_encrypted).toBeNull()
+    expect(payload.settings?.outlook_ics_url_encrypted).toBeNull()
   })
 })
 
@@ -86,7 +107,7 @@ describe('exportAllData — scheduled_blocks (chunk 50)', () => {
       scheduled_blocks: [BLOCK],
       routine_items: [],
       routine_logs: [],
-      settings: [{ user_id: 'u1', ai_api_key: 'sk-ant-LIVE' }],
+      settings: [{ user_id: 'u1', ai_api_key_encrypted: '\\xA1' }],
     }
     fromMock.mockImplementation((table: string) => {
       const rows = rowsByTable[table] ?? []
@@ -115,7 +136,7 @@ describe('exportAllData — scheduled_blocks (chunk 50)', () => {
     ])
     expect(payload.scheduled_blocks).toEqual([BLOCK])
     expect(payload.scheduled_blocks[0].calendar_uid).toBe('hupo-block-b1')
-    expect(payload.settings?.ai_api_key).toBeNull()
+    expect(payload.settings?.ai_api_key_encrypted).toBeNull()
   })
 
   it('defaults scheduled_blocks to [] when the table is empty', () => {

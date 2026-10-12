@@ -31,87 +31,152 @@ vi.mock('@/lib/calendarApi', async (importOriginal) => {
   return { ...actual, testCredentials: testCredentialsMock }
 })
 
-import Settings from './Settings'
+// Chunk 55: the key goes to the proxy, never through the repo. Keep the real
+// AiError / TRIAGE_MODEL; stub only the two network calls.
+const { saveAiKeyMock, removeAiKeyMock } = vi.hoisted(() => ({
+  saveAiKeyMock: vi.fn(),
+  removeAiKeyMock: vi.fn(),
+}))
+vi.mock('@/lib/ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/ai')>()
+  return { ...actual, saveAiKey: saveAiKeyMock, removeAiKey: removeAiKeyMock }
+})
 
-describe('Settings — AI key', () => {
+import Settings from './Settings'
+import { AiError } from '@/lib/ai'
+
+describe('Settings — AI key (chunk 55, write-only)', () => {
+  const base = {
+    userId: 'u1',
+    caldavAppleId: null,
+    caldavCalendarUrl: null,
+    caldavStatus: 'unconfigured',
+    timezone: 'America/New_York',
+    lastDailyReset: null,
+  }
+  const withStatus = (aiStatus: string) => ({ ...base, aiStatus })
+  const aiSection = () =>
+    screen.getByRole('heading', { name: /ai assist/i }).closest('section')!
+
   beforeEach(() => {
-    settingsGetMock.mockResolvedValue({
-      userId: 'u1',
-      aiApiKey: 'sk-ant-existing',
-      caldavAppleId: null,
-      caldavCalendarUrl: null,
-      caldavStatus: 'unconfigured',
-      timezone: 'America/New_York',
-      lastDailyReset: null,
-    })
-    settingsUpdateMock.mockImplementation(async (_id, changes) => ({
-      userId: 'u1',
-      aiApiKey: null,
-      caldavAppleId: null,
-      caldavCalendarUrl: null,
-      caldavStatus: 'unconfigured',
-      timezone: 'America/New_York',
-      lastDailyReset: null,
-      ...changes,
-    }))
+    settingsGetMock.mockResolvedValue(withStatus('unconfigured'))
+    saveAiKeyMock.mockResolvedValue(undefined)
+    removeAiKeyMock.mockResolvedValue(undefined)
   })
   afterEach(() => vi.clearAllMocks())
-
-  it('loads the existing key into the field', async () => {
-    render(<Settings />)
-    await waitFor(() =>
-      expect(
-        (screen.getByLabelText(/anthropic api key/i) as HTMLInputElement).value,
-      ).toBe('sk-ant-existing'),
-    )
-  })
 
   it('discloses what triage sends to Anthropic — titles, not notes (PRIV-04)', async () => {
     render(<Settings />)
     expect(await screen.findByText(/task titles/i)).toBeInTheDocument()
     expect(screen.getByText(/never your notes/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/encrypted and stored server-side; never sent back/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/uses claude-haiku-5-5/i)).toBeInTheDocument()
   })
 
-  it('saves a new key via repo.settings.update', async () => {
-    const user = userEvent.setup()
+  it('unconfigured: empty password input + Save key, no Replace/Remove, no reveal toggle', async () => {
     render(<Settings />)
     const input = await screen.findByLabelText(/anthropic api key/i)
-    await waitFor(() =>
-      expect((input as HTMLInputElement).value).toBe('sk-ant-existing'),
-    )
-    await user.clear(input)
-    await user.type(input, 'sk-ant-new')
-    await user.click(screen.getByRole('button', { name: /save key/i }))
-    await waitFor(() =>
-      expect(settingsUpdateMock).toHaveBeenCalledWith('u1', {
-        aiApiKey: 'sk-ant-new',
-      }),
-    )
-  })
-
-  it('stores null (not an empty string) when the key is cleared', async () => {
-    const user = userEvent.setup()
-    render(<Settings />)
-    const input = await screen.findByLabelText(/anthropic api key/i)
-    await waitFor(() =>
-      expect((input as HTMLInputElement).value).toBe('sk-ant-existing'),
-    )
-    await user.clear(input)
-    await user.click(screen.getByRole('button', { name: /save key/i }))
-    await waitFor(() =>
-      expect(settingsUpdateMock).toHaveBeenCalledWith('u1', { aiApiKey: null }),
-    )
-  })
-
-  it('reveals the key when the show toggle is pressed', async () => {
-    const user = userEvent.setup()
-    render(<Settings />)
-    const input = await screen.findByLabelText(/anthropic api key/i)
+    expect(input).toHaveValue('')
     expect(input).toHaveAttribute('type', 'password')
-    // Specific to the AI-key toggle — the Calendar section (chunk 13) adds its
-    // own "Show password" toggle, so a bare /show/ query would now be ambiguous.
-    await user.click(screen.getByRole('button', { name: /show api key/i }))
-    expect(input).toHaveAttribute('type', 'text')
+    const section = within(aiSection())
+    expect(section.getByRole('button', { name: /save key/i })).toBeDisabled()
+    expect(section.queryByRole('button', { name: /replace/i })).toBeNull()
+    expect(section.queryByRole('button', { name: /remove/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /show api key/i })).toBeNull()
+    expect(section.queryByText(/key saved/i)).toBeNull()
+  })
+
+  it('ok: "Key saved" with Replace + Remove and no input or value', async () => {
+    settingsGetMock.mockResolvedValue(withStatus('ok'))
+    render(<Settings />)
+    const section = within(aiSection())
+    expect(await section.findByText('Key saved')).toBeInTheDocument()
+    expect(section.getByRole('button', { name: /replace/i })).toBeInTheDocument()
+    expect(section.getByRole('button', { name: /remove/i })).toBeInTheDocument()
+    expect(screen.queryByLabelText(/anthropic api key/i)).toBeNull()
+    expect(section.queryByRole('button', { name: /save key/i })).toBeNull()
+  })
+
+  it('auth_failed: says Anthropic rejected the saved key, with Replace + Remove', async () => {
+    settingsGetMock.mockResolvedValue(withStatus('auth_failed'))
+    render(<Settings />)
+    const section = within(aiSection())
+    expect(
+      await section.findByText('Anthropic rejected the saved key'),
+    ).toBeInTheDocument()
+    expect(section.getByRole('button', { name: /replace/i })).toBeInTheDocument()
+    expect(section.getByRole('button', { name: /remove/i })).toBeInTheDocument()
+    expect(screen.queryByLabelText(/anthropic api key/i)).toBeNull()
+  })
+
+  it('Save posts the trimmed key to the proxy, then refetches settings (never optimistic)', async () => {
+    const user = userEvent.setup()
+    render(<Settings />)
+    const input = await screen.findByLabelText(/anthropic api key/i)
+    await waitFor(() => expect(settingsGetMock).toHaveBeenCalled())
+    const getsBefore = settingsGetMock.mock.calls.length
+    settingsGetMock.mockResolvedValue(withStatus('ok'))
+
+    await user.type(input, '  sk-ant-new ')
+    await user.click(screen.getByRole('button', { name: /save key/i }))
+
+    await waitFor(() => expect(saveAiKeyMock).toHaveBeenCalledWith('sk-ant-new'))
+    const section = within(aiSection())
+    expect(await section.findByText('Key saved')).toBeInTheDocument()
+    expect(settingsGetMock.mock.calls.length).toBeGreaterThan(getsBefore)
+    expect(settingsUpdateMock).not.toHaveBeenCalled()
+    // Write-only: the field is gone and the key is not retained.
+    expect(screen.queryByLabelText(/anthropic api key/i)).toBeNull()
+  })
+
+  it('a rejected key stays unconfigured — status comes from the refetch, not the click', async () => {
+    saveAiKeyMock.mockRejectedValue(new AiError('auth'))
+    const user = userEvent.setup()
+    render(<Settings />)
+    const input = await screen.findByLabelText(/anthropic api key/i)
+    await user.type(input, 'sk-ant-bad')
+    await user.click(screen.getByRole('button', { name: /save key/i }))
+    await waitFor(() => expect(saveAiKeyMock).toHaveBeenCalled())
+    expect(within(aiSection()).queryByText('Key saved')).toBeNull()
+    expect(screen.getByLabelText(/anthropic api key/i)).toBeInTheDocument()
+  })
+
+  it('Replace reveals an empty input + Save, which posts the new key', async () => {
+    settingsGetMock.mockResolvedValue(withStatus('auth_failed'))
+    const user = userEvent.setup()
+    render(<Settings />)
+    const section = within(aiSection())
+    await user.click(await section.findByRole('button', { name: /replace/i }))
+    const input = screen.getByLabelText(/anthropic api key/i)
+    expect(input).toHaveValue('')
+
+    settingsGetMock.mockResolvedValue(withStatus('ok'))
+    await user.type(input, 'sk-ant-replacement')
+    await user.click(section.getByRole('button', { name: /save key/i }))
+    await waitFor(() =>
+      expect(saveAiKeyMock).toHaveBeenCalledWith('sk-ant-replacement'),
+    )
+    expect(await section.findByText('Key saved')).toBeInTheDocument()
+  })
+
+  it('Remove calls DELETE on the proxy, then refetches', async () => {
+    settingsGetMock.mockResolvedValue(withStatus('ok'))
+    const user = userEvent.setup()
+    render(<Settings />)
+    const section = within(aiSection())
+    const removeBtn = await section.findByRole('button', { name: /remove/i })
+    const getsBefore = settingsGetMock.mock.calls.length
+    settingsGetMock.mockResolvedValue(withStatus('unconfigured'))
+
+    await user.click(removeBtn)
+
+    await waitFor(() => expect(removeAiKeyMock).toHaveBeenCalledTimes(1))
+    expect(await screen.findByLabelText(/anthropic api key/i)).toHaveValue('')
+    expect(settingsGetMock.mock.calls.length).toBeGreaterThan(getsBefore)
+    expect(section.queryByText('Key saved')).toBeNull()
+    expect(settingsUpdateMock).not.toHaveBeenCalled()
   })
 })
 
@@ -125,7 +190,7 @@ describe('Settings — re-skin (chunk 30)', () => {
   beforeEach(() => {
     settingsGetMock.mockResolvedValue({
       userId: 'u1',
-      aiApiKey: null,
+      aiStatus: 'unconfigured',
       caldavAppleId: null,
       caldavCalendarUrl: null,
       caldavStatus: 'unconfigured',
@@ -192,7 +257,7 @@ describe('Settings — Outlook feed (chunk 35)', () => {
   function mockSettings(over: Record<string, unknown> = {}) {
     settingsGetMock.mockResolvedValue({
       userId: 'u1',
-      aiApiKey: null,
+      aiStatus: 'unconfigured',
       caldavAppleId: null,
       caldavCalendarUrl: null,
       caldavStatus: 'unconfigured',
@@ -261,7 +326,7 @@ describe('Settings — planner write-out row (chunk 39)', () => {
   function mockSettings(over: Record<string, unknown> = {}) {
     settingsGetMock.mockResolvedValue({
       userId: 'u1',
-      aiApiKey: null,
+      aiStatus: 'unconfigured',
       caldavAppleId: null,
       caldavCalendarUrl: null,
       caldavStatus: 'unconfigured',
@@ -356,7 +421,7 @@ describe('Settings — planner write-out row (chunk 39)', () => {
 describe('Settings — write target vs read set (chunk 51)', () => {
   const base = {
     userId: 'u1',
-    aiApiKey: null,
+    aiStatus: 'unconfigured',
     caldavAppleId: null,
     caldavCalendarUrl: null,
     caldavReadCalendars: null,

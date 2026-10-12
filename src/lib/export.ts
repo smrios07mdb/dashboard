@@ -26,7 +26,8 @@ type Row = Record<string, unknown>
  */
 export const CREDENTIAL_SETTINGS_KEYS = [
   'caldav_app_password_encrypted',
-  'ai_api_key',
+  'ai_api_key_encrypted',
+  'outlook_ics_url_encrypted',
 ] as const
 
 /** User-scoped tables included in the export, in dependency-friendly order. */

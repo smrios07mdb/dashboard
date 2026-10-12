@@ -242,11 +242,11 @@ export function routineLogToRow(
 
 // ---------- settings ----------
 
-// `outlook_ics_url_encrypted` and `outlook_cached_busy` are intentionally
-// absent (write-only secrets, proxy-owned — see db/types.ts).
+// `outlook_ics_url_encrypted`, `outlook_cached_busy` and `ai_api_key_encrypted`
+// are intentionally absent (write-only secrets, proxy-owned — see db/types.ts).
 export type SettingsRow = {
   user_id: string
-  ai_api_key: string | null
+  ai_status?: Settings['aiStatus']
   caldav_apple_id: string | null
   caldav_calendar_url: string | null
   caldav_read_calendars?: unknown
@@ -290,7 +290,8 @@ export function parseReadCalendars(v: unknown): ReadCalendar[] | null {
 export function settingsFromRow(row: SettingsRow): Settings {
   return {
     userId: row.user_id,
-    aiApiKey: row.ai_api_key,
+    // Rows cached before migration 14 predate the column.
+    aiStatus: row.ai_status ?? 'unconfigured',
     caldavAppleId: row.caldav_apple_id,
     caldavCalendarUrl: row.caldav_calendar_url,
     // Chunk 51: defensive parse — invalid jsonb (or a row cached before
@@ -310,13 +311,15 @@ export function settingsFromRow(row: SettingsRow): Settings {
 }
 
 /**
- * The two online-only secrets must never persist in the Dexie cache at rest
- * (chunk 18, PRIV-02): `aiApiKey` is only used to call api.anthropic.com and
- * `caldavAppleId` only for proxy/CalDAV ops — both require the network, so the
- * live Supabase fetch supplies them and the cache mirror omits them entirely
- * (mirroring how the encrypted CalDAV password is never in the `Settings` type
- * or cache at all). Apply at EVERY `db.settings` cache-write site; the live
- * return value of `settingsFromRow` is left intact for online callers.
+ * Online-only fields must never persist in the Dexie cache at rest (chunk 18,
+ * PRIV-02). Since chunk 55 that is `caldavAppleId` alone: it is only used for
+ * proxy/CalDAV ops, which require the network, so the live Supabase fetch
+ * supplies it and the cache mirror omits it entirely. The Anthropic key used
+ * to be stripped here too; it is now proxy-owned and encrypted, and — like the
+ * CalDAV password — is never in the `Settings` type or cache at all (`aiStatus`
+ * is not a secret and IS cached). Apply at EVERY `db.settings` cache-write
+ * site; the live return value of `settingsFromRow` is left intact for online
+ * callers.
  *
  * Distinct from export's `CREDENTIAL_SETTINGS_KEYS` redaction (lib/export.ts):
  * that list targets credentials in the user-initiated export FILE. This targets
@@ -327,7 +330,6 @@ export function settingsFromRow(row: SettingsRow): Settings {
  */
 export function toCachedSettings(settings: Settings): Settings {
   const cached = { ...settings }
-  delete (cached as Partial<Settings>).aiApiKey
   delete (cached as Partial<Settings>).caldavAppleId
   return cached as Settings
 }
@@ -337,7 +339,7 @@ export function settingsToRow(
 ): Partial<SettingsRow> {
   const row: Partial<SettingsRow> = {}
   if (value.userId !== undefined) row.user_id = value.userId
-  if (value.aiApiKey !== undefined) row.ai_api_key = value.aiApiKey
+  if (value.aiStatus !== undefined) row.ai_status = value.aiStatus
   if (value.caldavAppleId !== undefined)
     row.caldav_apple_id = value.caldavAppleId
   if (value.caldavCalendarUrl !== undefined)

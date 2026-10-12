@@ -25,7 +25,13 @@ import {
 } from '@/db/outbox'
 import { repo } from '@/db/repo'
 import { useSyncStore } from '@/db/syncStore'
-import type { CaldavStatus, OutboxRow, OutlookStatus } from '@/db/types'
+import type {
+  AiStatus,
+  CaldavStatus,
+  OutboxRow,
+  OutlookStatus,
+} from '@/db/types'
+import { AiError, removeAiKey, saveAiKey, TRIAGE_MODEL } from '@/lib/ai'
 import { useSession } from '@/lib/auth'
 import {
   downloadExport,
@@ -410,9 +416,12 @@ function AiKeySection() {
   const { user } = useSession()
   const userId = user?.id ?? null
 
+  // Write-only field (chunk 55): the key is never read back, so the section
+  // renders from `ai_status` alone and the input only ever holds a new key.
+  const [status, setStatus] = useState<AiStatus>('unconfigured')
   const [apiKey, setApiKey] = useState('')
-  const [show, setShow] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [replacing, setReplacing] = useState(false)
+  const [busy, setBusy] = useState<'save' | 'remove' | null>(null)
 
   useEffect(() => {
     if (!userId) return
@@ -420,8 +429,8 @@ function AiKeySection() {
     repo.settings
       .get(userId)
       .then((settings) => {
-        if (cancelled) return
-        setApiKey(settings?.aiApiKey ?? '')
+        if (cancelled || !settings) return
+        setStatus(settings.aiStatus ?? 'unconfigured')
       })
       .catch((e) => {
         console.error('Load settings failed', e)
@@ -431,64 +440,128 @@ function AiKeySection() {
     }
   }, [userId])
 
-  async function save() {
+  // The proxy writes `ai_status` server-side; read it back rather than
+  // setting it optimistically (the `caldav_status` rule).
+  async function refetchSettings() {
     if (!userId) return
+    const settings = await repo.settings.get(userId).catch(() => null)
+    if (!settings) return
+    setStatus(settings.aiStatus ?? 'unconfigured')
+  }
+
+  async function save() {
     const trimmed = apiKey.trim()
-    setSaving(true)
+    if (!trimmed) return
+    setBusy('save')
     try {
-      // Store null (not '') when cleared so the triage missing-key path
-      // fires correctly.
-      await repo.settings.update(userId, { aiApiKey: trimmed || null })
+      await saveAiKey(trimmed)
+      setApiKey('') // write-only: don't retain the key in the form
+      setReplacing(false)
+      await refetchSettings()
       toast('API key saved')
     } catch (e) {
-      console.error('Save API key failed', e)
-      toast.error(SAVE_ERROR)
+      if (e instanceof AiError && e.kind === 'auth') {
+        toast.error('Anthropic rejected that key — check it and retry.')
+      } else if (e instanceof AiError && e.kind === 'network') {
+        toast.error(e.message)
+      } else {
+        console.error('Save API key failed', e)
+        toast.error(SAVE_ERROR)
+      }
     } finally {
-      setSaving(false)
+      setBusy(null)
     }
   }
+
+  async function remove() {
+    setBusy('remove')
+    try {
+      await removeAiKey()
+      setApiKey('')
+      setReplacing(false)
+      await refetchSettings()
+      toast('API key removed')
+    } catch (e) {
+      if (e instanceof AiError && e.kind === 'network') {
+        toast.error(e.message)
+      } else {
+        console.error('Remove API key failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const hasKey = status !== 'unconfigured'
+  const showInput = !hasKey || replacing
 
   return (
     <SettingsSection kicker="03" title="AI assist">
       <SettingsRow
         title="Anthropic API key"
-        hint={
-          <>
-            Stored in your Supabase data, accessible only by you (RLS). Calls are
-            made directly from your browser. See{' '}
-            <span className="mono">docs/security.md</span>.
-          </>
-        }
+        hint="Encrypted and stored server-side; never sent back to this device. Calls go through the calendar proxy."
       >
-        <div className="flex max-w-md items-center gap-2">
-          <Input
-            type={show ? 'text' : 'password'}
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-ant-…"
-            aria-label="Anthropic API key"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => setShow((s) => !s)}
-            aria-label={show ? 'Hide API key' : 'Show API key'}
-            title={show ? 'Hide' : 'Show'}
-          >
-            {show ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </Button>
-        </div>
+        {hasKey && (
+          <div className="flex max-w-md flex-wrap items-center gap-3">
+            <span
+              className={
+                status === 'auth_failed'
+                  ? 'text-[13px] text-destructive'
+                  : 'text-[13px] text-ink-2'
+              }
+            >
+              {status === 'auth_failed'
+                ? 'Anthropic rejected the saved key'
+                : 'Key saved'}
+            </span>
+            {!replacing && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setReplacing(true)}
+                disabled={busy !== null}
+              >
+                Replace
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={remove}
+              disabled={busy !== null}
+            >
+              {busy === 'remove' ? 'Removing…' : 'Remove'}
+            </Button>
+          </div>
+        )}
+
+        {showInput && (
+          <div className={hasKey ? 'mt-3 max-w-md' : 'max-w-md'}>
+            <Input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="sk-ant-…"
+              aria-label="Anthropic API key"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
+        )}
 
         <div className="mt-3 flex items-center gap-3">
-          <Button onClick={save} disabled={saving || !userId}>
-            {saving ? 'Saving…' : 'Save key'}
-          </Button>
-          <span className="num text-[11px] text-ink-3">
-            Uses claude-haiku-4-5
-          </span>
+          {showInput && (
+            <Button
+              onClick={save}
+              disabled={busy !== null || !userId || !apiKey.trim()}
+            >
+              {busy === 'save' ? 'Saving…' : 'Save key'}
+            </Button>
+          )}
+          <span className="num text-[11px] text-ink-3">Uses {TRIAGE_MODEL}</span>
         </div>
 
         <p className="mt-3 max-w-md text-[12px] leading-relaxed text-ink-3">

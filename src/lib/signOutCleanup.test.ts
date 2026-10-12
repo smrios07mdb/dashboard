@@ -49,7 +49,7 @@ function task(): Task {
 function settings(): Settings {
   return {
     userId: 'u1',
-    aiApiKey: null,
+    aiStatus: 'unconfigured',
     caldavAppleId: null,
     caldavCalendarUrl: null,
     caldavReadCalendars: null,

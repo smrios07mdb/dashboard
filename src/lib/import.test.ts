@@ -100,7 +100,9 @@ describe('settings credential safety (chunk-16 review fix)', () => {
         settings: {
           user_id: 'u1',
           timezone: 'America/Chicago',
-          ai_api_key: null,
+          ai_api_key_encrypted: null,
+          ai_status: 'ok',
+          outlook_ics_url_encrypted: null,
           caldav_app_password_encrypted: null,
         },
       }),
@@ -116,15 +118,19 @@ describe('settings credential safety (chunk-16 review fix)', () => {
     const row = await settingsRowAfterImport('merge')
     expect(row).toBeDefined()
     expect('caldav_app_password_encrypted' in (row as object)).toBe(false)
-    expect('ai_api_key' in (row as object)).toBe(false)
+    expect('ai_api_key_encrypted' in (row as object)).toBe(false)
+    expect('outlook_ics_url_encrypted' in (row as object)).toBe(false)
     expect((row as Record<string, unknown>).timezone).toBe('America/Chicago')
+    // ai_status is config, imported normally.
+    expect((row as Record<string, unknown>).ai_status).toBe('ok')
   })
 
   it('omits every credential key from the settings upsert on Replace too', async () => {
     const row = await settingsRowAfterImport('replace')
     expect(row).toBeDefined()
     expect('caldav_app_password_encrypted' in (row as object)).toBe(false)
-    expect('ai_api_key' in (row as object)).toBe(false)
+    expect('ai_api_key_encrypted' in (row as object)).toBe(false)
+    expect('outlook_ics_url_encrypted' in (row as object)).toBe(false)
   })
 })
 

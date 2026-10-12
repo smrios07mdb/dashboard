@@ -189,7 +189,7 @@ describe('mappers', () => {
   it('settings round-trips', () => {
     const row = {
       user_id: 'u-1',
-      ai_api_key: null,
+      ai_status: 'unconfigured' as const,
       caldav_apple_id: null,
       caldav_calendar_url: null,
       caldav_read_calendars: null,
@@ -211,7 +211,7 @@ describe('mappers', () => {
     ]
     const row = {
       user_id: 'u-1',
-      ai_api_key: null,
+      ai_status: 'unconfigured' as const,
       caldav_apple_id: 'me@icloud.com',
       caldav_calendar_url: 'https://caldav.icloud.com/1/calendars/home/',
       caldav_read_calendars: set,
@@ -233,7 +233,7 @@ describe('mappers', () => {
   it('settings: a read-set entry keeps a valid #rrggbb color and drops a bad one (chunk 51b)', () => {
     const row = {
       user_id: 'u-1',
-      ai_api_key: null,
+      ai_status: 'unconfigured' as const,
       caldav_apple_id: 'me@icloud.com',
       caldav_calendar_url: 'https://caldav.icloud.com/1/calendars/home/',
       caldav_read_calendars: [
@@ -257,7 +257,7 @@ describe('mappers', () => {
   it('settings: invalid or missing caldav_read_calendars jsonb reads as null; malformed entries drop', () => {
     const base = {
       user_id: 'u-1',
-      ai_api_key: null,
+      ai_status: 'unconfigured' as const,
       caldav_apple_id: null,
       caldav_calendar_url: null,
       caldav_status: 'ok' as const,
@@ -296,7 +296,7 @@ describe('mappers', () => {
   it('settings: planner_writeout defaults to false on rows that predate migration 12', () => {
     const row = {
       user_id: 'u-1',
-      ai_api_key: null,
+      ai_status: 'unconfigured' as const,
       caldav_apple_id: null,
       caldav_calendar_url: null,
       caldav_status: 'ok' as const,
@@ -479,14 +479,17 @@ describe('repo (online)', () => {
 })
 
 // ============================================================
-// PRIV-02: the two online-only secrets (aiApiKey, caldavAppleId) must never
-// persist in the Dexie cache at rest — only travel in the live return value.
+// PRIV-02: online-only fields must never persist in the Dexie cache at rest —
+// only travel in the live return value. Since chunk 55 the Anthropic key is
+// proxy-owned: it must not surface in the Settings shape AT ALL (live or
+// cached), even though `select('*')` still returns its ciphertext column.
 // ============================================================
 
 describe('settings cache omits secrets at rest (PRIV-02)', () => {
   const rowWithSecrets = {
     user_id: 'u-1',
-    ai_api_key: 'sk-ant-SECRET',
+    ai_api_key_encrypted: '\\xC1PHERTEXT',
+    ai_status: 'ok' as const,
     caldav_apple_id: 'me@icloud.com',
     caldav_calendar_url: 'https://cal.example',
     caldav_status: 'ok' as const,
@@ -496,39 +499,51 @@ describe('settings cache omits secrets at rest (PRIV-02)', () => {
     timezone: 'America/New_York',
     last_daily_reset: null,
   }
+  const hasKeyMaterial = (v: unknown) =>
+    Object.keys(v as object).some((k) => /key/i.test(k)) ||
+    JSON.stringify(v).includes('C1PHERTEXT')
 
-  it('toCachedSettings drops aiApiKey + caldavAppleId, keeps the rest', () => {
+  it('toCachedSettings drops caldavAppleId, keeps aiStatus and the rest', () => {
     const cached = toCachedSettings(settingsFromRow(rowWithSecrets))
-    expect('aiApiKey' in cached).toBe(false)
     expect('caldavAppleId' in cached).toBe(false)
+    expect(hasKeyMaterial(cached)).toBe(false)
+    expect(cached.aiStatus).toBe('ok')
     expect(cached.userId).toBe('u-1')
     expect(cached.caldavCalendarUrl).toBe('https://cal.example')
     expect(cached.caldavStatus).toBe('ok')
     expect(cached.timezone).toBe('America/New_York')
   })
 
-  it('settings.get returns the secrets but caches a record without them', async () => {
+  it('settingsFromRow defaults aiStatus for a row cached before migration 14', () => {
+    const legacy = { ...rowWithSecrets, ai_status: undefined }
+    expect(settingsFromRow(legacy).aiStatus).toBe('unconfigured')
+  })
+
+  it('settings.get never surfaces the AI key; the Apple ID is live-only', async () => {
     fromMock.mockReturnValue(makeChain({ data: rowWithSecrets, error: null }))
     const out = await repo.settings.get('u-1')
-    // Live return still carries the secrets — online callers (ai.ts) need them.
-    expect(out?.aiApiKey).toBe('sk-ant-SECRET')
+    expect(hasKeyMaterial(out)).toBe(false)
+    expect(out?.aiStatus).toBe('ok')
+    // Live return still carries the Apple ID — online callers need it.
     expect(out?.caldavAppleId).toBe('me@icloud.com')
     // The Dexie mirror must NOT.
     const cached = await db.settings.get('u-1')
     expect(cached).toBeTruthy()
-    expect(cached && 'aiApiKey' in cached).toBe(false)
+    expect(hasKeyMaterial(cached)).toBe(false)
     expect(cached && 'caldavAppleId' in cached).toBe(false)
+    expect(cached?.aiStatus).toBe('ok')
     expect(cached?.timezone).toBe('America/New_York')
   })
 
-  it('settings.update returns the secrets but caches a record without them (applyServerEcho path)', async () => {
+  it('settings.update caches a record without secrets (applyServerEcho path)', async () => {
     fromMock.mockReturnValue(makeChain({ data: rowWithSecrets, error: null }))
     const out = await repo.settings.update('u-1', {
       timezone: 'America/New_York',
     })
-    expect(out.aiApiKey).toBe('sk-ant-SECRET')
+    expect(hasKeyMaterial(out)).toBe(false)
+    expect(out.caldavAppleId).toBe('me@icloud.com')
     const cached = await db.settings.get('u-1')
-    expect(cached && 'aiApiKey' in cached).toBe(false)
+    expect(hasKeyMaterial(cached)).toBe(false)
     expect(cached && 'caldavAppleId' in cached).toBe(false)
   })
 })

@@ -83,6 +83,8 @@ export type RoutineLog = {
 
 export type CaldavStatus = 'unconfigured' | 'ok' | 'auth_failed'
 
+export type AiStatus = 'unconfigured' | 'ok' | 'auth_failed'
+
 /** 'unreachable' = feed stopped responding; proxy serves cached busy data
  *  (stale, not lost — amber in the UI, never destructive). */
 export type OutlookStatus = 'unconfigured' | 'ok' | 'unreachable'
@@ -102,7 +104,11 @@ export type ReadCalendar = {
 
 export type Settings = {
   userId: string
-  aiApiKey: string | null
+  /**
+   * Whether the proxy holds a working Anthropic key (chunk 55). Proxy-written;
+   * the key itself (`ai_api_key_encrypted`) is never in this type.
+   */
+  aiStatus: AiStatus
   caldavAppleId: string | null
   /** The single WRITE target for planner mirrors (chunk 39). */
   caldavCalendarUrl: string | null

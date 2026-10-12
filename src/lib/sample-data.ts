@@ -358,7 +358,7 @@ export async function wipeMyData(userId: string): Promise<void> {
 
   // settings — reset to defaults (timezone preserved; see decision 4).
   await repo.settings.update(userId, {
-    aiApiKey: null,
+    aiStatus: 'unconfigured',
     caldavAppleId: null,
     caldavCalendarUrl: null,
     caldavStatus: 'unconfigured',

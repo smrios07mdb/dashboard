@@ -50,7 +50,7 @@ function makeChain<T>(result: SupabaseResult<T>) {
 
 const SETTINGS_ROW = {
   user_id: 'u1',
-  ai_api_key: null,
+  ai_status: 'unconfigured' as const,
   caldav_apple_id: null,
   caldav_calendar_url: null,
   caldav_status: 'unconfigured' as const,

@@ -367,7 +367,7 @@ describe('drainOutbox — irregular keys (settings / push / routine_logs)', () =
       table: 'settings',
       payload: {
         userId: 'u-9',
-        aiApiKey: null,
+        aiStatus: 'unconfigured',
         caldavAppleId: null,
         caldavCalendarUrl: null,
         caldavStatus: 'unconfigured',
@@ -382,7 +382,7 @@ describe('drainOutbox — irregular keys (settings / push / routine_logs)', () =
     queueResults({
       data: {
         user_id: 'u-9',
-        ai_api_key: null,
+        ai_status: 'unconfigured',
         caldav_apple_id: null,
         caldav_calendar_url: null,
         caldav_status: 'unconfigured',
