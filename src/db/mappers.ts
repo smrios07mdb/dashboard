@@ -374,7 +374,7 @@ export function settingsFromRow(row: SettingsRow): Settings {
  * online-only fields in the silent, indefinitely-persisted at-rest cache. The
  * Apple ID is online-only (stripped here) but, as identifying-not-secret config
  * that's inert without the server-only encrypted password, it's intentionally
- * retained in exports (which already carry task notes in plaintext by design).
+ * retained in exports (a user-initiated plaintext dump of the user's own data).
  */
 export function toCachedSettings(settings: Settings): Settings {
   const cached = { ...settings }

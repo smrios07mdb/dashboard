@@ -621,4 +621,39 @@ describe('legacy tasks.notes → notes (chunk 59, D3)', () => {
     await importData(validPayload(), 'merge', 'u1')
     expect(noteBodiesForTasks).not.toHaveBeenCalled()
   })
+
+  it('a post-60 export (no `notes` key on tasks) synthesizes nothing in either mode', async () => {
+    const own = {
+      id: 'n-own',
+      user_id: 'u1',
+      title: '',
+      body: 'Call the vendor',
+      task_id: 't1',
+      subcategory_id: null,
+      pinned: false,
+      detached_label: null,
+      detached_at: null,
+      created_at: '2026-01-01T00:00:00+00:00',
+      updated_at: '2026-01-02T00:00:00+00:00',
+    }
+    // After migration 18 `select('*')` returns task rows with no `notes` key.
+    const tasks = ['t1', 't2'].map((id) => {
+      const row: Record<string, unknown> = T(id, undefined)
+      delete row.notes
+      return row
+    })
+    for (const row of tasks) expect(row).not.toHaveProperty('notes')
+
+    for (const mode of ['replace', 'merge'] as const) {
+      vi.clearAllMocks()
+      await importData(validPayload({ tasks, notes: [own] }), mode, 'u1')
+
+      // The `legacy.length === 0` early return: no live read, nothing added.
+      expect(noteBodiesForTasks).not.toHaveBeenCalled()
+      expect(upsertedRows('notes')).toEqual([own])
+      const order = bulkUpsert.mock.calls.map((c) => c[0])
+      expect(order.indexOf('notes')).toBeGreaterThan(order.indexOf('tasks'))
+      expect(order.filter((t) => t === 'notes')).toHaveLength(1)
+    }
+  })
 })
