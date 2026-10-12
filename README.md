@@ -2,7 +2,7 @@
 
 A single-user personal productivity PWA that unifies Work and Personal tasks across iPhone, iPad, and Mac. Tracks daily morning and night routines with streaks, integrates Apple Calendar via a CalDAV proxy, runs AI triage to recommend what to do next, and syncs across devices through Supabase.
 
-See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the canonical system reference (stack, data model, sync, calendar, security). Build sequence lives in [`ORCHESTRATION.md`](./ORCHESTRATION.md); progress tracking in [`PROGRESS.md`](./PROGRESS.md).
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the canonical system reference (stack, data model, sync, calendar, security). Process rules live in [`CLAUDE.md`](./CLAUDE.md) and current state in [`PROGRESS.md`](./PROGRESS.md); [`ORCHESTRATION.md`](./ORCHESTRATION.md) is kept for history and the Design → Code handoff pattern.
 
 ## Local development
 
