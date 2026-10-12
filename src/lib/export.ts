@@ -30,6 +30,24 @@ export const CREDENTIAL_SETTINGS_KEYS = [
   'outlook_ics_url_encrypted',
 ] as const
 
+/**
+ * Server-held settings state that an import never writes (chunk 56 D2). Unlike
+ * the credentials above these are NOT redacted on export — the file stays a
+ * faithful dump — they are dropped on the way IN only (see import.ts).
+ *
+ * - `ai_api_key`: the legacy plaintext column (dropped in migration 15).
+ *   Pre-chunk-55 files still carry it, and PostgREST rejects an unknown column.
+ * - `ai_status` / `caldav_status` / `outlook_status`: each describes a secret
+ *   the file does not carry. Importing `'ok'` onto an account with no key shows
+ *   "Key saved" while triage 412s. The live row's value is the only truthful one.
+ */
+export const IMPORT_STRIPPED_SETTINGS_KEYS = [
+  'ai_api_key',
+  'ai_status',
+  'caldav_status',
+  'outlook_status',
+] as const
+
 /** User-scoped tables included in the export, in dependency-friendly order. */
 const EXPORT_TABLES = [
   'categories',

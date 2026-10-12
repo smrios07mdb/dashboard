@@ -12,7 +12,11 @@ import { wipeLocalCache } from '@/db/localCache'
 import { repo } from '@/db/repo'
 import type { TableName } from '@/db/types'
 
-import { CREDENTIAL_SETTINGS_KEYS, type ExportPayload } from './export'
+import {
+  CREDENTIAL_SETTINGS_KEYS,
+  type ExportPayload,
+  IMPORT_STRIPPED_SETTINGS_KEYS,
+} from './export'
 
 export class ImportValidationError extends Error {
   constructor(message: string) {
@@ -170,8 +174,12 @@ async function upsertContent(payload: ExportPayload): Promise<void> {
     // touches them (chunk-16 review fix). The export redacts them to null;
     // writing that null back would zero the LIVE secret (CalDAV password,
     // Anthropic API key) and silently break calendar/AI. Omitting preserves them.
+    // Server-held state goes the same way (chunk 56 D2): the dropped legacy
+    // `ai_api_key` column, and the three statuses, which describe secrets this
+    // file does not carry — the live row's value is the only truthful one.
     const settingsRow = { ...(payload.settings as Record<string, unknown>) }
     for (const k of CREDENTIAL_SETTINGS_KEYS) delete settingsRow[k]
+    for (const k of IMPORT_STRIPPED_SETTINGS_KEYS) delete settingsRow[k]
     await repo.data.bulkUpsert('settings', [settingsRow], 'user_id')
   }
 }

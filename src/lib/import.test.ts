@@ -121,8 +121,6 @@ describe('settings credential safety (chunk-16 review fix)', () => {
     expect('ai_api_key_encrypted' in (row as object)).toBe(false)
     expect('outlook_ics_url_encrypted' in (row as object)).toBe(false)
     expect((row as Record<string, unknown>).timezone).toBe('America/Chicago')
-    // ai_status is config, imported normally.
-    expect((row as Record<string, unknown>).ai_status).toBe('ok')
   })
 
   it('omits every credential key from the settings upsert on Replace too', async () => {
@@ -131,6 +129,59 @@ describe('settings credential safety (chunk-16 review fix)', () => {
     expect('caldav_app_password_encrypted' in (row as object)).toBe(false)
     expect('ai_api_key_encrypted' in (row as object)).toBe(false)
     expect('outlook_ics_url_encrypted' in (row as object)).toBe(false)
+  })
+})
+
+describe('server-held settings are never imported (chunk 56 D2)', () => {
+  /** A pre-chunk-55 settings block: legacy plaintext column + stale statuses. */
+  const PRE_55_SETTINGS = {
+    user_id: 'u1',
+    timezone: 'America/Chicago',
+    planner_writeout: true,
+    ai_api_key: null,
+    ai_status: 'ok',
+    caldav_status: 'ok',
+    outlook_status: 'auth_failed',
+  }
+
+  async function settingsRowAfterImport(mode: 'merge' | 'replace') {
+    await importData(validPayload({ settings: PRE_55_SETTINGS }), mode, 'u1')
+    const row = upsertedRows('settings')?.[0]
+    expect(row).toBeDefined()
+    return row as Record<string, unknown>
+  }
+
+  it.each(['merge', 'replace'] as const)(
+    '%s: a pre-55 file upserts settings without ai_api_key or ai_status',
+    async (mode) => {
+      const row = await settingsRowAfterImport(mode)
+      expect('ai_api_key' in row).toBe(false)
+      expect('ai_status' in row).toBe(false)
+    },
+  )
+
+  it.each(['merge', 'replace'] as const)(
+    '%s: caldav_status and outlook_status are stripped the same way',
+    async (mode) => {
+      const row = await settingsRowAfterImport(mode)
+      expect('caldav_status' in row).toBe(false)
+      expect('outlook_status' in row).toBe(false)
+    },
+  )
+
+  it('non-credential settings still import', async () => {
+    const row = await settingsRowAfterImport('merge')
+    expect(row).toEqual({
+      user_id: 'u1',
+      timezone: 'America/Chicago',
+      planner_writeout: true,
+    })
+  })
+
+  it('does not mutate the parsed file', async () => {
+    const settings = { ...PRE_55_SETTINGS }
+    await importData(validPayload({ settings }), 'merge', 'u1')
+    expect(settings).toEqual(PRE_55_SETTINGS)
   })
 })
 

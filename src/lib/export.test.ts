@@ -8,6 +8,7 @@ import {
   CREDENTIAL_SETTINGS_KEYS,
   EXPORT_VERSION,
   exportAllData,
+  IMPORT_STRIPPED_SETTINGS_KEYS,
   redactSettings,
 } from './export'
 
@@ -60,6 +61,24 @@ describe('redactSettings', () => {
 
   it('handles a null settings row', () => {
     expect(redactSettings(null)).toBeNull()
+  })
+
+  it('does not redact the import-stripped keys — the export stays a faithful dump (chunk 56 D2)', () => {
+    expect([...IMPORT_STRIPPED_SETTINGS_KEYS]).toEqual([
+      'ai_api_key',
+      'ai_status',
+      'caldav_status',
+      'outlook_status',
+    ])
+    const row = {
+      user_id: 'u1',
+      ai_api_key: 'sk-ant-legacy',
+      ai_status: 'ok',
+      caldav_status: 'auth_failed',
+      outlook_status: 'unconfigured',
+    }
+    const out = redactSettings(row)
+    for (const k of IMPORT_STRIPPED_SETTINGS_KEYS) expect(out?.[k]).toBe(row[k])
   })
 })
 
