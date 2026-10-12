@@ -178,6 +178,7 @@ export async function loadSampleData(userId: string): Promise<void> {
   tasks[7].completedDaysAgo = 2
 
   let taskCount = 0
+  const createdTasks: { id: string; completed: boolean }[] = []
   for (const t of tasks) {
     const sub = createdSubs.find((s) => s.name === t.subcatName)
     if (!sub) continue
@@ -192,7 +193,7 @@ export async function loadSampleData(userId: string): Promise<void> {
         : new Date(
             Date.now() - t.completedDaysAgo * 24 * 60 * 60 * 1000,
           ).toISOString()
-    await repo.tasks.create({
+    const created = await repo.tasks.create({
       userId,
       subcategoryId: sub.id,
       title: t.title,
@@ -203,7 +204,45 @@ export async function loadSampleData(userId: string): Promise<void> {
       priority: null,
       completedAt,
     })
+    createdTasks.push({ id: created.id, completed: completedAt !== null })
     taskCount += 1
+  }
+
+  // ----- notes (chunk 58) -----
+  // One of each kind the Notebook distinguishes: a pinned freeform note, one
+  // on a list, one on an open task, one on a completed task (hidden by
+  // default behind the `+N ON COMPLETED TASKS` reveal).
+  const openTask = createdTasks.find((t) => !t.completed)
+  const doneTask = createdTasks.find((t) => t.completed)
+  await repo.notes.create({
+    userId,
+    title: 'Reading list',
+    body: '# This quarter\n- Meditations, book 4\n- The Shallows\n\nNotes go here as they come.',
+    pinned: true,
+  })
+  if (createdSubs[0]) {
+    await repo.notes.create({
+      userId,
+      title: 'Working agreements',
+      body: '## How this list runs\n- One owner per task\n- Estimates in minutes, rounded up',
+      subcategoryId: createdSubs[0].id,
+    })
+  }
+  if (openTask) {
+    await repo.notes.create({
+      userId,
+      title: '',
+      body: 'Open questions before starting\n- Who signs off?\n- https://example.com/brief',
+      taskId: openTask.id,
+    })
+  }
+  if (doneTask) {
+    await repo.notes.create({
+      userId,
+      title: 'What went well',
+      body: 'Finished a day early. Keep the checklist for next time.',
+      taskId: doneTask.id,
+    })
   }
 
   // ----- routine items -----
@@ -329,6 +368,14 @@ export async function wipeMyData(userId: string): Promise<void> {
   // last would delete the wipe's own queued mutations. The outbox is
   // per-device local state, so no server call is involved.
   await db.outbox.clear()
+
+  // notes first (chunk 58) — they survive a task delete (`on delete set
+  // null`), and deleting them before their tasks keeps migration 16's
+  // detach-memo trigger from stamping every note on the way out.
+  const notes = await repo.notes.listAll()
+  for (const n of notes) {
+    await repo.notes.delete(n.id)
+  }
 
   // tasks (real delete — repo supports it; ON DELETE RESTRICT from
   // subcategories means we MUST take these out before archiving subs).

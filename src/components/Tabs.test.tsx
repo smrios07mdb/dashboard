@@ -26,10 +26,10 @@ function renderAt(path: string) {
 }
 
 describe('Tabs — primary nav (Chunk 24)', () => {
-  it('renders all five routes across the top + bottom navs', () => {
+  it('renders all six routes across the top + bottom navs', () => {
     renderAt('/')
-    // 5 top + 5 bottom = 10 tab buttons (Planner added in chunk 36)
-    expect(screen.getAllByRole('button')).toHaveLength(10)
+    // 6 top + 6 bottom = 12 tab buttons (Planner chunk 36, Notebook chunk 58)
+    expect(screen.getAllByRole('button')).toHaveLength(12)
     // Dashboard reads "Dashboard" on top, "Tasks" in the bottom bar
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
     expect(screen.getByText('Tasks')).toBeInTheDocument()
@@ -37,7 +37,59 @@ describe('Tabs — primary nav (Chunk 24)', () => {
     expect(screen.getAllByText('Planner')).toHaveLength(2)
     expect(screen.getAllByText('Routines')).toHaveLength(2)
     expect(screen.getAllByText('Insights')).toHaveLength(2)
+    expect(screen.getAllByText('Notebook')).toHaveLength(2)
     expect(screen.getAllByText('Settings')).toHaveLength(2)
+  })
+
+  it('orders both navs Dashboard · Planner · Routines · Insights · Notebook · Settings', () => {
+    renderAt('/')
+    const [top, bottom] = screen.getAllByRole('navigation', { name: 'Primary' })
+    const labels = (nav: HTMLElement) =>
+      Array.from(nav.querySelectorAll('button')).map((b) => b.textContent)
+    expect(labels(top)).toEqual([
+      'Dashboard',
+      'Planner',
+      'Routines',
+      'Insights',
+      'Notebook',
+      'Settings',
+    ])
+    expect(labels(bottom)).toEqual([
+      'Tasks',
+      'Planner',
+      'Routines',
+      'Insights',
+      'Notebook',
+      'Settings',
+    ])
+  })
+
+  it('marks Notebook active on the list and on a note', () => {
+    renderAt('/notebook')
+    expect(screen.getAllByRole('button', { current: 'page' })).toHaveLength(2)
+  })
+
+  // The bottom bar is the <640px nav (`sm:hidden`); jsdom applies no
+  // breakpoints, so "under 640px only" is asserted as: the bottom bar is the
+  // one that goes, and the top tabs (the >=640px nav) stay.
+  it('drops the bottom nav on /notebook/:noteId only, keeping the top tabs', () => {
+    const { unmount } = renderAt('/notebook/n1')
+    const navs = screen.getAllByRole('navigation', { name: 'Primary' })
+    expect(navs).toHaveLength(1)
+    expect(navs[0]).not.toHaveClass('fixed')
+    expect(navs[0].querySelectorAll('button')).toHaveLength(6)
+    expect(
+      screen.getByRole('button', { current: 'page' }),
+    ).toHaveTextContent('Notebook')
+    unmount()
+
+    for (const path of ['/notebook', '/', '/planner', '/settings']) {
+      const view = renderAt(path)
+      expect(
+        screen.getAllByRole('navigation', { name: 'Primary' }),
+      ).toHaveLength(2)
+      view.unmount()
+    }
   })
 
   it('exposes two labelled "Primary" nav landmarks', () => {

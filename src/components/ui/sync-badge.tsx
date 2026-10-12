@@ -23,6 +23,37 @@ const STATES: Record<SyncState, { dot: string; label: string; sub: string }> = {
   },
 }
 
+/**
+ * The status dot on its own (7px, pulsing while `syncing`). `SyncBadge` renders
+ * it, and so does the Notebook editor's save-state line (chunk 58) — one
+ * definition of the dot colors and the pulse.
+ */
+export function SyncDot({
+  state = 'synced',
+  className,
+}: {
+  state?: SyncState
+  className?: string
+}) {
+  const it = STATES[state] ?? STATES.synced
+  const style: React.CSSProperties =
+    state === 'syncing'
+      ? {
+          background: it.dot,
+          // CSS var consumed by the `sync-pulse` keyframe for a same-color ripple.
+          ['--sync-dot' as string]: `color-mix(in srgb, ${it.dot} 45%, transparent)`,
+          animation: 'sync-pulse 1.4s infinite',
+        }
+      : { background: it.dot }
+  return (
+    <span
+      aria-hidden
+      className={cn('size-[7px] shrink-0 rounded-full', className)}
+      style={style}
+    />
+  )
+}
+
 export interface SyncBadgeProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   state?: SyncState
@@ -35,16 +66,6 @@ export interface SyncBadgeProps
 export const SyncBadge = React.forwardRef<HTMLButtonElement, SyncBadgeProps>(
   function SyncBadge({ state = 'synced', className, ...rest }, ref) {
     const it = STATES[state] ?? STATES.synced
-    const pulsing = state === 'syncing'
-    const dotStyle: React.CSSProperties = pulsing
-      ? {
-          background: it.dot,
-          // CSS var consumed by the `sync-pulse` keyframe for a same-color ripple.
-          ['--sync-dot' as string]: `color-mix(in srgb, ${it.dot} 45%, transparent)`,
-          animation: 'sync-pulse 1.4s infinite',
-        }
-      : { background: it.dot }
-
     return (
       <button
         ref={ref}
@@ -58,7 +79,7 @@ export const SyncBadge = React.forwardRef<HTMLButtonElement, SyncBadgeProps>(
         title={it.sub}
         aria-label={`Sync status: ${it.label}`}
       >
-        <span aria-hidden className="size-[7px] rounded-full" style={dotStyle} />
+        <SyncDot state={state} />
         <span>{it.label}</span>
       </button>
     )

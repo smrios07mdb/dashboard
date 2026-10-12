@@ -63,6 +63,27 @@ export type ScheduledBlock = {
   updatedAt: string
 }
 
+/**
+ * A Notebook note (chunk 58, ARCHITECTURE.md §4). Title is optional (`''`).
+ * At most one of `taskId` / `subcategoryId` is set; both null = freeform.
+ * `detachedLabel` / `detachedAt` are the server-written memo of what the
+ * note was attached to when that row was deleted (migration 16 triggers) —
+ * the client only ever clears them, on re-attach.
+ */
+export type Note = {
+  id: string
+  userId: string
+  title: string
+  body: string
+  pinned: boolean
+  taskId: string | null
+  subcategoryId: string | null
+  detachedLabel: string | null
+  detachedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export type RoutineItem = {
   id: string
   userId: string
@@ -189,5 +210,6 @@ export const TABLES = {
   settings: 'settings',
   pushSubscriptions: 'push_subscriptions',
   scheduledBlocks: 'scheduled_blocks',
+  notes: 'notes',
 } as const
 export type TableName = (typeof TABLES)[keyof typeof TABLES]

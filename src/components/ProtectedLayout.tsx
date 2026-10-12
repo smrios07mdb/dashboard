@@ -1,4 +1,6 @@
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
+
+import { isNoteEditorPath } from '@/lib/notes'
 
 import AppShell from './AppShell'
 import InstallHint from './InstallHint'
@@ -15,11 +17,13 @@ import Tabs from './Tabs'
  * in one place; child routes render inside <Outlet />.
  */
 export default function ProtectedLayout() {
+  const { pathname } = useLocation()
   return (
     <Protected>
       <AppShell
         topBanner={<InstallHint />}
         headerEnd={<SyncIndicator />}
+        bottomNav={!isNoteEditorPath(pathname)}
       >
         <Tabs />
         <div className="pt-6">

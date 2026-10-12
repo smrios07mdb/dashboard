@@ -24,6 +24,7 @@ import { useUIStore } from '@/state/uiStore'
 import { db } from './dexie'
 import {
   categoryFromRow,
+  noteFromRow,
   pushSubscriptionFromRow,
   routineItemFromRow,
   routineLogFromRow,
@@ -33,6 +34,7 @@ import {
   subcategoryFromRow,
   taskFromRow,
   type CategoryRow,
+  type NoteRow,
   type PushSubscriptionRow,
   type RoutineItemRow,
   type RoutineLogRow,
@@ -151,6 +153,14 @@ const handlers = {
       await db.scheduled_blocks.delete(id)
     },
   }),
+  notes: makeHandler<NoteRow>({
+    apply: async (row) => {
+      await db.notes.put(noteFromRow(row))
+    },
+    remove: async (id) => {
+      await db.notes.delete(id)
+    },
+  }),
 }
 
 /** Settings is keyed by user_id — handler uses the same as PK. */
@@ -228,6 +238,12 @@ export function startRealtime(userId: string): void {
       'postgres_changes' as any,
       { event: '*', schema: 'public', table: 'scheduled_blocks', filter },
       handlers.scheduled_blocks,
+    )
+    .on(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      'postgres_changes' as any,
+      { event: '*', schema: 'public', table: 'notes', filter },
+      handlers.notes,
     )
     .subscribe()
 }

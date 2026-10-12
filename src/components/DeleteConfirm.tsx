@@ -29,7 +29,7 @@ type DeleteConfirmProps = {
   /** Title shown at the top of the dialog. */
   title: string
   /** One-line description shown below the title. */
-  description: string
+  description: ReactNode
   /** Label for the destructive button (defaults to "Delete"). */
   confirmLabel?: string
   /** Called when the user confirms. */

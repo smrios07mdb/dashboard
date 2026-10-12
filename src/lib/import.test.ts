@@ -1,15 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const { bulkUpsert, bulkDeleteAllForUser, outboxClear, wipeLocalCacheMock } =
-  vi.hoisted(() => ({
+const {
+  bulkUpsert,
+  bulkDeleteAllForUser,
+  existingIds,
+  outboxClear,
+  wipeLocalCacheMock,
+} = vi.hoisted(() => ({
     bulkUpsert: vi.fn<(...args: unknown[]) => Promise<void>>(),
     bulkDeleteAllForUser: vi.fn<(...args: unknown[]) => Promise<void>>(),
+    existingIds: vi.fn<(table: string, ids: string[]) => Promise<string[]>>(
+      () => Promise.resolve([]),
+    ),
     outboxClear: vi.fn(() => Promise.resolve()),
     wipeLocalCacheMock: vi.fn(() => Promise.resolve()),
   }))
 
 vi.mock('@/db/repo', () => ({
-  repo: { data: { bulkUpsert, bulkDeleteAllForUser } },
+  repo: { data: { bulkUpsert, bulkDeleteAllForUser, existingIds } },
 }))
 vi.mock('@/db/dexie', () => ({ db: { outbox: { clear: outboxClear } } }))
 vi.mock('@/db/localCache', () => ({ wipeLocalCache: wipeLocalCacheMock }))
@@ -215,6 +223,7 @@ describe('replace mode', () => {
 
     const deleted = bulkDeleteAllForUser.mock.calls.map((c) => c[0])
     expect(deleted).toEqual([
+      'notes',
       'scheduled_blocks',
       'tasks',
       'routine_logs',
@@ -229,6 +238,7 @@ describe('replace mode', () => {
       'subcategories',
       'tasks',
       'scheduled_blocks',
+      'notes',
       'routine_items',
       'routine_logs',
       'settings',
@@ -258,6 +268,7 @@ describe('merge mode', () => {
       'subcategories',
       'tasks',
       'scheduled_blocks',
+      'notes',
       'routine_items',
       'routine_logs',
       'settings',
@@ -398,4 +409,105 @@ describe('scheduled_blocks (chunk 50)', () => {
       exported.scheduled_blocks.map((b) => ({ ...b, calendar_uid: null })),
     )
   })
+})
+
+describe('notes (chunk 58)', () => {
+  /** A note as it appears in an export file. */
+  const NOTE = {
+    id: 'n1',
+    user_id: 'u1',
+    title: 'Kickoff',
+    body: 'Agenda',
+    pinned: false,
+    task_id: 't1',
+    subcategory_id: null,
+    detached_label: null,
+    detached_at: null,
+    created_at: '2026-10-01T00:00:00+00:00',
+    updated_at: '2026-10-02T00:00:00+00:00',
+  }
+
+  it('exports notes after scheduled_blocks', () => {
+    const exported = buildExportPayload({
+      userId: 'u1',
+      exportedAt: 'x',
+      tables: { tasks: [{ id: 't1' }], notes: [NOTE] },
+      settings: null,
+    })
+    expect(exported.notes).toEqual([NOTE])
+    const keys = Object.keys(exported)
+    expect(keys.indexOf('notes')).toBe(keys.indexOf('scheduled_blocks') + 1)
+  })
+
+  it('a file without a notes key still imports, as no notes', async () => {
+    const p = validPayload()
+    expect('notes' in p).toBe(false)
+    const validated = validateImport(p)
+    expect(validated.notes).toEqual([])
+    expect(previewCounts(validated).notes).toBe(0)
+
+    await importData(p, 'replace', 'u1')
+    expect(upsertedRows('notes')).toEqual([])
+    expect(existingIds).not.toHaveBeenCalled()
+  })
+
+  it('rejects malformed notes before anything is deleted', async () => {
+    expect(() => validateImport(validPayload({ notes: {} }))).toThrow(/notes/)
+    await expect(
+      importData(validPayload({ notes: [{ title: 'no id' }] }), 'replace', 'u1'),
+    ).rejects.toThrow(ImportValidationError)
+    expect(bulkDeleteAllForUser).not.toHaveBeenCalled()
+  })
+
+  it('Replace deletes notes before tasks and subcategories, and inserts them after tasks', async () => {
+    await importData(validPayload({ notes: [NOTE] }), 'replace', 'u1')
+
+    const deleted = bulkDeleteAllForUser.mock.calls.map((c) => c[0])
+    expect(deleted[0]).toBe('notes')
+    expect(deleted.indexOf('notes')).toBeLessThan(deleted.indexOf('tasks'))
+    expect(deleted.indexOf('notes')).toBeLessThan(
+      deleted.indexOf('subcategories'),
+    )
+
+    const upserted = bulkUpsert.mock.calls.map((c) => c[0])
+    expect(upserted.indexOf('notes')).toBeGreaterThan(upserted.indexOf('tasks'))
+    expect(upsertedRows('notes')).toEqual([NOTE])
+  })
+
+  it('Merge upserts notes on id', async () => {
+    await importData(validPayload({ notes: [NOTE] }), 'merge', 'u1')
+    const call = bulkUpsert.mock.calls.find((c) => c[0] === 'notes')
+    expect(call?.[1]).toEqual([NOTE])
+    expect(call?.[2]).toBeUndefined() // default conflict key 'id'
+    expect(bulkDeleteAllForUser).not.toHaveBeenCalled()
+  })
+
+  it.each(['replace', 'merge'] as const)(
+    '%s: a link that is neither in the file nor live is written null; the memo is kept',
+    async (mode) => {
+      const notes = [
+        NOTE, // t1 is in the file
+        { ...NOTE, id: 'n2', task_id: 't-gone', detached_label: 'Old plan' },
+        { ...NOTE, id: 'n3', task_id: null, subcategory_id: 's-gone' },
+        { ...NOTE, id: 'n4', task_id: 't-live' },
+        { ...NOTE, id: 'n5', task_id: null, subcategory_id: 's1' },
+      ]
+      existingIds.mockImplementation((table) =>
+        Promise.resolve(table === 'tasks' ? ['t-live'] : []),
+      )
+
+      await importData(validPayload({ notes }), mode, 'u1')
+
+      // Only ids the file does not carry are looked up.
+      expect(existingIds).toHaveBeenCalledWith('tasks', ['t-gone', 't-live'])
+      expect(existingIds).toHaveBeenCalledWith('subcategories', ['s-gone'])
+      expect(upsertedRows('notes')).toEqual([
+        NOTE,
+        { ...NOTE, id: 'n2', task_id: null, detached_label: 'Old plan' },
+        { ...NOTE, id: 'n3', task_id: null, subcategory_id: null },
+        { ...NOTE, id: 'n4', task_id: 't-live' },
+        { ...NOTE, id: 'n5', task_id: null, subcategory_id: 's1' },
+      ])
+    },
+  )
 })

@@ -17,6 +17,7 @@ import Dexie, { type EntityTable, type Transaction } from 'dexie'
 import type {
   BusyCacheEntry,
   Category,
+  Note,
   OutboxRow,
   PushSubscription,
   RoutineItem,
@@ -38,6 +39,7 @@ export class DashboardCacheDB extends Dexie {
   settings!: EntityTable<Settings, 'userId'>
   push_subscriptions!: EntityTable<PushSubscription, 'id'>
   scheduled_blocks!: EntityTable<ScheduledBlock, 'id'>
+  notes!: EntityTable<Note, 'id'>
   outbox!: EntityTable<OutboxRow, 'id'>
   // Cache-only (not a Postgres mirror): one local day's busy ranges keyed by
   // dateKey, with a short TTL applied in lib/busyCache. camelCase name since
@@ -89,6 +91,15 @@ export class DashboardCacheDB extends Dexie {
     this.version(5)
       .stores({ scheduled_blocks: '&id, taskId, startAt, endAt' })
       .upgrade(upgradeToV5)
+    // v6: chunk 58 adds the `notes` mirror (the Notebook). New store only —
+    // unchanged stores are inherited, so no .upgrade() is needed. `taskId`
+    // and `subcategoryId` are indexed and deliberately NOT unique: a task or
+    // a subcategory may hold many notes. `pinned` is listed per the chunk
+    // prompt, but IndexedDB cannot key on a boolean, so rows are never found
+    // through it — the Notebook sorts and filters in JS.
+    this.version(6).stores({
+      notes: '&id, taskId, subcategoryId, pinned, updatedAt',
+    })
   }
 }
 

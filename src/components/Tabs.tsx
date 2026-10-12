@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-import { Calendar, Filter, Sun, Tag, User } from '@/components/icons'
+import { BookOpen, Calendar, Filter, Sun, Tag, User } from '@/components/icons'
 import { BottomTabs, TopTabs, type NavItem } from '@/components/ui/nav-tabs'
+import { isNoteEditorPath } from '@/lib/notes'
 
 /*
  * Primary navigation — composes the Chunk-23 `TopTabs` / `BottomTabs` primitives
@@ -16,6 +17,11 @@ import { BottomTabs, TopTabs, type NavItem } from '@/components/ui/nav-tabs'
  * Responsive (ARCHITECTURE §13): `TopTabs` at >=sm (`hidden sm:flex`), fixed
  * `BottomTabs` below 640px (`sm:hidden`) — exactly one in the a11y tree per
  * breakpoint. Bottom-bar dashboard label is "Tasks" per design/src/app.jsx.
+ *
+ * The bottom bar is not rendered on `/notebook/:noteId` (chunk 58): on a phone
+ * that route is the full-screen note editor, and the keyboard needs the room.
+ * It is `sm:hidden` anyway, so nothing changes at >=sm. `AppShell` drops the
+ * matching bottom clearance on the same test.
  */
 
 type Tab = {
@@ -30,6 +36,7 @@ const TABS: readonly Tab[] = [
   { to: '/planner', label: 'Planner', mobileLabel: 'Planner', icon: <Calendar size={20} /> },
   { to: '/routines', label: 'Routines', mobileLabel: 'Routines', icon: <Sun size={20} /> },
   { to: '/insights', label: 'Insights', mobileLabel: 'Insights', icon: <Filter size={20} /> },
+  { to: '/notebook', label: 'Notebook', mobileLabel: 'Notebook', icon: <BookOpen size={20} /> },
   { to: '/settings', label: 'Settings', mobileLabel: 'Settings', icon: <User size={20} /> },
 ]
 
@@ -63,13 +70,15 @@ export default function Tabs() {
         className="-mt-2 mb-2 hidden overflow-x-auto sm:flex"
       />
       {/* Phones: fixed bottom tab bar (hidden at >=sm). */}
-      <BottomTabs
-        ariaLabel="Primary"
-        items={bottomItems}
-        value={value}
-        onChange={(id) => navigate(id)}
-        className="sm:hidden"
-      />
+      {!isNoteEditorPath(pathname) && (
+        <BottomTabs
+          ariaLabel="Primary"
+          items={bottomItems}
+          value={value}
+          onChange={(id) => navigate(id)}
+          className="sm:hidden"
+        />
+      )}
     </>
   )
 }

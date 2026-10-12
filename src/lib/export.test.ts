@@ -149,6 +149,7 @@ describe('exportAllData — scheduled_blocks (chunk 50)', () => {
       'subcategories',
       'tasks',
       'scheduled_blocks',
+      'notes',
       'routine_items',
       'routine_logs',
       'settings',

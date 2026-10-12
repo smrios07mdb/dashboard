@@ -15,6 +15,8 @@ import { supabase } from '@/lib/supabase'
 
 import { db } from './dexie'
 import {
+  noteFromRow,
+  noteToRow,
   pushSubscriptionFromRow,
   pushSubscriptionToRow,
   routineItemFromRow,
@@ -243,6 +245,15 @@ const SPECS: Record<string, TableSpec> = {
     deleteKeyValue: byId,
     cacheDelete: (p) => db.scheduled_blocks.delete(p.id as string),
   },
+  notes: {
+    toRow: noteToRow,
+    cachePut: (r) => db.notes.put(noteFromRow(r)),
+    updateKeyColumn: 'id',
+    updateKeyValue: byId,
+    deleteKeyColumn: 'id',
+    deleteKeyValue: byId,
+    cacheDelete: (p) => db.notes.delete(p.id as string),
+  },
   push_subscriptions: {
     toRow: pushSubscriptionToRow,
     cachePut: (r) => db.push_subscriptions.put(pushSubscriptionFromRow(r)),
@@ -354,4 +365,16 @@ export async function retryAllFailed(): Promise<DrainResult> {
 /** Recompute the sync state from the current outbox (used after discards). */
 async function refreshSyncState(): Promise<void> {
   setStateFromOutbox(await db.outbox.toArray())
+}
+
+/**
+ * How many queued mutations target one row of one table. The Notebook editor
+ * reads it for its "N changes queued" save state (chunk 58).
+ */
+export async function countOutboxFor(table: string, id: string): Promise<number> {
+  return db.outbox
+    .where('table')
+    .equals(table)
+    .filter((row) => (row.payload as { id?: unknown } | null)?.id === id)
+    .count()
 }

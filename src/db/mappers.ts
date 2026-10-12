@@ -8,6 +8,7 @@
  */
 import type {
   Category,
+  Note,
   PushSubscription,
   RoutineItem,
   RoutineLog,
@@ -164,6 +165,56 @@ export function scheduledBlockToRow(
   if (value.startAt !== undefined) row.start_at = value.startAt
   if (value.endAt !== undefined) row.end_at = value.endAt
   if (value.calendarUid !== undefined) row.calendar_uid = value.calendarUid
+  if (value.createdAt !== undefined) row.created_at = value.createdAt
+  if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
+  return row
+}
+
+// ---------- notes ----------
+
+export type NoteRow = {
+  id: string
+  user_id: string
+  title: string
+  body: string
+  pinned: boolean
+  task_id: string | null
+  subcategory_id: string | null
+  detached_label: string | null
+  detached_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export function noteFromRow(row: NoteRow): Note {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    body: row.body,
+    pinned: row.pinned,
+    taskId: row.task_id,
+    subcategoryId: row.subcategory_id,
+    detachedLabel: row.detached_label,
+    detachedAt: row.detached_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function noteToRow(
+  value: Partial<Note> & { id?: string },
+): Partial<NoteRow> {
+  const row: Partial<NoteRow> = {}
+  if (value.id !== undefined) row.id = value.id
+  if (value.userId !== undefined) row.user_id = value.userId
+  if (value.title !== undefined) row.title = value.title
+  if (value.body !== undefined) row.body = value.body
+  if (value.pinned !== undefined) row.pinned = value.pinned
+  if (value.taskId !== undefined) row.task_id = value.taskId
+  if (value.subcategoryId !== undefined) row.subcategory_id = value.subcategoryId
+  if (value.detachedLabel !== undefined) row.detached_label = value.detachedLabel
+  if (value.detachedAt !== undefined) row.detached_at = value.detachedAt
   if (value.createdAt !== undefined) row.created_at = value.createdAt
   if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
   return row

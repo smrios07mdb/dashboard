@@ -25,6 +25,9 @@ const Insights = lazy(() => import('@/screens/Insights'))
 // lazy-chunk treatment as Insights.
 const Planner = lazy(() => import('@/screens/Planner'))
 
+// Notebook (chunk 58): the list, editor and attach picker — its own chunk too.
+const Notebook = lazy(() => import('@/screens/Notebook'))
+
 // Throwaway design-token check page (redesign chunk 21). DEV-only: the ternary
 // is statically false in prod, so Vite drops the dynamic import and never emits
 // the chunk. Route is also `import.meta.env.DEV`-gated below.
@@ -97,6 +100,23 @@ export default function App() {
                 }
               >
                 <Insights />
+              </Suspense>
+            }
+          />
+          {/* `notebook` and `notebook/:noteId` as one route, so the screen
+              (and an unsaved draft) stays mounted across list ↔ note. */}
+          <Route
+            path="notebook/:noteId?"
+            element={
+              <Suspense
+                fallback={
+                  <div
+                    className="h-[280px] animate-pulse rounded-md bg-secondary motion-reduce:animate-none"
+                    aria-hidden
+                  />
+                }
+              >
+                <Notebook />
               </Suspense>
             }
           />

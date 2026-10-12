@@ -54,6 +54,7 @@ const EXPORT_TABLES = [
   'subcategories',
   'tasks',
   'scheduled_blocks',
+  'notes',
   'routine_items',
   'routine_logs',
 ] as const
@@ -66,6 +67,7 @@ export type ExportPayload = {
   subcategories: Row[]
   tasks: Row[]
   scheduled_blocks: Row[]
+  notes: Row[]
   routine_items: Row[]
   routine_logs: Row[]
   settings: Row | null
@@ -94,6 +96,7 @@ export function buildExportPayload(args: {
     subcategories: args.tables.subcategories ?? [],
     tasks: args.tables.tasks ?? [],
     scheduled_blocks: args.tables.scheduled_blocks ?? [],
+    notes: args.tables.notes ?? [],
     routine_items: args.tables.routine_items ?? [],
     routine_logs: args.tables.routine_logs ?? [],
     settings: redactSettings(args.settings),

@@ -43,8 +43,11 @@ const REQUIRED_TABLE_KEYS = [
  * Absent (or null) → normalized to `[]`; present → validated exactly like a
  * required table (array + the row-level id gate below), so a malformed block row
  * still aborts BEFORE Replace's teardown deletes anything (R4).
+ *
+ * `notes` joined the same way in chunk 58: optional on read, absent → `[]`,
+ * version unchanged.
  */
-const OPTIONAL_TABLE_KEYS = ['scheduled_blocks'] as const
+const OPTIONAL_TABLE_KEYS = ['scheduled_blocks', 'notes'] as const
 
 export type ImportMode = 'replace' | 'merge'
 
@@ -107,6 +110,7 @@ export function validateImport(parsed: unknown): ExportPayload {
     scheduled_blocks: Array.isArray(p.scheduled_blocks)
       ? p.scheduled_blocks
       : [],
+    notes: Array.isArray(p.notes) ? p.notes : [],
   }
   return normalized as unknown as ExportPayload
 }
@@ -117,6 +121,7 @@ export function previewCounts(payload: ExportPayload): Record<string, number> {
     subcategories: payload.subcategories.length,
     tasks: payload.tasks.length,
     scheduled_blocks: payload.scheduled_blocks.length,
+    notes: payload.notes.length,
     routine_items: payload.routine_items.length,
     routine_logs: payload.routine_logs.length,
     settings: payload.settings ? 1 : 0,
@@ -167,6 +172,10 @@ async function upsertContent(payload: ExportPayload): Promise<void> {
     })),
     'task_id',
   )
+  // Notes after tasks (FK `task_id` / `subcategory_id`, chunk 58). Upsert on
+  // `id` — a task or a subcategory may hold many notes, so `id` is the only
+  // invariant.
+  await repo.data.bulkUpsert('notes', await withLiveLinks(payload))
   await repo.data.bulkUpsert('routine_items', payload.routine_items as RowList)
   await repo.data.bulkUpsert('routine_logs', payload.routine_logs as RowList)
   if (payload.settings) {
@@ -185,6 +194,56 @@ async function upsertContent(payload: ExportPayload): Promise<void> {
 }
 
 /**
+ * Notes ready to write (chunk 58): a `task_id` / `subcategory_id` that names
+ * neither a row in this file nor a live row is written `null`, so the note
+ * arrives freeform instead of failing its FK and aborting the import partway.
+ * `detached_label` / `detached_at` are left exactly as the file has them — the
+ * file's memo is the only record of what the note used to sit beside.
+ *
+ * Runs after `subcategories` and `tasks` are upserted. Only ids the file does
+ * not itself carry cost a lookup, so a self-consistent export makes none.
+ */
+async function withLiveLinks(payload: ExportPayload): Promise<RowList> {
+  const notes = payload.notes as RowList
+  if (notes.length === 0) return []
+  const known = {
+    task_id: new Set((payload.tasks as RowList).map((r) => r.id as string)),
+    subcategory_id: new Set(
+      (payload.subcategories as RowList).map((r) => r.id as string),
+    ),
+  }
+  const tables = { task_id: 'tasks', subcategory_id: 'subcategories' } as const
+  for (const column of ['task_id', 'subcategory_id'] as const) {
+    const unknown = [
+      ...new Set(
+        notes
+          .map((n) => n[column])
+          .filter(
+            (id): id is string =>
+              typeof id === 'string' && !known[column].has(id),
+          ),
+      ),
+    ]
+    if (unknown.length === 0) continue
+    for (const id of await repo.data.existingIds(tables[column], unknown)) {
+      known[column].add(id)
+    }
+  }
+  return notes.map((n) => ({
+    ...n,
+    task_id:
+      typeof n.task_id === 'string' && known.task_id.has(n.task_id)
+        ? n.task_id
+        : null,
+    subcategory_id:
+      typeof n.subcategory_id === 'string' &&
+      known.subcategory_id.has(n.subcategory_id)
+        ? n.subcategory_id
+        : null,
+  }))
+}
+
+/**
  * Replace: teardown children→parents (never categories), reinsert
  * parents→children, clear the outbox (queued mutations are now invalid), and
  * drop the local cache so it rebuilds from Supabase on next read.
@@ -194,6 +253,11 @@ export async function replaceAll(
   userId: string,
 ): Promise<void> {
   const teardown: TableName[] = [
+    // Notes first (chunk 58): they are not deleted by the `tasks` /
+    // `subcategories` teardown (`on delete set null`), and deleting them
+    // before their targets keeps migration 16's detach-memo triggers from
+    // stamping every note on a wipe.
+    'notes',
     // Deleting `tasks` already cascades blocks; listing them first makes the
     // intent explicit rather than depending on a cascade a future migration
     // might change.

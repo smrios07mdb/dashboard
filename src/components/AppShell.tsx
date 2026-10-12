@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 
+import { cn } from '@/lib/utils'
 import { useEffectiveMargins } from '@/state/shellMargins'
 
 import AccountMenu from './AccountMenu'
@@ -17,12 +18,19 @@ type AppShellProps = {
    * PWA install hint. Renders nothing when null/undefined.
    */
   topBanner?: ReactNode
+  /**
+   * Whether the phone bottom nav is on screen (default true). When false the
+   * content wrapper drops the nav's bottom clearance — the Notebook's phone
+   * editor route (chunk 58).
+   */
+  bottomNav?: boolean
   children: ReactNode
 }
 
 export default function AppShell({
   headerEnd,
   topBanner,
+  bottomNav = true,
   children,
 }: AppShellProps) {
   // Page margins: `.shell` in index.css declares the responsive defaults as
@@ -70,7 +78,14 @@ export default function AppShell({
           margin at >=sm where the bottom nav is hidden. `relative` + `flex-1`
           so the MarginEditor guides sit on this wrapper's padding edges and
           the bottom guide lands at the bottom of the page. */}
-      <div className="relative w-full flex-1 px-[var(--shell-side)] pt-[var(--shell-top)] pb-[calc(var(--shell-bottom)+3.5rem+env(safe-area-inset-bottom))] sm:pb-[var(--shell-bottom)]">
+      <div
+        className={cn(
+          'relative w-full flex-1 px-[var(--shell-side)] pt-[var(--shell-top)] sm:pb-[var(--shell-bottom)]',
+          bottomNav
+            ? 'pb-[calc(var(--shell-bottom)+3.5rem+env(safe-area-inset-bottom))]'
+            : 'pb-[calc(var(--shell-bottom)+env(safe-area-inset-bottom))]',
+        )}
+      >
         <MarginEditor />
         {children}
       </div>

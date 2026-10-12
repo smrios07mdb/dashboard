@@ -20,6 +20,8 @@ import { isOnline } from '@/lib/network'
 import { db } from './dexie'
 import {
   categoryFromRow,
+  noteFromRow,
+  noteToRow,
   pushSubscriptionFromRow,
   pushSubscriptionToRow,
   routineItemFromRow,
@@ -36,6 +38,7 @@ import {
   taskFromRow,
   taskToRow,
   type CategoryRow,
+  type NoteRow,
   type PushSubscriptionRow,
   type RoutineItemRow,
   type RoutineLogRow,
@@ -48,6 +51,7 @@ import { syncStore } from './syncStore'
 import {
   TABLES,
   type Category,
+  type Note,
   type OutboxOp,
   type OutboxRow,
   type PushSubscription,
@@ -1010,6 +1014,139 @@ const scheduledBlocksRepo = {
   },
 }
 
+// ---------- notes (chunk 58) ----------
+
+const notesRepo = {
+  /**
+   * Every note the user owns — the Notebook reads the whole set and sorts,
+   * filters and searches it in the screen. Online path replaces the Dexie
+   * mirror (clear-then-bulkPut, so a note deleted on another device while
+   * this one was offline does not linger); fallback reads the cache.
+   */
+  async listAll(): Promise<Note[]> {
+    return readWithFallback({
+      online: async () => {
+        const { data, error } = await supabase
+          .from('notes')
+          .select('*')
+          .order('updated_at', { ascending: false })
+        throwIfClientError(error)
+        const mapped = ((data ?? []) as NoteRow[]).map(noteFromRow)
+        await db.transaction('rw', db.notes, async () => {
+          await db.notes.clear()
+          await db.notes.bulkPut(mapped)
+        })
+        return mapped
+      },
+      fallback: async () => db.notes.orderBy('updatedAt').reverse().toArray(),
+    })
+  },
+
+  async create(input: {
+    userId: string
+    title?: string
+    body?: string
+    pinned?: boolean
+    taskId?: string | null
+    subcategoryId?: string | null
+    id?: string
+  }): Promise<Note> {
+    const now = new Date().toISOString()
+    const full: Note = {
+      id: input.id ?? crypto.randomUUID(),
+      userId: input.userId,
+      title: input.title ?? '',
+      body: input.body ?? '',
+      pinned: input.pinned ?? false,
+      taskId: input.taskId ?? null,
+      subcategoryId: input.subcategoryId ?? null,
+      detachedLabel: null,
+      detachedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    }
+    return writeRow({
+      op: 'insert',
+      table: TABLES.notes,
+      optimistic: full,
+      cacheApply: async () => {
+        await db.notes.put(full)
+      },
+      online: async () => {
+        const { data, error } = await supabase
+          .from('notes')
+          .insert(noteToRow(full))
+          .select()
+          .single()
+        throwIfClientError(error)
+        return noteFromRow(data as NoteRow)
+      },
+    })
+  },
+
+  async update(
+    id: string,
+    changes: Partial<
+      Pick<
+        Note,
+        | 'title'
+        | 'body'
+        | 'pinned'
+        | 'taskId'
+        | 'subcategoryId'
+        | 'detachedLabel'
+        | 'detachedAt'
+      >
+    >,
+  ): Promise<Note> {
+    const existing = await db.notes.get(id)
+    const next: Note = {
+      ...(existing as Note),
+      ...changes,
+      id,
+      updatedAt: new Date().toISOString(),
+    }
+    return writeRow({
+      op: 'update',
+      table: TABLES.notes,
+      optimistic: next,
+      cacheApply: async () => {
+        await db.notes.put(next)
+      },
+      online: async () => {
+        const { data, error } = await supabase
+          .from('notes')
+          .update(noteToRow({ ...changes, updatedAt: next.updatedAt }))
+          .eq('id', id)
+          .select()
+          .single()
+        throwIfClientError(error)
+        return noteFromRow(data as NoteRow)
+      },
+    })
+  },
+
+  async delete(id: string): Promise<void> {
+    if (!isOnline()) {
+      markOffline()
+      await db.notes.delete(id)
+      await enqueueOutbox('delete', TABLES.notes, { id })
+      return
+    }
+    try {
+      const { error } = await supabase.from('notes').delete().eq('id', id)
+      throwIfClientError(error)
+      await db.notes.delete(id)
+      markSyncedNow()
+    } catch (e) {
+      if (isClientError(e)) throw e
+      markOffline()
+      await db.notes.delete(id)
+      await enqueueOutbox('delete', TABLES.notes, { id })
+    }
+  },
+}
+
 // ---------- settings ----------
 
 const settingsRepo = {
@@ -1221,6 +1358,9 @@ async function applyServerEcho(table: TableName, row: unknown): Promise<void> {
     case TABLES.scheduledBlocks:
       await db.scheduled_blocks.put(row as ScheduledBlock)
       return
+    case TABLES.notes:
+      await db.notes.put(row as Note)
+      return
   }
 }
 
@@ -1246,6 +1386,24 @@ const dataRepo = {
     throwIfClientError(error as SupabaseError | null)
   },
 
+  /**
+   * Which of `ids` exist in `table` (RLS-scoped to the caller). Import uses it
+   * to null a note's link to a row that is neither in the file nor live
+   * (chunk 58). Batched so the `in (…)` filter stays inside URL limits.
+   */
+  async existingIds(table: TableName, ids: string[]): Promise<string[]> {
+    const found: string[] = []
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data, error } = await supabase
+        .from(table)
+        .select('id')
+        .in('id', ids.slice(i, i + 100))
+      throwIfClientError(error as SupabaseError | null)
+      for (const row of (data ?? []) as { id: string }[]) found.push(row.id)
+    }
+    return found
+  },
+
   /** Hard-delete every row this user owns in `table` (Replace-import teardown). */
   async bulkDeleteAllForUser(table: TableName, userId: string): Promise<void> {
     const { error } = await supabase
@@ -1268,4 +1426,5 @@ export const repo = {
   settings: settingsRepo,
   pushSubscriptions: pushSubscriptionsRepo,
   scheduledBlocks: scheduledBlocksRepo,
+  notes: notesRepo,
 }
