@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hupomnemata — Notebook (design reference)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,500&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    /* DAYLIGHT — light only. Category palette: emerald / rose. No new values in this feature. */
+    --bg:#f6f4f7; --bg-alt:#eceaef; --surface:#ffffff; --surface-2:#f8f6fa;
+    --line:rgba(38,32,46,.09); --line-strong:rgba(38,32,46,.16);
+    --ink:#221f28; --ink-2:#635f6c; --ink-3:#948f9e; --ink-4:#c7c2d0;
+    --accent:#1f5142; --accent-soft:rgba(31,81,66,.10); --accent-ink:#1f5142;
+    --destructive:#b8462e; --destructive-soft:rgba(184,70,46,.13);
+    --work:#059669; --work-soft:rgba(5,150,105,.14);
+    --personal:#f43f5e; --personal-soft:rgba(244,63,94,.14);
+    --warn:#d98a1c; --good:#11a06e; --offline:#b0a593;
+    --jewel-sapphire:#2f6bf0; --jewel-amethyst:#7a4ff5; --jewel-coral:#f2552f; --jewel-citron:#c8a017; --jewel-jade:#11a06e; --jewel-rose:#e83f93; --jewel-teal:#14a6bd; --jewel-gold:#e0982a;
+    --radius-sm:4px; --radius:7px; --radius-md:11px; --radius-lg:16px;
+    --shadow-sm:0 1px 2px rgba(30,26,40,.06);
+    --shadow-md:0 2px 5px rgba(30,26,40,.05), 0 14px 30px -12px rgba(30,26,40,.16);
+    --shadow-lg:0 30px 70px -16px rgba(26,22,36,.26);
+    --font-ui:'Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+    --font-display:'Newsreader',Georgia,'Times New Roman',serif;
+    --font-serif:'Newsreader',Georgia,serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,monospace;
+    --row-h:36px; --row-pad:9px 12px; --sec-gap:18px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink)}
+  body{font-family:var(--font-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;font-feature-settings:"ss01","cv11";text-rendering:optimizeLegibility;position:relative}
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;background:radial-gradient(70vw 56vh at 2% -16%, color-mix(in srgb, var(--jewel-amethyst) 20%, transparent), transparent 58%),radial-gradient(66vw 58vh at 116% 4%, color-mix(in srgb, var(--jewel-rose) 17%, transparent), transparent 54%),radial-gradient(56vw 50vh at 50% 122%, color-mix(in srgb, var(--jewel-sapphire) 14%, transparent), transparent 56%);opacity:.6}
+  #root{position:relative;z-index:1}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  input,textarea,select{font:inherit;color:inherit}
+  ::selection{background:var(--accent-soft);color:var(--ink)}
+  a{color:var(--accent-ink);text-decoration:underline;text-decoration-color:color-mix(in srgb, var(--accent-ink) 35%, transparent);text-underline-offset:2px}a:hover{text-decoration-color:var(--accent-ink)}
+  .mono{font-family:var(--font-mono);font-feature-settings:"tnum","zero";letter-spacing:-.02em;font-weight:500}
+  .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  .display{font-family:var(--font-display);letter-spacing:-.015em}
+  .title{font-family:var(--font-serif);font-weight:500;letter-spacing:-.012em;color:var(--ink);line-height:1.04}
+  .label{font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-family:var(--font-mono);white-space:nowrap}
+  .hairline{border:0;border-top:1px solid var(--line);margin:0}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+  .shell{max-width:1480px;margin:0 auto;padding:0 28px}
+  @keyframes fadein{from{opacity:.001}to{opacity:1}}
+  .lst{scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent}
+  .lst::-webkit-scrollbar{width:8px;height:8px}
+  .lst::-webkit-scrollbar-thumb{background:var(--line-strong);border-radius:4px}
+  .sheet-veil{position:fixed;inset:0;background:rgba(34,31,40,.30);z-index:60;animation:fadein .15s ease-out forwards;backdrop-filter:blur(3px)}
+  .sheet{position:fixed;right:0;top:0;bottom:0;width:min(440px,92vw);background:var(--surface);border-left:1px solid var(--line);z-index:61;display:flex;flex-direction:column;box-shadow:-1px 0 0 var(--line), var(--shadow-lg);animation:slidein .22s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes slidein{from{transform:translateX(20px);opacity:.001}to{transform:none;opacity:1}}
+  [data-device="phone"] .sheet,[data-device="ipad"] .sheet{left:0;right:0;width:100%!important;top:auto;height:88%;border-left:0;border-top:1px solid var(--line);border-top-left-radius:18px;border-top-right-radius:18px;animation:slideup .22s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes slideup{from{transform:translateY(40px);opacity:.001}to{transform:none;opacity:1}}
+  .dlg-veil{position:fixed;inset:0;background:rgba(34,31,40,.38);z-index:70;backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px;animation:fadein .14s ease-out forwards}
+  .dlg{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);max-width:min(440px,calc(100% - 8px));width:100%;max-height:100%;overflow:auto;padding:22px;box-shadow:var(--shadow-lg)}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:80;background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:13px;box-shadow:var(--shadow-lg);animation:fadein .18s ease-out forwards}
+  body.no-scroll{overflow:hidden}
+  mark{font-weight:600}
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="src/icons.jsx"></script>
+<script type="text/babel" src="src/primitives.jsx"></script>
+<script type="text/babel" src="notebook/notebook-data.jsx"></script>
+<script type="text/babel" src="notebook/NoteList.jsx"></script>
+<script type="text/babel" src="notebook/NoteEditor.jsx"></script>
+<script type="text/babel" src="notebook/AttachPicker.jsx"></script>
+<script type="text/babel" src="notebook/NotebookScreen.jsx"></script>
+<script type="text/babel" src="notebook/EntitySide.jsx"></script>
+<script type="text/babel">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "device": "desktop",
+  "data": "populated",
+  "save": "saved",
+  "completed": "hide"
+}/*EDITMODE-END*/;
+window.__TWEAK_DEFAULTS = TWEAK_DEFAULTS;
+
+// Device frame: desktop fills the shell; iPad mini 744 and iPhone 375 render at true width.
+const FRAME = { desktop: { w: '100%', h: 820 }, ipad: { w: 744, h: 1000 }, phone: { w: 375, h: 760 } };
+function DeviceFrame({ device, children }) {
+  const f = FRAME[device];
+  return (
+    <div data-device={device} style={{ width: f.w, maxWidth: '100%', height: f.h, margin: '0 auto', background: 'var(--bg)', border: '1px solid var(--line-strong)', borderRadius: device === 'desktop' ? 'var(--radius-md)' : 28, overflow: 'hidden', boxShadow: 'var(--shadow-md)', position: 'relative', transform: 'translateZ(0)' }}>
+      {children}
+    </div>
+  );
+}
+
+function NotebookApp() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const [tab, setTab] = React.useState(() => localStorage.getItem('hupo-notebook-tab') || 'notebook');
+  React.useEffect(() => { localStorage.setItem('hupo-notebook-tab', tab); }, [tab]);
+  const [notes, setNotes] = React.useState(NB_NOTES);
+  React.useEffect(() => { setNotes(t.data === 'empty' ? [] : NB_NOTES); setActiveId(t.data === 'empty' ? null : 'n1'); }, [t.data]);
+  const [activeId, setActiveId] = React.useState('n1');
+  const [q, setQ] = React.useState('');
+  const [toast, setToast] = React.useState(null);
+  const [save, setSave] = React.useState(t.save);
+  React.useEffect(() => setSave(t.save), [t.save]);
+  const playOffline = () => { setSave('queued'); setTimeout(() => setSave('syncing'), 1800); setTimeout(() => setSave('saved'), 3200); };
+  const openInNotebook = (id) => { setActiveId(id); setTab('notebook'); };
+  const side = { notes, setNotes, device: t.device, onOpenInNotebook: openInNotebook, saveState: save, onToast: setToast, hideCompleted: t.completed === 'hide' };
+  return (
+    <div style={{ minHeight: '100vh' }}>
+      <div className="shell">
+        <header style={{ display: 'flex', alignItems: 'baseline', gap: 14, padding: '24px 0 4px' }}>
+          <span className="title" style={{ fontSize: 19 }}>Hupomnemata</span>
+          <span className="label" style={{ fontSize: 9 }}>Notebook · Design reference</span>
+        </header>
+        <TopTabs value={tab} onChange={setTab} items={[
+          { id: 'notebook', label: 'Notebook' },
+          { id: 'dashboard', label: 'Task side · Dashboard' },
+          { id: 'subcategory', label: 'Task side · Subcategory' },
+          { id: 'planner', label: 'Planner block' },
+        ]}/>
+        <div style={{ padding: '30px 0 80px' }}>
+          <DeviceFrame device={t.device}>
+            {tab === 'notebook' && <NotebookScreen key={t.device + t.data} notes={notes} setNotes={setNotes} device={t.device} saveState={save} activeId={activeId} setActiveId={setActiveId} q={q} setQ={setQ} onToast={setToast} hideCompleted={t.completed === 'hide'}/>}
+            {tab !== 'notebook' && (
+              <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                {t.device !== 'phone' && <AppChrome active={tab === 'planner' ? 'planner' : 'dashboard'} compact={t.device === 'ipad'} saveState={save}/>}
+                <div className="lst" style={{ flex: 1, minHeight: 0, overflowY: 'auto', position: 'relative' }}>
+                  {tab === 'dashboard' && <DashboardSide {...side}/>}
+                  {tab === 'subcategory' && <SubcategorySide {...side}/>}
+                  {tab === 'planner' && <PlannerBlockSide {...side}/>}
+                </div>
+                {t.device === 'phone' && <PhoneNav active={tab === 'planner' ? 'planner' : 'dashboard'}/>}
+              </div>
+            )}
+          </DeviceFrame>
+        </div>
+      </div>
+      <Toast msg={toast} onClose={() => setToast(null)}/>
+      <TweaksPanel>
+        <TweakSection label="Viewport"/>
+        <TweakRadio label="Device" value={t.device} options={[{ value: 'desktop', label: 'Desktop' }, { value: 'ipad', label: 'iPad 744' }, { value: 'phone', label: 'iPhone 375' }]} onChange={(v) => setTweak('device', v)}/>
+        <TweakSection label="Notebook state"/>
+        <TweakRadio label="Notes" value={t.data} options={['populated', 'empty']} onChange={(v) => setTweak('data', v)}/>
+        <TweakRadio label="Save state" value={t.save} options={['saved', 'syncing', 'offline']} onChange={(v) => setTweak('save', v)}/>
+        <TweakRadio label="Completed tasks" value={t.completed} options={['hide', 'show']} onChange={(v) => setTweak('completed', v)}/>
+        <TweakButton label="Play offline edit → synced" onClick={playOffline} secondary/>
+        <TweakSection label="Jump to"/>
+        <TweakButton label="Search “pricing”" onClick={() => { setTab('notebook'); setQ('pricing'); }} secondary/>
+        <TweakButton label="Detached note" onClick={() => { setTab('notebook'); setQ(''); setActiveId('n6'); }} secondary/>
+        <TweakButton label="Long note" onClick={() => { setTab('notebook'); setQ(''); setActiveId('n1'); }} secondary/>
+      </TweaksPanel>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<NotebookApp />);
+</script>
+</body>
+</html>
