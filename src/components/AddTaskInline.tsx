@@ -21,7 +21,8 @@ import { cn } from '@/lib/utils'
  * reserved for completed mutations.
  */
 
-const DEFAULT_MINUTES = 30
+/** Also the estimate quick capture falls back to (chunk 73). */
+export const DEFAULT_MINUTES = 30
 const MAX_MINUTES = 24 * 60
 
 function isValidMinutesString(s: string): boolean {

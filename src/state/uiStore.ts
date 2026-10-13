@@ -41,6 +41,14 @@ type UIStoreState = {
    */
   busyRefreshKey: number
   forceBusyRefresh: () => void
+  /**
+   * The global capture surface (chunk 73): `add` is the quick-capture dialog,
+   * `search` the task search; null = neither open. `text` seeds the dialog's
+   * input, so one can hand its text to the other.
+   */
+  capture: { mode: 'add' | 'search'; text: string } | null
+  openCapture: (mode: 'add' | 'search', text?: string) => void
+  closeCapture: () => void
 }
 
 export const useUIStore = create<UIStoreState>((set) => ({
@@ -52,4 +60,7 @@ export const useUIStore = create<UIStoreState>((set) => ({
   busyRefreshKey: 0,
   forceBusyRefresh: () =>
     set((s) => ({ ...s, busyRefreshKey: s.busyRefreshKey + 1 })),
+  capture: null,
+  openCapture: (mode, text = '') => set({ capture: { mode, text } }),
+  closeCapture: () => set({ capture: null }),
 }))
