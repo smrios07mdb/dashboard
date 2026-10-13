@@ -16,24 +16,39 @@ export type ShellMargins = { side: number; top: number; bottom: number }
 const STORAGE_KEY = 'hup:shellMargins'
 
 export const MARGIN_LIMITS = {
-  /** Keep at least this much content width between the side margins. */
-  minContentWidth: 280,
+  /**
+   * Keep at least this much content width between the side margins — what the
+   * dashboard's two columns need. `.shell` in `index.css` applies the same
+   * figure live as the window resizes; keep the two in step.
+   */
+  minContentWidth: 900,
   maxTop: 240,
   maxBottom: 240,
 } as const
+
+/** Below this width (Tailwind `sm`) saved margins are not applied or editable. */
+export const MARGINS_MIN_VIEWPORT = 640
+
+/**
+ * Largest side margin the shell renders at this width: whatever leaves
+ * `minContentWidth`, but never less than the responsive default (a window too
+ * narrow for the floor still gets its default side).
+ */
+export function maxSideFor(viewportWidth: number): number {
+  return Math.max(
+    defaultMargins(viewportWidth).side,
+    Math.floor((viewportWidth - MARGIN_LIMITS.minContentWidth) / 2),
+  )
+}
 
 export function clampMargins(
   m: ShellMargins,
   viewportWidth = typeof window === 'undefined' ? 1280 : window.innerWidth,
 ): ShellMargins {
-  const maxSide = Math.max(
-    0,
-    Math.floor((viewportWidth - MARGIN_LIMITS.minContentWidth) / 2),
-  )
   const clamp = (v: number, max: number) =>
     Math.min(max, Math.max(0, Math.round(Number.isFinite(v) ? v : 0)))
   return {
-    side: clamp(m.side, maxSide),
+    side: clamp(m.side, maxSideFor(viewportWidth)),
     top: clamp(m.top, MARGIN_LIMITS.maxTop),
     bottom: clamp(m.bottom, MARGIN_LIMITS.maxBottom),
   }
@@ -55,7 +70,9 @@ function readInitial(): ShellMargins | null {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
     const parsed: unknown = JSON.parse(raw)
-    return isMargins(parsed) ? clampMargins(parsed) : null
+    // Sanitised but not clamped to this window: the stored side is a ceiling
+    // the shell CSS narrows live, so a wider window later gets it back.
+    return isMargins(parsed) ? clampMargins(parsed, Infinity) : null
   } catch {
     return null
   }
@@ -98,8 +115,13 @@ type ShellMarginsState = {
 export const useShellMarginsStore = create<ShellMarginsState>((set, get) => ({
   margins: readInitial(),
   draft: null,
+  // The draft starts from what is on screen: the saved set clamped to this
+  // window, so the guides sit on the rendered padding edges.
   startEditing: () =>
-    set((s) => ({ draft: s.draft ?? s.margins ?? defaultMargins() })),
+    set((s) => ({
+      draft:
+        s.draft ?? (s.margins ? clampMargins(s.margins) : defaultMargins()),
+    })),
   setDraft: (patch) =>
     set((s) => {
       if (!s.draft) return s

@@ -384,22 +384,56 @@
 }
 
 @layer components {
-  /* App shell page margins (defaults). A saved preference (Settings → Display →
-     Page margins, `hup:shellMargins`) overrides these inline on `.shell`. */
+  /* App shell page margins. `--shell-*-default` are the responsive defaults;
+     a saved preference (Settings → Display → Page margins, `hup:shellMargins`)
+     arrives inline on `.shell` as `--shell-*-saved` and is applied from `sm`
+     up only — phones always get the defaults (chunk 69).
+     The saved side is a ceiling, not a fixed value: it gives way as the
+     window narrows so the content keeps 900px (MARGIN_LIMITS.minContentWidth
+     in shellMargins.ts — keep the two in step), down to the default side. */
   .shell {
-    --shell-side: 1rem;
-    --shell-top: 1.5rem;
-    --shell-bottom: 2rem;
+    --shell-side-default: 1rem;
+    --shell-top-default: 1.5rem;
+    --shell-bottom-default: 2rem;
+    --shell-side: var(--shell-side-default);
+    --shell-top: var(--shell-top-default);
+    --shell-bottom: var(--shell-bottom-default);
   }
   @media (min-width: 640px) {
     .shell {
-      --shell-side: 1.75rem;
+      --shell-side-default: 1.75rem;
+      --shell-side: min(
+        var(--shell-side-saved, var(--shell-side-default)),
+        max(var(--shell-side-default), calc((100vw - 900px) / 2))
+      );
+      --shell-top: var(--shell-top-saved, var(--shell-top-default));
+      --shell-bottom: var(--shell-bottom-saved, var(--shell-bottom-default));
     }
   }
   @media (min-width: 1024px) {
     .shell {
-      --shell-side: 2.5rem;
-      --shell-top: 2rem;
+      --shell-side-default: 2.5rem;
+      --shell-top-default: 2rem;
+    }
+  }
+
+  /* Dashboard category columns (chunk 69): two columns only when the grid's
+     own container has room for them, whatever the viewport — page margins and
+     the Today rail both narrow it. Columns are minmax(0, 1fr) so a wide child
+     can't stretch them (chunk 68). Plain CSS: Tailwind 3.4 ships no
+     container-query utilities and the plugin is not a dependency. */
+  .category-cols {
+    container-type: inline-size;
+    container-name: category-cols;
+  }
+  /* The one-column default lives here, not in a Tailwind utility: utilities
+     are emitted after this layer and would beat the container rule below. */
+  .category-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @container category-cols (min-width: 48rem) {
+    .category-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
 }

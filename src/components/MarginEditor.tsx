@@ -3,6 +3,7 @@ import { Check, RotateCcw, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
+  MARGINS_MIN_VIEWPORT,
   type ShellMargins,
   useShellMarginsStore,
 } from '@/state/shellMargins'
@@ -33,14 +34,26 @@ export default function MarginEditor() {
   const save = useShellMarginsStore((s) => s.save)
   const cancel = useShellMarginsStore((s) => s.cancel)
 
+  const editing = draft !== null
   useEffect(() => {
-    if (!draft) return
+    if (!editing) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') cancel()
     }
+    // The shell narrows the side margin as the window shrinks; re-clamp the
+    // draft so the guides stay on the padding edges. Below `sm` saved margins
+    // are not applied at all, so there is nothing left to edit.
+    const onResize = () => {
+      if (window.innerWidth < MARGINS_MIN_VIEWPORT) cancel()
+      else setDraft({})
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [draft, cancel])
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [editing, cancel, setDraft])
 
   if (!draft) return null
 

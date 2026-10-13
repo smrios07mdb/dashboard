@@ -290,8 +290,11 @@ describe('Dashboard', () => {
     expect(buttons.length).toBeGreaterThanOrEqual(2)
   })
 
-  // Chunk 68: an explicit minmax(0,1fr) column below `sm`, so a wide child
-  // can't stretch the implicit auto-sized one (UX audit #2).
+  // Chunk 68: explicit minmax(0,1fr) columns, so a wide child can't stretch an
+  // implicit auto-sized one (UX audit #2). Chunk 69: both the one-column
+  // default and the second column live on `.category-grid` in index.css, the
+  // latter behind a container query on the wrapper — the viewport says
+  // nothing about the room page margins and the rail leave.
   it('gives the category grid shrinkable columns at every width', async () => {
     categoriesList.mockResolvedValue([
       mkCat('cat-work', 'Work'),
@@ -309,7 +312,11 @@ describe('Dashboard', () => {
     const personal = screen.getByRole('button', { name: 'Open Personal' })
     const grid = work.closest('header')!.parentElement!.parentElement!
     expect(grid).toContainElement(personal)
-    expect(grid).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)]', 'sm:grid-cols-2')
+    expect(grid).toHaveClass('category-grid', 'grid')
+    // Any grid-cols utility would outrank the container rule (utilities are
+    // emitted after the components layer).
+    expect(grid.className).not.toMatch(/grid-cols-/)
+    expect(grid.parentElement).toHaveClass('category-cols', 'min-w-0')
   })
 
   it('shows the first-run card (and no columns) when there are no live subcategories', async () => {

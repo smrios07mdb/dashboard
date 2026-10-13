@@ -51,6 +51,7 @@ import {
   useTodayListStore,
 } from '@/state/todayList'
 import {
+  clampMargins,
   defaultMargins,
   useShellMarginsStore,
 } from '@/state/shellMargins'
@@ -359,7 +360,8 @@ function DisplaySection() {
   const margins = useShellMarginsStore((s) => s.margins)
   const editingMargins = useShellMarginsStore((s) => s.draft !== null)
   const startEditingMargins = useShellMarginsStore((s) => s.startEditing)
-  const shown = margins ?? defaultMargins()
+  // What this window renders: the saved side gives way on a narrower window.
+  const shown = margins ? clampMargins(margins) : defaultMargins()
 
   return (
     <SettingsSection kicker="Display" title="Display">
@@ -389,25 +391,29 @@ function DisplaySection() {
           ))}
         </div>
       </SettingsRow>
-      <SettingsRow
-        title="Page margins"
-        hint={
-          margins
-            ? `Custom, on this device: sides ${shown.side}px, top ${shown.top}px, bottom ${shown.bottom}px. Drag the guides on any page, then Save.`
-            : `Default for this screen size: sides ${shown.side}px, top ${shown.top}px, bottom ${shown.bottom}px. Drag the guides on any page, then Save.`
-        }
-        align="center"
-      >
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={startEditingMargins}
-          disabled={editingMargins}
+      {/* Chunk 69: not offered on phones — saved margins only apply from `sm`
+          up (`.shell` in index.css), where there is room to give away. */}
+      <div className="hidden sm:block" data-testid="page-margins-row">
+        <SettingsRow
+          title="Page margins"
+          hint={
+            margins
+              ? `Custom, on this device: sides ${shown.side}px, top ${shown.top}px, bottom ${shown.bottom}px. Drag the guides on any page, then Save.`
+              : `Default for this screen size: sides ${shown.side}px, top ${shown.top}px, bottom ${shown.bottom}px. Drag the guides on any page, then Save.`
+          }
+          align="center"
         >
-          {editingMargins ? 'Adjusting…' : 'Adjust margins'}
-        </Button>
-      </SettingsRow>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={startEditingMargins}
+            disabled={editingMargins}
+          >
+            {editingMargins ? 'Adjusting…' : 'Adjust margins'}
+          </Button>
+        </SettingsRow>
+      </div>
     </SettingsSection>
   )
 }

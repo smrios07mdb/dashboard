@@ -33,16 +33,17 @@ export default function AppShell({
   bottomNav = true,
   children,
 }: AppShellProps) {
-  // Page margins: `.shell` in index.css declares the responsive defaults as
-  // `--shell-side` / `--shell-top` / `--shell-bottom`; a saved (or in-edit
-  // draft) preference overrides them inline. The header, InstallHint and the
-  // content wrapper all read the same variables.
+  // Page margins: `.shell` in index.css resolves `--shell-side` / `--shell-top`
+  // / `--shell-bottom` from the responsive defaults and, from `sm` up, from the
+  // saved (or in-edit draft) preference passed here as `--shell-*-saved`. The
+  // side is capped there so it gives way on a narrower window (chunk 69). The
+  // header, InstallHint and the content wrapper all read the resolved variables.
   const margins = useEffectiveMargins()
   const vars = margins
     ? ({
-        '--shell-side': `${margins.side}px`,
-        '--shell-top': `${margins.top}px`,
-        '--shell-bottom': `${margins.bottom}px`,
+        '--shell-side-saved': `${margins.side}px`,
+        '--shell-top-saved': `${margins.top}px`,
+        '--shell-bottom-saved': `${margins.bottom}px`,
       } as React.CSSProperties)
     : undefined
 

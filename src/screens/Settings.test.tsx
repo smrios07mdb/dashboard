@@ -555,3 +555,29 @@ describe('Settings — Replace failure toast (chunk 62)', () => {
     expect(importDataMock).toHaveBeenCalledWith(file, 'replace', 'u1')
   })
 })
+
+describe('Settings — page margins row (chunk 69)', () => {
+  beforeEach(() => {
+    settingsGetMock.mockResolvedValue({
+      userId: 'u1',
+      aiStatus: 'unconfigured',
+      caldavAppleId: null,
+      caldavCalendarUrl: null,
+      caldavStatus: 'unconfigured',
+      timezone: 'America/New_York',
+      lastDailyReset: null,
+    })
+    settingsUpdateMock.mockResolvedValue(undefined)
+  })
+  afterEach(() => vi.clearAllMocks())
+
+  // UX audit #18: saved margins only apply from `sm` up, so the control is
+  // hidden below it. jsdom applies no breakpoints — this asserts the classes.
+  it('is hidden below sm', async () => {
+    render(<Settings />)
+    const button = await screen.findByRole('button', { name: 'Adjust margins' })
+    const row = screen.getByTestId('page-margins-row')
+    expect(row).toContainElement(button)
+    expect(row).toHaveClass('hidden', 'sm:block')
+  })
+})

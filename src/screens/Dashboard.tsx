@@ -651,37 +651,43 @@ export default function Dashboard() {
   }
 
   const columns = (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 sm:grid-cols-2 sm:gap-8">
-      {data.categories.map((cat) => (
-        <CategoryColumn
-          key={cat.id}
-          category={cat}
-          allCategories={data.categories}
-          allSubcategories={liveSubcategories}
-          subcategories={subsByCat[cat.id] ?? []}
-          tasksBySub={tasksBySub}
-          onDrillDown={onDrillDown}
-          onCreateTask={onCreateTask}
-          onCompleteTask={onCompleteTask}
-          onEditTitle={onEditTitle}
-          onEditMinutes={onEditMinutes}
-          onDeleteTask={onDeleteTask}
-          onMoveTaskToSubcategory={onMoveTaskToSubcategory}
-          onSetTaskReminder={onSetTaskReminder}
-          onSetTaskDue={onSetTaskDue}
-          onSetTaskPriority={onSetTaskPriority}
-          sortKey={sortKey}
-          onChangeSortKey={onChangeSortKey}
-          onCreateSubcategory={onCreateSubcategory}
-          onRenameSubcategory={onRenameSubcategory}
-          onDeleteSubcategory={onDeleteSubcategory}
-          onMergeSubcategory={onMergeSubcategory}
-          onReorderSubcategories={onReorderSubcategories}
-          onMoveSubcategory={onMoveSubcategory}
-          todaySet={todaySet}
-          onToggleToday={toggleToday}
-        />
-      ))}
+    // Chunk 69: two columns come from a container query on `.category-cols`
+    // (index.css), not the viewport — page margins and the Today rail both
+    // narrow this grid independently of the window. No `grid-cols-*` utility
+    // here: it would be emitted after `.category-grid` and override it.
+    <div className="category-cols min-w-0">
+      <div className="category-grid grid gap-6 sm:gap-8">
+        {data.categories.map((cat) => (
+          <CategoryColumn
+            key={cat.id}
+            category={cat}
+            allCategories={data.categories}
+            allSubcategories={liveSubcategories}
+            subcategories={subsByCat[cat.id] ?? []}
+            tasksBySub={tasksBySub}
+            onDrillDown={onDrillDown}
+            onCreateTask={onCreateTask}
+            onCompleteTask={onCompleteTask}
+            onEditTitle={onEditTitle}
+            onEditMinutes={onEditMinutes}
+            onDeleteTask={onDeleteTask}
+            onMoveTaskToSubcategory={onMoveTaskToSubcategory}
+            onSetTaskReminder={onSetTaskReminder}
+            onSetTaskDue={onSetTaskDue}
+            onSetTaskPriority={onSetTaskPriority}
+            sortKey={sortKey}
+            onChangeSortKey={onChangeSortKey}
+            onCreateSubcategory={onCreateSubcategory}
+            onRenameSubcategory={onRenameSubcategory}
+            onDeleteSubcategory={onDeleteSubcategory}
+            onMergeSubcategory={onMergeSubcategory}
+            onReorderSubcategories={onReorderSubcategories}
+            onMoveSubcategory={onMoveSubcategory}
+            todaySet={todaySet}
+            onToggleToday={toggleToday}
+          />
+        ))}
+      </div>
     </div>
   )
 

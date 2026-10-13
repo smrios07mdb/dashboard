@@ -1,8 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { useShellMarginsStore } from '@/state/shellMargins'
+import { maxSideFor, useShellMarginsStore } from '@/state/shellMargins'
 
 import MarginEditor from './MarginEditor'
 
@@ -66,5 +66,45 @@ describe('MarginEditor', () => {
     expect(useShellMarginsStore.getState().draft).toBeNull()
     expect(useShellMarginsStore.getState().margins).toBeNull()
     expect(localStorage.getItem('hup:shellMargins')).toBeNull()
+  })
+
+  // Chunk 69: the shell narrows the side as the window shrinks, so the draft
+  // (which positions the guides) has to follow it.
+  describe('on window resize', () => {
+    const original = window.innerWidth
+    const resizeTo = (w: number) =>
+      act(() => {
+        Object.defineProperty(window, 'innerWidth', {
+          configurable: true,
+          value: w,
+        })
+        window.dispatchEvent(new Event('resize'))
+      })
+    afterEach(() => {
+      Object.defineProperty(window, 'innerWidth', {
+        configurable: true,
+        value: original,
+      })
+    })
+
+    it('re-clamps the draft side to the narrower window', () => {
+      useShellMarginsStore.setState({
+        draft: { side: 250, top: 24, bottom: 32 },
+      })
+      render(<MarginEditor />)
+      resizeTo(1224)
+      expect(useShellMarginsStore.getState().draft?.side).toBe(162)
+      expect(maxSideFor(1224)).toBe(162)
+    })
+
+    it('cancels the edit below sm, where saved margins are not applied', () => {
+      useShellMarginsStore.setState({
+        draft: { side: 20, top: 24, bottom: 32 },
+      })
+      render(<MarginEditor />)
+      resizeTo(500)
+      expect(useShellMarginsStore.getState().draft).toBeNull()
+      expect(screen.queryByTestId('margin-editor-bar')).toBeNull()
+    })
   })
 })
