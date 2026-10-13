@@ -92,4 +92,14 @@ describe('CategoryColumn header — phone width (chunk 68)', () => {
     // Line one fills the row below `sm`, which is what drops line two under it.
     expect(lineOne).toHaveClass('min-w-0', 'basis-full', 'sm:basis-auto')
   })
+
+  // Smoke fix: at 1024px with saved margins the column is 239px and a no-wrap
+  // line two (266px) overflowed leftward out of the `justify-end` header.
+  it('lets line two wrap and shrink inside a narrow column', () => {
+    renderColumn()
+    const lineTwo = screen.getByRole('button', { name: 'Open Work' })
+      .parentElement as HTMLElement
+    expect(lineTwo).toHaveClass('flex-wrap', 'min-w-0', 'justify-end')
+    expect(lineTwo).not.toHaveClass('shrink-0')
+  })
 })

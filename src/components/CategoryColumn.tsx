@@ -236,7 +236,9 @@ export default function CategoryColumn({
             {open.length} open
           </span>
         </div>
-        <div className="flex shrink-0 items-center gap-3.5">
+        {/* Wraps too: in a column narrower than the three controls, the total
+            goes above sort + › rather than overflowing to the left. */}
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3.5 gap-y-1.5">
           <span className="whitespace-nowrap font-display text-[19px] font-medium tabular-nums text-ink-2">
             {fmtMin(total)}
           </span>
