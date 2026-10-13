@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { Sun, X } from '@/components/icons'
+import { Plus, Sun, X } from '@/components/icons'
 import { Checkbox } from '@/components/ui/checkbox'
 import { IconBtn } from '@/components/ui/icon-button'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { catColor, fmtMin } from '@/lib/cat'
 import { resolveToday, type TodayRow as TodayRowData } from '@/lib/today'
+import {
+  suggestToday,
+  TODAY_PLAN_TARGET,
+  type TodaySuggestion,
+} from '@/lib/todaySuggest'
 
 /*
  * "Today" — the day's plan, surfaced on the dashboard alongside the lists.
@@ -249,6 +254,139 @@ function TodayChip({
   )
 }
 
+// ── suggestions offered while the plan is short (chunk 67) ──────────────────
+// Dashed rows, not plan rows: nothing here is planned until Add pins it. The
+// Add label says "today's plan" because `Add "<title>" to Today` is already the
+// row sun toggle's name (`TaskRow`), and both render on one page.
+function SuggestionBlock({
+  suggestions,
+  onAdd,
+  onAddAll,
+  onSkip,
+  mobile,
+  style,
+}: {
+  suggestions: TodaySuggestion[]
+  onAdd: (id: string) => void
+  onAddAll: () => void
+  onSkip: (id: string) => void
+  mobile: boolean
+  style?: React.CSSProperties
+}) {
+  const textBtn =
+    'inline-flex flex-shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-bg-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+  return (
+    <section aria-label="Suggested for today" style={style}>
+      <div
+        className="flex items-center justify-between"
+        style={{ gap: 8 }}
+      >
+        <h3 className="label" style={{ margin: 0, color: 'var(--ink-2)' }}>
+          Suggested
+        </h3>
+        {suggestions.length >= 2 && (
+          <button
+            type="button"
+            onClick={onAddAll}
+            className={textBtn}
+            style={{
+              minHeight: mobile ? 44 : 28,
+              padding: '0 8px',
+              fontSize: 12,
+              fontWeight: 600,
+              color: 'var(--ink)',
+            }}
+          >
+            Add all {suggestions.length}
+          </button>
+        )}
+      </div>
+      <ul
+        className="flex flex-col"
+        style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, gap: 6 }}
+      >
+        {suggestions.map(({ task, subName, catName }) => {
+          const cat = catColor(catName)
+          return (
+            <li
+              key={task.id}
+              className="grid items-center"
+              style={{
+                gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+                gap: 8,
+                padding: mobile ? '4px 4px 4px 12px' : '7px 8px 7px 12px',
+                border: '1px dashed var(--line-strong)',
+                borderRadius: 'var(--radius)',
+              }}
+            >
+              <div className="min-w-0">
+                <div
+                  className="overflow-hidden text-ellipsis whitespace-nowrap"
+                  style={{ fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.35 }}
+                  title={task.title}
+                >
+                  {task.title}
+                </div>
+                <div
+                  className="flex min-w-0 items-center"
+                  style={{
+                    gap: 6,
+                    marginTop: 3,
+                    fontSize: 11.5,
+                    color: 'var(--ink-2)',
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    className="flex-shrink-0"
+                    style={{ width: 6, height: 6, borderRadius: 2, background: cat }}
+                  />
+                  <span
+                    className="overflow-hidden text-ellipsis whitespace-nowrap"
+                    title={catName ? `${catName} · ${subName}` : subName}
+                  >
+                    {subName}
+                  </span>
+                  <span className="num flex-shrink-0 whitespace-nowrap">
+                    · {fmtMin(task.estimateMinutes)}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label={`Add "${task.title}" to today's plan`}
+                onClick={() => onAdd(task.id)}
+                className={textBtn}
+                style={{
+                  minHeight: mobile ? 44 : 28,
+                  gap: 4,
+                  padding: '0 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: 'var(--ink)',
+                  border: '1px solid var(--line-strong)',
+                  background: 'var(--surface)',
+                }}
+              >
+                <Plus size={13} />
+                Add
+              </button>
+              <IconBtn
+                size={mobile ? 44 : 24}
+                label={`Skip "${task.title}" for now`}
+                tone="ink"
+                onClick={() => onSkip(task.id)}
+              >
+                <X size={13} />
+              </IconBtn>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
 // ── the panel ───────────────────────────────────────────────────────────────
 export default function TodayPanel({
   data,
@@ -287,6 +425,10 @@ export default function TodayPanel({
       ),
     )
   }, [data.tasks])
+
+  // Suggestions the user waved off (chunk 67). Session-local on purpose:
+  // nothing is written, and a skip lasts until the panel remounts.
+  const [skipped, setSkipped] = useState<Set<string>>(() => new Set())
 
   // ── resizable list height (stacked/rail only, persisted) ──
   const [listH, setListH] = useState<number>(() => {
@@ -383,6 +525,22 @@ export default function TodayPanel({
   const toggle = (r: TodayRowData) =>
     onCompleteTask(r.task.id, !r.task.completedAt)
   const remove = (r: TodayRowData) => onToggleToday(r.task.id, false)
+
+  // Offered while the plan is short. Done members count toward the target, so
+  // a plan that reached it never asks for more. Never in the banner layout.
+  const suggestions = banner
+    ? []
+    : suggestToday(data, todaySet, skipped, TODAY_PLAN_TARGET - all.length)
+  const suggestionBlock = (marginTop: number) => (
+    <SuggestionBlock
+      suggestions={suggestions}
+      mobile={mobile}
+      style={{ marginTop }}
+      onAdd={(id) => onToggleToday(id, true)}
+      onAddAll={() => suggestions.forEach((s) => onToggleToday(s.task.id, true))}
+      onSkip={(id) => setSkipped((s) => new Set(s).add(id))}
+    />
+  )
 
   // ── header ──
   const header = (
@@ -514,6 +672,27 @@ export default function TodayPanel({
           ))}
         </div>
       )
+  } else if (visible.length === 0 && suggestions.length > 0) {
+    bodyEl = (
+      <>
+        {suggestionBlock(10)}
+        <p
+          style={{
+            margin: '10px 0 0',
+            fontSize: 12.5,
+            color: 'var(--ink-2)',
+            lineHeight: 1.5,
+          }}
+        >
+          Or tap the{' '}
+          <Sun
+            size={12}
+            style={{ display: 'inline', verticalAlign: '-2px', margin: '0 1px' }}
+          />{' '}
+          on any task.
+        </p>
+      </>
+    )
   } else if (visible.length === 0) {
     bodyEl = (
       <div
@@ -595,6 +774,7 @@ export default function TodayPanel({
             />
           </div>
         )}
+        {suggestions.length > 0 && suggestionBlock(mobile ? 12 : 6)}
       </>
     )
   }

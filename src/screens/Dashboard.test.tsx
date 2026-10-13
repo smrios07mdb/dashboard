@@ -336,9 +336,10 @@ describe('Dashboard', () => {
     subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
     tasksList.mockResolvedValue([mkTask('Open task', 'sw1', { completedAt: null })])
 
-    const { findByText, queryByText } = renderDashboard()
+    const { findAllByText, queryByText } = renderDashboard()
 
-    expect(await findByText('Open task')).toBeTruthy()
+    // Chunk 67: the title also renders in Today's suggestions.
+    expect((await findAllByText('Open task')).length).toBeGreaterThan(0)
     expect(queryByText(/All clear/i)).toBeNull()
     expect(queryByText('Set up your first list')).toBeNull()
   })
@@ -499,7 +500,8 @@ describe('Dashboard', () => {
     }))
 
     renderDashboard()
-    await screen.findByText('t-p2')
+    // Chunk 67: the title also renders in Today's suggestions.
+    await screen.findAllByText('t-p2')
 
     // sortKey/onChangeSortKey threading: each column header mounts the shared
     // TaskSortControl only when the props arrive.
@@ -528,7 +530,8 @@ describe('Dashboard', () => {
     tasksList.mockResolvedValue([mkTask('t-both', 'sw1', { priority: 2 })])
 
     renderDashboard()
-    await screen.findByText('t-both')
+    // Chunk 67: the title also renders in Today's suggestions.
+    await screen.findAllByText('t-both')
 
     expect(
       screen.getByRole('button', { name: 'Priority 2 — change priority' }),
