@@ -308,6 +308,11 @@ The Week Planner (chunk 36/37) applies the same freshness model at week granular
 - While a tab is open, polls every 60s with the same conditional UPDATE.
 - Exactly-once guaranteed by the conditional UPDATE (whoever wins the row gets to notify).
 
+**Reminder time zone (chunk 61):**
+- The reminder picker reads and writes wall-clock times in `settings.timezone`, resolved by `loadUserTimezone` (`src/lib/userTimezone.ts`); if settings cannot be read it uses the browser's zone.
+- When that zone differs from the device's, the picker shows `Times in <zone>`.
+- `remind_at` stays a UTC instant, so the server and client `remind_at < now()` comparisons are unchanged. Values stored before chunk 61 were not rewritten.
+
 **iOS requirements:**
 - iOS 16.4+
 - PWA installed to home screen
@@ -369,6 +374,8 @@ Items archived on day X are **not required** for day X's streak credit; archival
 
 If more than 8 subcategories appear in the filtered range, group all but the top 7 (by total minutes) into an "Other" bar segment with a neutral color. Tooltip on hover shows the full breakdown including grouped items.
 
+Days are calendar days in `settings.timezone` (chunk 61), for both the x-axis window and each completion's bucket; the zone is resolved by `loadUserTimezone`, with the browser's zone as the fallback.
+
 ---
 
 ## 13. UI interaction rules
@@ -401,7 +408,7 @@ If more than 8 subcategories appear in the filtered range, group all but the top
 - Chunk 38 mechanics: `Fill my week` (desktop header only, disabled on a past week / weekend / with no P1–P2 tray task) proposes the earliest open 09–18 weekday slot for every P1/P2 tray task, packed sequentially around busy + scheduled + earlier proposals; proposals render as dashed previews plus dimmed `→ DAY HH:MM` tray cards until `Place all` / `Clear`. A past, not-done block goes hollow (`· unfinished`) on both breakpoints; `→` on the desktop hover row or `Move to next open slot` in the block action sheet moves it to the next open slot of the **current** week (weekends included). Done styling always wins over carry.
 - Inline styles in the planner never mix a CSS shorthand with one of its longhands (React 19 conflicting-style warning); variant borders/decorations go through class names or longhands.
 - Busy fetch is screen-level: one `getBusy` per visible week (Mon 00:00 → Sun 24:00, local ISO instants), simple in-memory per-week cache keyed on `dashboardRefreshKey`; `lib/busyCache`/`BusyStrip` remain the Dashboard's day-scoped concern.
-- All planner day/time math is browser-local (`lib/plannerGeometry`); `settings.timezone` stays a routines/streak concern.
+- All planner day/time math is browser-local (`lib/plannerGeometry`); `settings.timezone` stays a routines/streak, Insights and reminder-entry concern; the planner stays browser-local.
 - Capacity math (`lib/plannerCapacity`) already accepts busy + scheduled inputs; chunk 36 passes `scheduled = []` so "planned" is honestly 0m.
 - The tray reuses the chunk-33 global sort (`hupo.taskSort` + `TaskSortControl`); the five `--busy-*` CSS variables in `src/index.css` are the only sanctioned raw values beyond the Daylight tokens.
 

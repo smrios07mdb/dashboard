@@ -146,7 +146,7 @@ open.** This is surfaced inline in Settings → Notifications.
 | Subscribe fails in prod only | GH Actions secret `VITE_VAPID_PUBLIC_KEY` missing → bundle inlined `undefined`. |
 | Subscription keeps failing | Expired/rotated endpoint — the function prunes it on `410`/`404`; it self-heals after one sweep. |
 | In-app toast but no OS notification | Permission not granted, or the browser blocks the `Notification` constructor in that context (the toast still shows). |
-| Reminder fires at the wrong time | See the timezone note below. |
+| Reminder fires at the wrong time | The picker uses `settings.timezone`, not the device's zone — check that value; when the two differ the popover says `Times in …`. A reminder picked before chunk 61 from a device in another zone keeps its original instant: reopen and re-save it. See "Reminder timezone" below. |
 
 Inspect state directly: `select id, title, remind_at, notified, completed_at
 from tasks where remind_at is not null;` and `select * from push_subscriptions;`
@@ -168,19 +168,11 @@ from tasks where remind_at is not null;` and `select * from push_subscriptions;`
   user-initiated writes do, because exactly-once is preserved by the claim
   regardless of missed ticks.
 
-## Known caveat — reminder timezone (chunk-9 origin)
+## Reminder timezone (resolved in chunk 61)
 
-`remind_at` is written by chunk 9's `SetReminderPopover`, which interprets the
-picked wall-clock time in the **browser's** timezone (`new Date("YYYY-MM-DDTHH:mm")`),
-not `settings.timezone`. So `remind_at` is the correct UTC instant **only when
-the browser TZ matches `settings.timezone`** — the normal single-user case. A
-user whose device TZ differs from their configured `settings.timezone` will see
-reminders fire offset by the difference. The Edge Function's `remind_at < now()`
-comparison itself is correct (UTC vs UTC); the question is purely what instant
-the pick stored.
-
-This is logged as a **chunk-9 revision candidate** (convert the pick via
-date-fns-tz `fromZonedTime(value, settings.timezone)`, consistent with
-`src/lib/clock.ts`), not patched inside chunk 14 — per ORCHESTRATION's
-"no silent modifications." The chunk-9 popover already anticipated revisiting
-this here.
+`SetReminderPopover` reads and writes the picked wall-clock time in
+`settings.timezone` (resolved by `loadUserTimezone`, falling back to the
+browser's zone when settings cannot be read) and shows `Times in <zone>` when
+that zone differs from the device's. `remind_at` is still a UTC instant and
+nothing was backfilled, so a pre-61 pick made from a device in another zone
+keeps the instant it was stored with.
