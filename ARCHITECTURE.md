@@ -389,6 +389,8 @@ Days are calendar days in `settings.timezone` (chunk 61), for both the x-axis wi
 
 **Drag affordance:**
 - Cross-subcategory drag enabled on Dashboard and Category drill-down (desktop only).
+- **Drop target (chunk 63):** a task drop counts only when the pointer is inside a subcategory header (`taskDragCollision`: `pointerWithin` over `subdrop:` droppables). Anywhere else, including the other category's column, is a no-op.
+- **Changing category:** each Dashboard column is its own `DndContext`, so a task moves across categories only through Move to…; the subcategory reorder keeps `rectIntersection`.
 - Subcategory drill-down uses bulk-select + "Move to..." picker (no drag).
 - Mobile/touch uses three-dot menu "Move to..." cascading picker everywhere.
 - Detect touch via `matchMedia('(hover: none)')` and conditionally attach drag handlers.
