@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -6,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
 
 /*
@@ -19,13 +21,19 @@ import { cn } from '@/lib/utils'
  * picker or a custom widget because Safari (desktop + iOS) and
  * Chrome/Firefox all render a usable picker out of the box. The cost
  * of adding a JS picker library wouldn't pay for itself at chunk-9
- * scope. If chunk 14 surfaces UX gaps (e.g. timezone confusion or
- * iOS-Safari quirks), revisit then.
+ * scope.
  *
- * Value contract:
- *   - Input value uses the local-time HTML5 format `YYYY-MM-DDTHH:mm`.
- *   - On save, we convert to an ISO string (UTC) for storage.
- *   - On open, an existing remindAt is rendered back in local form.
+ * Value contract (chunk 61):
+ *   - Input value uses the HTML5 format `YYYY-MM-DDTHH:mm`, read as a
+ *     wall-clock time in `settings.timezone` (resolved by
+ *     `loadUserTimezone`; browser zone if settings are unreadable).
+ *   - On save, we convert that wall time to an ISO string (UTC) for
+ *     storage.
+ *   - On open, an existing remindAt is rendered back as a wall time in
+ *     `settings.timezone`, once the zone has resolved.
+ *
+ * Until the zone resolves the input and Save are disabled; when it
+ * differs from the device's zone a `Times in <zone>` line says so.
  *
  * Empty input is "no time selected" — Save is disabled. Clear is
  * available whenever the task already has a reminder, regardless of
@@ -42,22 +50,19 @@ export type SetReminderPopoverProps = {
   onClear: () => void | Promise<void>
 }
 
-/** ISO → "YYYY-MM-DDTHH:mm" in local TZ (the datetime-local format). */
-function toLocalInputValue(iso: string | null): string {
+/** ISO → "YYYY-MM-DDTHH:mm" wall time in `tz` (the datetime-local format). */
+// eslint-disable-next-line react-refresh/only-export-components -- exported for the unit tests (chunk 61)
+export function toZonedInputValue(iso: string | null, tz: string): string {
   if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
-    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
-  )
+  if (Number.isNaN(new Date(iso).getTime())) return ''
+  return formatInTimeZone(iso, tz, "yyyy-MM-dd'T'HH:mm")
 }
 
-/** "YYYY-MM-DDTHH:mm" (local) → ISO string. Returns null on invalid input. */
-function fromLocalInputValue(s: string): string | null {
+/** "YYYY-MM-DDTHH:mm" wall time in `tz` → ISO string. Null on invalid input. */
+// eslint-disable-next-line react-refresh/only-export-components -- exported for the unit tests (chunk 61)
+export function fromZonedInputValue(s: string, tz: string): string | null {
   if (!s) return null
-  const d = new Date(s)
+  const d = fromZonedTime(s, tz)
   if (Number.isNaN(d.getTime())) return null
   return d.toISOString()
 }
@@ -70,18 +75,38 @@ export default function SetReminderPopover({
   onSave,
   onClear,
 }: SetReminderPopoverProps) {
-  const [value, setValue] = useState<string>(() => toLocalInputValue(remindAt))
-  // Reset-on-open: same prevOpen pattern as chunk-8 dialogs so the
-  // input mirrors the task's current remindAt each time the popover
-  // opens, without an effect.
+  const [value, setValue] = useState<string>('')
+  // `settings.timezone` for this open; null until `loadUserTimezone` resolves.
+  const [tz, setTz] = useState<string | null>(null)
+  // Reset-on-open: same prevOpen pattern as chunk-8 dialogs. The value
+  // is emptied here and filled from remindAt once the zone resolves.
   const [prevOpen, setPrevOpen] = useState(open)
   if (prevOpen !== open) {
     setPrevOpen(open)
-    if (open) setValue(toLocalInputValue(remindAt))
+    setValue('')
+    setTz(null)
   }
 
-  const iso = fromLocalInputValue(value)
+  const remindAtRef = useRef(remindAt)
+  useEffect(() => {
+    remindAtRef.current = remindAt
+  }, [remindAt])
+
+  // Bumped on every open/close so a resolution from an earlier open is dropped.
+  const openSeq = useRef(0)
+  useEffect(() => {
+    const seq = ++openSeq.current
+    if (!open) return
+    void loadUserTimezone().then((resolved) => {
+      if (openSeq.current !== seq) return
+      setTz(resolved)
+      setValue(toZonedInputValue(remindAtRef.current, resolved))
+    })
+  }, [open])
+
+  const iso = tz ? fromZonedInputValue(value, tz) : null
   const saveDisabled = !iso
+  const showZone = tz !== null && tz !== browserTimezone()
 
   async function handleSave() {
     if (!iso) return
@@ -99,9 +124,14 @@ export default function SetReminderPopover({
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent className="w-72 space-y-3" align="end">
         <div className="label">Reminder</div>
+        {showZone && (
+          <div className="text-[11px] text-ink-3">Times in {tz}</div>
+        )}
         <input
           type="datetime-local"
           value={value}
+          disabled={tz === null}
+          aria-busy={tz === null ? true : undefined}
           onChange={(e) => setValue(e.target.value)}
           aria-label="Reminder date and time"
           aria-invalid={value.length > 0 && !iso ? true : undefined}

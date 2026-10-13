@@ -5,9 +5,17 @@
  * exhaustive summary table. No I/O, no React — unit-tested in insights.test.ts.
  *
  * "Completed" = `completedAt !== null` (there is no `status` column). Day
- * bucketing keys on the UTC date portion of `completedAt`.
+ * bucketing keys on the calendar date of `completedAt` in the caller's timezone
+ * (`settings.timezone`; default `'UTC'`).
  */
+import { formatInTimeZone } from 'date-fns-tz'
+
 import type { Category, Subcategory, Task } from '@/db/types'
+
+/** Calendar day (YYYY-MM-DD) of a completion instant in `timezone`. */
+export function completionDayKey(completedAt: string, timezone: string): string {
+  return formatInTimeZone(completedAt, timezone, 'yyyy-MM-dd')
+}
 
 /** Color bases per ARCH §12 / chunk-16 R8. */
 const WORK_BASE = '#059669'
@@ -112,6 +120,7 @@ export function aggregateForChart(
   subcategories: Subcategory[],
   categories: Category[],
   dayKeys?: string[],
+  timezone: string = 'UTC',
 ): ChartModel {
   const colorMap = buildColorMap(subcategories, categories)
   const subById = new Map(subcategories.map((s) => [s.id, s]))
@@ -122,7 +131,7 @@ export function aggregateForChart(
     days = [...dayKeys]
   } else {
     const set = new Set<string>()
-    for (const t of tasks) if (t.completedAt) set.add(t.completedAt.slice(0, 10))
+    for (const t of tasks) if (t.completedAt) set.add(completionDayKey(t.completedAt, timezone))
     days = [...set].sort()
   }
   const dayIndex = new Map(days.map((d, i) => [d, i]))
@@ -135,7 +144,7 @@ export function aggregateForChart(
   const totals = new Map<string, number>()
   for (const t of tasks) {
     if (!t.completedAt) continue
-    const idx = dayIndex.get(t.completedAt.slice(0, 10))
+    const idx = dayIndex.get(completionDayKey(t.completedAt, timezone))
     if (idx === undefined) continue
     if (!subById.has(t.subcategoryId)) continue
     rows[idx].minutes[t.subcategoryId] =

@@ -13,6 +13,7 @@ import {
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { chartLabel } from '@/lib/chartLabel'
+import { dateKeyDaysAgo, startOfDayIso, today } from '@/lib/clock'
 import {
   aggregateForChart,
   applyOtherGrouping,
@@ -20,6 +21,7 @@ import {
   summaryTable,
   type ChartModel,
 } from '@/lib/insights'
+import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 
 type Range = 7 | 30 | 90
 type CatFilter = 'all' | 'work' | 'personal'
@@ -31,15 +33,12 @@ const CAT_FILTERS: { id: CatFilter; label: string }[] = [
   { id: 'personal', label: 'Personal' },
 ]
 
-/** Last `n` calendar days (UTC), oldest first, as YYYY-MM-DD. */
-function lastNDays(n: number): string[] {
+/** Last `n` calendar days in `timezone`, oldest first, as YYYY-MM-DD. */
+function lastNDays(n: number, timezone: string): string[] {
   const out: string[] = []
-  const now = new Date()
+  const todayKey = today(timezone)
   for (let i = n - 1; i >= 0; i -= 1) {
-    const d = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i),
-    )
-    out.push(d.toISOString().slice(0, 10))
+    out.push(dateKeyDaysAgo(todayKey, i))
   }
   return out
 }
@@ -122,22 +121,32 @@ export default function Insights() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [subcategories, setSubcategories] = useState<Subcategory[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  // Set in the same .then as the data below, so the x-axis and the buckets can
+  // never come from different zones (chunk 61).
+  const [tz, setTz] = useState<string>(() => browserTimezone())
 
   useEffect(() => {
     // `loading` is toggled true in the range handler (event-driven) and reset
     // in .finally below — never set synchronously in the effect body (avoids
     // react-hooks/set-state-in-effect; the project's established pattern).
     let cancelled = false
-    const days = lastNDays(range)
-    const from = `${days[0]}T00:00:00.000Z`
-    const to = new Date().toISOString()
-    Promise.all([
-      repo.tasks.listCompletedInRange(from, to),
-      repo.subcategories.list(),
-      repo.categories.list(),
-    ])
-      .then(([t, s, c]) => {
+    // The zone resolves first so the fetch window and the x-axis share it.
+    async function load() {
+      const zone = await loadUserTimezone()
+      const days = lastNDays(range, zone)
+      const from = startOfDayIso(days[0], zone)
+      const to = new Date().toISOString()
+      const [t, s, c] = await Promise.all([
+        repo.tasks.listCompletedInRange(from, to),
+        repo.subcategories.list(),
+        repo.categories.list(),
+      ])
+      return [zone, t, s, c] as const
+    }
+    load()
+      .then(([zone, t, s, c]) => {
         if (cancelled) return
+        setTz(zone)
         setTasks(t)
         setSubcategories(s)
         setCategories(c)
@@ -153,7 +162,7 @@ export default function Insights() {
     }
   }, [range])
 
-  const dayKeys = useMemo(() => lastNDays(range), [range])
+  const dayKeys = useMemo(() => lastNDays(range, tz), [range, tz])
 
   // Filter subcategories by the active category toggle.
   const filteredSubs = useMemo(() => {
@@ -166,8 +175,8 @@ export default function Insights() {
   }, [subcategories, categories, catFilter])
 
   const ungrouped: ChartModel = useMemo(
-    () => aggregateForChart(tasks, filteredSubs, categories, dayKeys),
-    [tasks, filteredSubs, categories, dayKeys],
+    () => aggregateForChart(tasks, filteredSubs, categories, dayKeys, tz),
+    [tasks, filteredSubs, categories, dayKeys, tz],
   )
   const { bars, groupedNames } = useMemo(
     () => applyOtherGrouping(ungrouped),

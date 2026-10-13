@@ -29,6 +29,11 @@ vi.mock('@/db/repo', () => ({
   },
 }))
 
+vi.mock('@/lib/userTimezone', () => ({
+  browserTimezone: () => 'UTC',
+  loadUserTimezone: async () => 'UTC',
+}))
+
 import Insights from './Insights'
 
 // ---------- fixtures ----------

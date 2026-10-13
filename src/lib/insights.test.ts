@@ -6,6 +6,7 @@ import {
   aggregateForChart,
   applyOtherGrouping,
   buildColorMap,
+  completionDayKey,
   OTHER_KEY,
   summaryTable,
 } from './insights'
@@ -186,5 +187,50 @@ describe('buildColorMap', () => {
     const colors = subs.map((s) => map[s.id])
     expect(new Set(colors).size).toBe(8) // all distinct — no clamp collisions
     expect(colors[0].toLowerCase()).toBe('#059669') // first still the base
+  })
+})
+
+// ============================================================
+// timezone day bucketing (chunk 61)
+// ============================================================
+
+describe('timezone day bucketing (chunk 61)', () => {
+  const NY = 'America/New_York'
+  const subs = [sub('s-a', 'c-work', 'Inbox')]
+  const evening: Task = {
+    ...task('t1', 's-a', 30, '2026-05-21'),
+    completedAt: '2026-05-21T02:30:00.000Z', // 22:30 EDT on May 20
+  }
+
+  it('keys an evening completion on the local day, not the UTC day', () => {
+    expect(completionDayKey('2026-05-21T02:30:00.000Z', NY)).toBe('2026-05-20')
+  })
+
+  it('holds across the fall-back DST boundary', () => {
+    expect(completionDayKey('2026-11-01T03:30:00.000Z', NY)).toBe('2026-10-31')
+    expect(completionDayKey('2026-11-01T04:30:00.000Z', NY)).toBe('2026-11-01')
+    expect(completionDayKey('2026-11-02T04:30:00.000Z', NY)).toBe('2026-11-01')
+    expect(completionDayKey('2026-11-02T05:30:00.000Z', NY)).toBe('2026-11-02')
+  })
+
+  it('accepts the PostgREST offset form', () => {
+    expect(completionDayKey('2026-05-21T02:30:00+00:00', NY)).toBe('2026-05-20')
+  })
+
+  it('aggregateForChart buckets by the passed zone, UTC by default', () => {
+    const dayKeys = ['2026-05-20', '2026-05-21']
+
+    const ny = aggregateForChart([evening], subs, [WORK], dayKeys, NY)
+    expect(ny.days[0].minutes['s-a']).toBe(30)
+    expect(ny.days[1].minutes['s-a']).toBeUndefined()
+
+    const utc = aggregateForChart([evening], subs, [WORK], dayKeys)
+    expect(utc.days[0].minutes['s-a']).toBeUndefined()
+    expect(utc.days[1].minutes['s-a']).toBe(30)
+  })
+
+  it('derives the day set in the passed zone when dayKeys is omitted', () => {
+    const model = aggregateForChart([evening], subs, [WORK], undefined, NY)
+    expect(model.days.map((d) => d.date)).toEqual(['2026-05-20'])
   })
 })
