@@ -23,6 +23,7 @@ import TaskSortControl from '@/components/TaskSortControl'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
+import { isTaskDragId, taskDragCollision } from '@/lib/taskDragCollision'
 import {
   loadTaskSortKey,
   storeTaskSortKey,
@@ -57,10 +58,6 @@ function formatMinutes(mins: number): string {
   const h = Math.floor(mins / 60)
   const m = mins % 60
   return m ? `${h}h ${m}m` : `${h}h`
-}
-
-function isTaskDragId(id: unknown): boolean {
-  return typeof id === 'string' && id.startsWith('task:')
 }
 
 type ViewData = {
@@ -575,7 +572,11 @@ export default function CategoryView() {
             No subcategories yet.
           </div>
         ) : (
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={taskDragCollision}
+            onDragEnd={handleDragEnd}
+          >
             <SortableContext
               items={subIds}
               strategy={verticalListSortingStrategy}

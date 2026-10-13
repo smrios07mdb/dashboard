@@ -18,17 +18,9 @@ import SubcategorySection from '@/components/SubcategorySection'
 import TaskSortControl from '@/components/TaskSortControl'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { catColor, fmtMin } from '@/lib/cat'
+import { isTaskDragId, taskDragCollision } from '@/lib/taskDragCollision'
 import type { TaskSortKey } from '@/lib/taskSort'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
-
-/*
- * Drag discriminator helpers. `useDraggable` IDs we emit are prefixed
- * with `task:` (in TaskRow); sortable subcategory items use their raw
- * UUID. The unified onDragEnd handler routes on this prefix.
- */
-function isTaskDragId(id: unknown): boolean {
-  return typeof id === 'string' && id.startsWith('task:')
-}
 
 /*
  * One category column on the dashboard ("Work" or "Personal").
@@ -264,7 +256,11 @@ export default function CategoryColumn({
             No subcategories yet.
           </div>
         ) : (
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={taskDragCollision}
+            onDragEnd={handleDragEnd}
+          >
             <SortableContext
               items={subIds}
               strategy={verticalListSortingStrategy}

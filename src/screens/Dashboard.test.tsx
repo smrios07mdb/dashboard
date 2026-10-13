@@ -34,9 +34,27 @@ vi.mock('@/db/repo', () => ({
   },
 }))
 
+// Chunk 63: record what each DndContext is given, render the real one.
+const { dndCollisionProps } = vi.hoisted(() => ({
+  dndCollisionProps: [] as unknown[],
+}))
+
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>()
+  const { createElement } = await import('react')
+  return {
+    ...actual,
+    DndContext: (props: Parameters<typeof actual.DndContext>[0]) => {
+      dndCollisionProps.push(props.collisionDetection)
+      return createElement(actual.DndContext, props)
+    },
+  }
+})
+
 import Dashboard from './Dashboard'
 import { useSyncStore } from '@/db/syncStore'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
+import { taskDragCollision } from '@/lib/taskDragCollision'
 import { useUIStore } from '@/state/uiStore'
 
 function renderDashboard() {
@@ -514,5 +532,27 @@ describe('Dashboard', () => {
     expect(
       screen.getByRole('button', { name: /"t-both" (to|from) Today/ }),
     ).toBeInTheDocument()
+  })
+
+  it('gives every column DndContext the pointer-based task collision (chunk 63)', async () => {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([
+      mkSub('sw1', 'cat-work'),
+      mkSub('sp1', 'cat-personal'),
+    ])
+    tasksList.mockResolvedValue([mkTask('t1', 'sw1')])
+    dndCollisionProps.length = 0
+
+    const { findAllByText } = renderDashboard()
+    await findAllByText('Add subcategory')
+
+    // One DndContext per rendered column.
+    expect(dndCollisionProps.length).toBeGreaterThanOrEqual(2)
+    for (const recorded of dndCollisionProps) {
+      expect(recorded).toBe(taskDragCollision)
+    }
   })
 })

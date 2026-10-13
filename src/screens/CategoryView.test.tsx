@@ -57,7 +57,25 @@ vi.mock('@/state/uiStore', () => ({
     selector({ dashboardRefreshKey: 0 }),
 }))
 
+// Chunk 63: record what each DndContext is given, render the real one.
+const { dndCollisionProps } = vi.hoisted(() => ({
+  dndCollisionProps: [] as unknown[],
+}))
+
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>()
+  const { createElement } = await import('react')
+  return {
+    ...actual,
+    DndContext: (props: Parameters<typeof actual.DndContext>[0]) => {
+      dndCollisionProps.push(props.collisionDetection)
+      return createElement(actual.DndContext, props)
+    },
+  }
+})
+
 import CategoryView from './CategoryView'
+import { taskDragCollision } from '@/lib/taskDragCollision'
 
 function mkTask(id: string, subcategoryId: string) {
   return {
@@ -124,5 +142,17 @@ describe('CategoryView (chunk 31 re-skin)', () => {
     renderCategory()
     await screen.findByRole('heading', { name: /^work$/i })
     expect(screen.getByText('Inbox')).toBeInTheDocument()
+  })
+
+  it('gives the screen DndContext the pointer-based task collision (chunk 63)', async () => {
+    dndCollisionProps.length = 0
+    renderCategory()
+    await screen.findByRole('heading', { name: /^work$/i })
+    await screen.findByText('Inbox')
+
+    expect(dndCollisionProps.length).toBeGreaterThanOrEqual(1)
+    for (const recorded of dndCollisionProps) {
+      expect(recorded).toBe(taskDragCollision)
+    }
   })
 })
