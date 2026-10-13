@@ -56,6 +56,10 @@ export type SubcategorySectionProps = {
     id: string,
     remindAt: string | null,
   ) => void | Promise<void>
+  onSetTaskDue: (
+    id: string,
+    dueAt: string | null,
+  ) => void | Promise<void>
   onSetTaskPriority: (
     id: string,
     priority: 1 | 2 | 3 | null,
@@ -98,6 +102,7 @@ export default function SubcategorySection({
   onDeleteTask,
   onMoveTaskToSubcategory,
   onSetTaskReminder,
+  onSetTaskDue,
   onSetTaskPriority,
   sortKey,
   onRenameSubcategory,
@@ -239,6 +244,7 @@ export default function SubcategorySection({
               onDelete={onDeleteTask}
               onMoveToSubcategory={onMoveTaskToSubcategory}
               onSetReminder={onSetTaskReminder}
+              onSetDue={onSetTaskDue}
               onSetPriority={onSetTaskPriority}
               inToday={todaySet?.has(t.id)}
               onToggleToday={onToggleToday}
@@ -276,6 +282,7 @@ export default function SubcategorySection({
                   onDelete={onDeleteTask}
                   onMoveToSubcategory={onMoveTaskToSubcategory}
                   onSetReminder={onSetTaskReminder}
+                  onSetDue={onSetTaskDue}
                   onSetPriority={onSetTaskPriority}
                   inToday={todaySet?.has(t.id)}
                   onToggleToday={onToggleToday}

@@ -39,6 +39,8 @@ export type TodayPanelProps = {
     tasks: Task[]
   }
   todaySet: Set<string>
+  /** The Settings time zone: Today's day frame and the header date (chunk 66). */
+  timeZone: string
   /** Drives Today membership only (remove = force off). */
   onToggleToday: (id: string, force?: boolean) => void
   /** The app's real task-completion action, wired from the dashboard. */
@@ -48,11 +50,12 @@ export type TodayPanelProps = {
   mobile?: boolean
 }
 
-function todayDateLabel(): string {
+function todayDateLabel(timeZone: string): string {
   return new Date().toLocaleDateString(undefined, {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
+    timeZone,
   })
 }
 
@@ -250,6 +253,7 @@ function TodayChip({
 export default function TodayPanel({
   data,
   todaySet,
+  timeZone,
   onToggleToday,
   onCompleteTask,
   variant,
@@ -369,7 +373,7 @@ export default function TodayPanel({
 
   if (variant === 'off') return null
 
-  const all = resolveToday(data, todaySet)
+  const all = resolveToday(data, todaySet, timeZone)
   const open = all.filter((r) => !r.task.completedAt)
   const visible = all.filter((r) => !r.task.completedAt || linger.has(r.task.id))
   const doneCount = all.length - open.length
@@ -417,7 +421,7 @@ export default function TodayPanel({
             Today
           </h2>
           <span className="label" style={{ fontSize: 9.5 }}>
-            {todayDateLabel()}
+            {todayDateLabel(timeZone)}
           </span>
         </div>
         {!banner && (

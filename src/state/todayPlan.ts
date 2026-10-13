@@ -10,8 +10,9 @@
  * user's marks and a writer; it keeps the ones dated today and ignores the
  * rest, so yesterday's plan never resurfaces and nothing has to be cleaned
  * up. Only the deltas are stored, never the resolved set, so auto signals
- * keep flowing as tasks change. The day frame is the browser-local midnight
- * `lib/today` uses.
+ * keep flowing as tasks change. The day frame is the calendar day in the
+ * user's Settings time zone (`timeZone`, chunk 66) — the same frame
+ * `lib/today` derives from — so `today_marks.day` is stamped in that zone.
  *
  * A toggle on another device arrives as a changed `marks` array (realtime →
  * dashboard refresh) and is applied with the same operation a local toggle
@@ -37,6 +38,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import type { Task, TodayMark } from '@/db/types'
+import { dateKeyIn } from '@/lib/clock'
 import { autoTodayIds, reconcileTodayMembership } from '@/lib/today'
 
 export type TodayPlan = {
@@ -65,8 +67,11 @@ export type WriteTodayMark = (
 
 const STORAGE_KEY = 'hup:todayPlan'
 
-/** Local-calendar day key (YYYY-MM-DD) — the `lib/today` local-midnight frame. */
-function dayKey(now: Date): string {
+/**
+ * Browser-local day key (YYYY-MM-DD). Used ONLY to read the legacy
+ * `hup:todayPlan` entry, which pre-chunk-64 builds dated in this frame.
+ */
+function localDayKey(now: Date): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
 }
@@ -88,7 +93,7 @@ export function readTodayDeltas(now: Date = new Date()): TodayDeltas {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) return emptyDeltas()
     const { date, pinned, removed } = parsed as Record<string, unknown>
-    if (date !== dayKey(now)) {
+    if (date !== localDayKey(now)) {
       // Yesterday's plan is over — drop the entry rather than leaving the
       // string on disk for a device that is opened, untouched and closed
       // (chunk 46, D7). Only the stale-date branch prunes; a parse failure
@@ -163,19 +168,22 @@ export function useTodayPlan(
   tasks: Task[],
   marks: TodayMark[] | null,
   writeMark: WriteTodayMark,
+  timeZone: string,
 ): TodayPlan {
-  // `day` is the local day the plan is being resolved for. Every write stamps
+  // `day` is the day (in `timeZone`) the plan is being resolved for. Every write stamps
   // THIS key, not the wall clock, and only marks carrying it count — so a tab
   // open across midnight keeps one consistent frame until `rollIfNewDay`
   // observes the change.
   const [initial] = useState(() => {
-    const day = dayKey(new Date())
+    const day = dateKeyIn(new Date(), timeZone)
     const deltas = resolveTodayDeltas(marks, tasks, day, new Map())
     return { day, deltas, signature: deltasSignature(deltas) }
   })
   const dayRef = useRef(initial.day)
+  // The zone membership was last derived in; a change re-seeds (see effect).
+  const zoneRef = useRef(timeZone)
   const [membership, setMembership] = useState<Set<string>>(() =>
-    applyTodayDeltas(autoTodayIds(tasks), initial.deltas),
+    applyTodayDeltas(autoTodayIds(tasks, timeZone), initial.deltas),
   )
   // The task-id set from the render that last seeded/reconciled membership.
   const idsRef = useRef<Set<string>>(new Set(tasks.map((t) => t.id)))
@@ -197,10 +205,12 @@ export function useTodayPlan(
   const tasksRef = useRef(tasks)
   const marksRef = useRef(marks)
   const writeMarkRef = useRef(writeMark)
+  const timeZoneRef = useRef(timeZone)
   useEffect(() => {
     tasksRef.current = tasks
     marksRef.current = marks
     writeMarkRef.current = writeMark
+    timeZoneRef.current = timeZone
   })
 
   // Send one mark. Offline is not a failure — the repo queues the write — so
@@ -218,12 +228,12 @@ export function useTodayPlan(
 
   // Day rollover, observed lazily on the next interaction or task refresh —
   // deliberately no timer/interval/visibility listener (the app has no
-  // day-tick). When the local day has changed, yesterday's plan is over:
+  // day-tick). When the day (in the Settings zone) has changed, yesterday's plan is over:
   // its marks no longer match `dayRef` and this session's toggles are
   // dropped. Nothing is written — a stale mark is overwritten by the next
   // toggle of its task.
   const rollIfNewDay = useCallback((now: Date): boolean => {
-    const key = dayKey(now)
+    const key = dateKeyIn(now, timeZoneRef.current)
     if (key === dayRef.current) return false
     localWritesRef.current.clear()
     dayRef.current = key
@@ -239,6 +249,10 @@ export function useTodayPlan(
   // setState mirrors the SubcategorySection linger idiom.
   useEffect(() => {
     const rolled = rollIfNewDay(new Date())
+    // A Settings-zone change moves the day frame: re-derive the auto signals
+    // in the new zone (this session's toggles for the day are kept).
+    const rezoned = zoneRef.current !== timeZone
+    zoneRef.current = timeZone
     const day = dayRef.current
     const curIds = tasks.map((t) => t.id)
     const prevIds = idsRef.current
@@ -277,24 +291,28 @@ export function useTodayPlan(
     const deltas = resolveTodayDeltas(marks, tasks, day, localWritesRef.current)
     const signature = deltasSignature(deltas)
     const deltasChanged = signature !== signatureRef.current
-    if (!changed && !rolled && !deltasChanged) return
+    if (!changed && !rolled && !rezoned && !deltasChanged) return
     idsRef.current = new Set(curIds)
     signatureRef.current = signature
     // After a roll the previous membership is yesterday's resolved set —
     // re-seed from the auto signals rather than layering the deltas over it.
     setMembership((cur) => {
-      if (rolled) return applyTodayDeltas(autoTodayIds(tasks), deltas)
-      const base = changed ? reconcileTodayMembership(cur, prevIds, tasks) : cur
+      if (rolled || rezoned) {
+        return applyTodayDeltas(autoTodayIds(tasks, timeZone), deltas)
+      }
+      const base = changed
+        ? reconcileTodayMembership(cur, prevIds, tasks, timeZone)
+        : cur
       return applyTodayDeltas(base, deltas)
     })
-  }, [tasks, marks, rollIfNewDay, sendMark])
+  }, [tasks, marks, timeZone, rollIfNewDay, sendMark])
 
   const toggleToday = useCallback(
     (id: string, force?: boolean) => {
       const rolled = rollIfNewDay(new Date())
       const cur = rolled
         ? applyTodayDeltas(
-            autoTodayIds(tasksRef.current),
+            autoTodayIds(tasksRef.current, timeZoneRef.current),
             resolveTodayDeltas(
               marksRef.current,
               tasksRef.current,

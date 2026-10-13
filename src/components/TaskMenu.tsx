@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   Bell,
+  CalendarCheck,
   CalendarClock,
   ListFilter,
   MoreHorizontal,
@@ -50,6 +51,8 @@ export type TaskMenuProps = {
   onOpenReminder: () => void
   /** Opens the priority picker that lives in TaskRow (chip + this item). */
   onOpenPriority: () => void
+  /** Opens the due-date picker that lives in TaskRow (this item only, chunk 66). */
+  onOpenDue: () => void
   /** The task's notes, newest first — picks the item's label and right side. */
   notes: Note[]
   onOpenNotes: () => void
@@ -63,6 +66,7 @@ export default function TaskMenu({
   onMoveToSubcategoryId,
   onOpenReminder,
   onOpenPriority,
+  onOpenDue,
   notes,
   onOpenNotes,
   onDelete,
@@ -100,6 +104,10 @@ export default function TaskMenu({
                 P{task.priority}
               </span>
             )}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => onOpenDue()}>
+            <CalendarCheck className="size-3.5" aria-hidden />
+            {task.dueAt ? 'Edit due date' : 'Set due date…'}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => onOpenReminder()}>
             <Bell className="size-3.5" aria-hidden />

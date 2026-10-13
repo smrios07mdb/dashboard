@@ -316,6 +316,20 @@ export default function CategoryView() {
     [upsertTask],
   )
 
+  const onSetTaskDue = useCallback(
+    async (id: string, dueAt: string | null) => {
+      try {
+        const updated = await repo.tasks.update(id, { dueAt })
+        upsertTask(updated)
+        toast(dueAt ? 'Due date set' : 'Due date cleared')
+      } catch (e) {
+        console.error('Set due date failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
   const onSetTaskPriority = useCallback(
     async (id: string, priority: 1 | 2 | 3 | null) => {
       try {
@@ -602,6 +616,7 @@ export default function CategoryView() {
                   onDeleteTask={onDeleteTask}
                   onMoveTaskToSubcategory={onMoveTaskToSubcategory}
                   onSetTaskReminder={onSetTaskReminder}
+                  onSetTaskDue={onSetTaskDue}
                   onSetTaskPriority={onSetTaskPriority}
                   sortKey={sortKey}
                   onRenameSubcategory={onRenameSubcategory}
@@ -655,6 +670,10 @@ type SortableSubSectionProps = {
   onSetTaskReminder: (
     id: string,
     remindAt: string | null,
+  ) => void | Promise<void>
+  onSetTaskDue: (
+    id: string,
+    dueAt: string | null,
   ) => void | Promise<void>
   onSetTaskPriority: (
     id: string,

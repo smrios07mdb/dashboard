@@ -64,6 +64,10 @@ export type CategoryColumnProps = {
     id: string,
     remindAt: string | null,
   ) => void | Promise<void>
+  onSetTaskDue: (
+    id: string,
+    dueAt: string | null,
+  ) => void | Promise<void>
   onSetTaskPriority: (
     id: string,
     priority: 1 | 2 | 3 | null,
@@ -111,6 +115,7 @@ export default function CategoryColumn({
   onDeleteTask,
   onMoveTaskToSubcategory,
   onSetTaskReminder,
+  onSetTaskDue,
   onSetTaskPriority,
   sortKey,
   onChangeSortKey,
@@ -286,6 +291,7 @@ export default function CategoryColumn({
                   onDeleteTask={onDeleteTask}
                   onMoveTaskToSubcategory={onMoveTaskToSubcategory}
                   onSetTaskReminder={onSetTaskReminder}
+                  onSetTaskDue={onSetTaskDue}
                   onSetTaskPriority={onSetTaskPriority}
                   sortKey={sortKey}
                   onRenameSubcategory={onRenameSubcategory}
@@ -335,6 +341,10 @@ type SortableSubSectionProps = {
   onSetTaskReminder: (
     id: string,
     remindAt: string | null,
+  ) => void | Promise<void>
+  onSetTaskDue: (
+    id: string,
+    dueAt: string | null,
   ) => void | Promise<void>
   onSetTaskPriority: (
     id: string,

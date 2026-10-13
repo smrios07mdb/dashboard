@@ -352,6 +352,20 @@ export default function SubcategoryView() {
     [upsertTask],
   )
 
+  const onSetTaskDue = useCallback(
+    async (id: string, dueAt: string | null) => {
+      try {
+        const updated = await repo.tasks.update(id, { dueAt })
+        upsertTask(updated)
+        toast(dueAt ? 'Due date set' : 'Due date cleared')
+      } catch (e) {
+        console.error('Set due date failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
   const onSetTaskPriority = useCallback(
     async (id: string, priority: 1 | 2 | 3 | null) => {
       try {
@@ -558,6 +572,7 @@ export default function SubcategoryView() {
                   onDelete={onDeleteTask}
                   onMoveToSubcategory={onMoveTaskToSubcategory}
                   onSetReminder={onSetTaskReminder}
+                  onSetDue={onSetTaskDue}
                   onSetPriority={onSetTaskPriority}
                 />
               </div>

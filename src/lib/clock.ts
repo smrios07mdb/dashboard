@@ -61,6 +61,16 @@ export function today(timezone: string = DEFAULT_TZ): string {
 }
 
 /**
+ * `YYYY-MM-DD` calendar day of the instant `at` in `timezone` (chunk 66).
+ * Unlike `today()`, `at` is injectable and the DEV override is not read —
+ * this is the pure building block for Today's day frame (`lib/today`,
+ * `state/todayPlan`).
+ */
+export function dateKeyIn(at: Date | number | string, timezone: string): string {
+  return formatInTimeZone(at, timezone, 'yyyy-MM-dd')
+}
+
+/**
  * Returns the ISO timestamp (UTC) for 00:00:00 on `dateKey` in
  * `timezone`. Used for the `createdAt < startOfDay(date)` comparison
  * in streak calculations.

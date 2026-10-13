@@ -11,6 +11,7 @@ import {
 } from '@/components/notebook/notesContext'
 import PriorityChip from '@/components/PriorityChip'
 import PriorityPicker from '@/components/PriorityPicker'
+import SetDuePopover from '@/components/SetDuePopover'
 import SetReminderPopover from '@/components/SetReminderPopover'
 import TaskMenu from '@/components/TaskMenu'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -90,6 +91,10 @@ export type TaskRowProps = {
     id: string,
     remindAt: string | null,
   ) => void | Promise<void>
+  onSetDue: (
+    id: string,
+    dueAt: string | null,
+  ) => void | Promise<void>
   onSetPriority: (
     id: string,
     priority: 1 | 2 | 3 | null,
@@ -137,6 +142,7 @@ export default function TaskRow({
   onDelete,
   onMoveToSubcategory,
   onSetReminder,
+  onSetDue,
   onSetPriority,
   selectable = false,
   selected = false,
@@ -153,6 +159,9 @@ export default function TaskRow({
   // Priority picker open state lives here (two entry points: the chip
   // and TaskMenu → "Set priority…"), mirroring the reminder popover.
   const [priorityOpen, setPriorityOpen] = useState(false)
+  // Due-date picker (chunk 66): TaskMenu → "Set due date…" is its only
+  // entry, so its grid slot exists only while it is open.
+  const [dueOpen, setDueOpen] = useState(false)
   const notes = useTaskNotes(task.id)
   const openTaskNotes = useOpenTaskNotes()
   const noteSlot = isTouch ? 44 : 24
@@ -216,6 +225,7 @@ export default function TaskRow({
     canDrag ? '14px' : null,    // grip
     '1fr',                      // title
     prioritySlot ? 'auto' : null, // priority chip / picker anchor
+    dueOpen ? 'auto' : null,      // due-date picker anchor (chunk 66)
     `${noteSlot}px`,            // note indicator — reserved even when empty
     'auto',                     // minutes
     onToggleToday ? 'auto' : null, // Today sun toggle (dashboard rows only)
@@ -308,6 +318,15 @@ export default function TaskRow({
             ) : undefined
           }
           onPick={(p) => onSetPriority(task.id, p)}
+        />
+      )}
+      {dueOpen && (
+        <SetDuePopover
+          open={dueOpen}
+          onOpenChange={setDueOpen}
+          dueAt={task.dueAt}
+          onSave={(iso) => onSetDue(task.id, iso)}
+          onClear={() => onSetDue(task.id, null)}
         />
       )}
       {notes.length > 0 ? (
@@ -408,6 +427,7 @@ export default function TaskRow({
         }
         onOpenReminder={() => setReminderOpen(true)}
         onOpenPriority={() => setPriorityOpen(true)}
+        onOpenDue={() => setDueOpen(true)}
         notes={notes}
         onOpenNotes={() => openTaskNotes(task.id)}
         onDelete={() => onDelete(task.id)}

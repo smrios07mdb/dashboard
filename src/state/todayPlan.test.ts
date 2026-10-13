@@ -59,16 +59,24 @@ function mark(
   }
 }
 
-type Props = { tasks: Task[]; marks: TodayMark[] | null }
+type Props = { tasks: Task[]; marks: TodayMark[] | null; timeZone?: string }
+
+// The runner's own zone: the fixtures above are built in its local frame.
+const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 const writeMark = vi.fn<
   (taskId: string, kind: TodayMark['kind'], day: string) => Promise<unknown>
 >(() => Promise.resolve())
 
-function renderPlan(tasks: Task[], marks: TodayMark[] | null = []) {
+function renderPlan(
+  tasks: Task[],
+  marks: TodayMark[] | null = [],
+  timeZone?: string,
+) {
   return renderHook(
-    ({ tasks, marks }: Props) => useTodayPlan(tasks, marks, writeMark),
-    { initialProps: { tasks, marks } },
+    ({ tasks, marks, timeZone }: Props) =>
+      useTodayPlan(tasks, marks, writeMark, timeZone ?? LOCAL_TZ),
+    { initialProps: { tasks, marks, timeZone } as Props },
   )
 }
 
@@ -343,5 +351,55 @@ describe('useTodayPlan day rollover with the tab open (chunk 44)', () => {
     ])
     expect(result.current.todaySet.has('a')).toBe(true)
     expect(result.current.todaySet.has('b')).toBe(true)
+  })
+})
+
+describe('useTodayPlan in the Settings time zone (chunk 66)', () => {
+  // 2026-10-14T02:30Z is Oct 13, 22:30 in New York and Oct 14 in UTC.
+  const LATE_NY = new Date('2026-10-14T02:30:00.000Z')
+  // Midnight Oct 14 in New York, as a due date is stored.
+  const DUE_OCT_14_NY = '2026-10-14T04:00:00.000Z'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(LATE_NY)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('stamps a toggle with the day in the Settings zone, not the device’s', () => {
+    const tasks = [task({ id: 'a' })]
+    const ny = renderPlan(tasks, [], 'America/New_York')
+    act(() => ny.result.current.toggleToday('a'))
+    expect(writeMark).toHaveBeenLastCalledWith('a', 'pin', '2026-10-13')
+    ny.unmount()
+
+    const utc = renderPlan(tasks, [], 'UTC')
+    act(() => utc.result.current.toggleToday('a'))
+    expect(writeMark).toHaveBeenLastCalledWith('a', 'pin', '2026-10-14')
+  })
+
+  it('counts only marks dated today in the Settings zone', () => {
+    const tasks = [task({ id: 'a' })]
+    const marks = [mark('a', 'pin', { day: '2026-10-13' })]
+    expect(
+      renderPlan(tasks, marks, 'America/New_York').result.current.todaySet.has('a'),
+    ).toBe(true)
+    expect(renderPlan(tasks, marks, 'UTC').result.current.todaySet.has('a')).toBe(
+      false,
+    )
+  })
+
+  it('re-derives the auto plan when the Settings zone changes', () => {
+    const tasks = [task({ id: 'd', dueAt: DUE_OCT_14_NY })]
+    const { result, rerender } = renderPlan(tasks, [], 'America/New_York')
+    // Still Oct 13 in New York: due tomorrow, not on today's plan.
+    expect(result.current.todaySet.has('d')).toBe(false)
+    // Oct 14 in UTC, and the due date falls on Oct 14 there: due today.
+    rerender({ tasks, marks: [], timeZone: 'UTC' })
+    expect(result.current.todaySet.has('d')).toBe(true)
+    expect(writeMark).not.toHaveBeenCalled()
   })
 })

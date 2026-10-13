@@ -69,6 +69,7 @@ const baseProps = (tasks: Task[]) => ({
   onDeleteTask: vi.fn(),
   onMoveTaskToSubcategory: vi.fn(),
   onSetTaskReminder: vi.fn(),
+  onSetTaskDue: vi.fn(),
   onSetTaskPriority: vi.fn(),
   sortKey: 'priority' as const,
   onRenameSubcategory: vi.fn(),

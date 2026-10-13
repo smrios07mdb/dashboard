@@ -113,6 +113,7 @@ const row = (notes: Note[]) =>
       onDelete={vi.fn()}
       onMoveToSubcategory={vi.fn()}
       onSetReminder={vi.fn()}
+      onSetDue={vi.fn()}
       onSetPriority={vi.fn()}
     />,
     notes,

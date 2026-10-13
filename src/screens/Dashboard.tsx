@@ -73,6 +73,9 @@ function useDashboardData(userId: string | null) {
   // The user's Today marks (chunk 64) — `null` until the first load completes,
   // which is how `useTodayPlan` tells "no marks" from "not loaded yet".
   const [todayMarks, setTodayMarks] = useState<TodayMark[] | null>(null)
+  // The Settings time zone Today's day frame runs in (chunk 66) — the same
+  // value the streak uses, resolved in `load`. The default matches `tz`'s.
+  const [timeZone, setTimeZone] = useState('America/New_York')
   const [loading, setLoading] = useState(true)
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
 
@@ -108,6 +111,7 @@ function useDashboardData(userId: string | null) {
       setData({ categories, subcategories, tasks })
       setStreak(heroStreak)
       setTodayMarks(marks)
+      setTimeZone(tz)
       setLoading(false)
     }
     load().catch((e) => {
@@ -119,13 +123,13 @@ function useDashboardData(userId: string | null) {
     }
   }, [dashboardRefreshKey, userId])
 
-  return { data, setData, loading, streak, todayMarks }
+  return { data, setData, loading, streak, todayMarks, timeZone }
 }
 
 export default function Dashboard() {
   const { user } = useSession()
   const userId = user?.id ?? null
-  const { data, setData, loading, streak, todayMarks } =
+  const { data, setData, loading, streak, todayMarks, timeZone } =
     useDashboardData(userId)
   const navigate = useNavigate()
 
@@ -193,6 +197,7 @@ export default function Dashboard() {
     liveTasks,
     todayMarks,
     writeTodayMark,
+    timeZone,
   )
 
   // "On a roll ×N" combo (chunk 27). A render-diff over the live tasks: when
@@ -363,6 +368,20 @@ export default function Dashboard() {
         toast(remindAt ? 'Reminder set' : 'Reminder cleared')
       } catch (e) {
         console.error('Set reminder failed', e)
+        toast.error(SAVE_ERROR)
+      }
+    },
+    [upsertTask],
+  )
+
+  const onSetTaskDue = useCallback(
+    async (id: string, dueAt: string | null) => {
+      try {
+        const updated = await repo.tasks.update(id, { dueAt })
+        upsertTask(updated)
+        toast(dueAt ? 'Due date set' : 'Due date cleared')
+      } catch (e) {
+        console.error('Set due date failed', e)
         toast.error(SAVE_ERROR)
       }
     },
@@ -649,6 +668,7 @@ export default function Dashboard() {
           onDeleteTask={onDeleteTask}
           onMoveTaskToSubcategory={onMoveTaskToSubcategory}
           onSetTaskReminder={onSetTaskReminder}
+          onSetTaskDue={onSetTaskDue}
           onSetTaskPriority={onSetTaskPriority}
           sortKey={sortKey}
           onChangeSortKey={onChangeSortKey}
@@ -691,6 +711,7 @@ export default function Dashboard() {
             variant={todayVariant}
             data={todayData}
             todaySet={todaySet}
+            timeZone={timeZone}
             onToggleToday={toggleToday}
             onCompleteTask={onCompleteTask}
             mobile={isTouch}
@@ -703,6 +724,7 @@ export default function Dashboard() {
             variant="rail"
             data={todayData}
             todaySet={todaySet}
+            timeZone={timeZone}
             onToggleToday={toggleToday}
             onCompleteTask={onCompleteTask}
             mobile={isTouch}
