@@ -99,6 +99,8 @@ export type CategoryColumnProps = {
    */
   todaySet?: Set<string>
   onToggleToday?: (id: string, force?: boolean) => void
+  /** Settings time zone for each row's when-chip (chunk 71). */
+  timeZone?: string
 }
 
 export default function CategoryColumn({
@@ -127,6 +129,7 @@ export default function CategoryColumn({
   onMoveSubcategory,
   todaySet,
   onToggleToday,
+  timeZone,
 }: CategoryColumnProps) {
   const isTouch = useIsTouchDevice()
 
@@ -311,6 +314,7 @@ export default function CategoryColumn({
                   onMoveSubcategory={onMoveSubcategory}
                   todaySet={todaySet}
                   onToggleToday={onToggleToday}
+                  timeZone={timeZone}
                 />
               ))}
             </SortableContext>
@@ -374,6 +378,7 @@ type SortableSubSectionProps = {
   onMoveSubcategory: (id: string, direction: 'up' | 'down') => void
   todaySet?: Set<string>
   onToggleToday?: (id: string, force?: boolean) => void
+  timeZone?: string
 }
 
 function SortableSubSection({

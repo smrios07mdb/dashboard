@@ -30,6 +30,7 @@ import {
   type TaskSortKey,
 } from '@/lib/taskSort'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
+import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -113,6 +114,19 @@ export default function CategoryView() {
   const userId = user?.id ?? null
   const isTouch = useIsTouchDevice()
   const { data, setData, loading } = useCategoryViewData()
+
+  // The Settings time zone the rows' when-chips read in (chunk 71). Browser
+  // zone until it resolves — and for good when settings are unreadable.
+  const [timeZone, setTimeZone] = useState(browserTimezone)
+  useEffect(() => {
+    let cancelled = false
+    void loadUserTimezone().then((tz) => {
+      if (!cancelled) setTimeZone(tz)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Global list-sort preference (chunk 33) — shared with Dashboard and
   // SubcategoryView via localStorage.
@@ -623,6 +637,7 @@ export default function CategoryView() {
                   onDeleteSubcategory={onDeleteSubcategory}
                   onMergeSubcategory={onMergeSubcategory}
                   onMoveSubcategory={onMoveSubcategory}
+                  timeZone={timeZone}
                 />
               ))}
             </SortableContext>
@@ -690,6 +705,7 @@ type SortableSubSectionProps = {
     targetId: string,
   ) => void | Promise<void>
   onMoveSubcategory: (id: string, direction: 'up' | 'down') => void
+  timeZone?: string
 }
 
 function SortableSubSection({

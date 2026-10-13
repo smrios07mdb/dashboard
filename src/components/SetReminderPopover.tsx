@@ -4,6 +4,7 @@ import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { Button } from '@/components/ui/button'
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
@@ -38,6 +39,11 @@ import { cn } from '@/lib/utils'
  * Empty input is "no time selected" — Save is disabled. Clear is
  * available whenever the task already has a reminder, regardless of
  * current input.
+ *
+ * Chunk 71: `trigger` is optional. TaskRow passes the reminder when-chip
+ * when the row shows one; otherwise (⋯ → "Set reminder…") the popover
+ * anchors to a zero-size span in its own grid slot, like PriorityPicker's
+ * menu-only entry.
  */
 
 export type SetReminderPopoverProps = {
@@ -45,7 +51,8 @@ export type SetReminderPopoverProps = {
   onOpenChange: (open: boolean) => void
   /** Existing reminder as ISO string, or null if none set. */
   remindAt: string | null
-  trigger: React.ReactNode
+  /** The button that anchors + toggles the popover. Omit for an invisible anchor. */
+  trigger?: React.ReactNode
   onSave: (isoTimestamp: string) => void | Promise<void>
   onClear: () => void | Promise<void>
 }
@@ -121,7 +128,16 @@ export default function SetReminderPopover({
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      {trigger ? (
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      ) : (
+        // Menu-only entry: anchor to a zero-size span in the reminder slot.
+        // -ml-3 cancels the grid gap the extra column adds while the popover
+        // is open (PriorityPicker's idiom).
+        <PopoverAnchor asChild>
+          <span aria-hidden className="-ml-3 w-0" />
+        </PopoverAnchor>
+      )}
       <PopoverContent className="w-72 space-y-3" align="end">
         <div className="label">Reminder</div>
         {showZone && (

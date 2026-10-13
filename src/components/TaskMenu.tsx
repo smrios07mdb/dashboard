@@ -28,8 +28,9 @@ import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
  * Three-dot menu attached to each TaskRow.
  *
  * Items per chunk 9: Move to (cascading MoveToPicker), Set reminder…
- * (delegates to the parent — the reminder popover is anchored on
- * TaskRow's bell icon, so its open state lives there), Notes / Add a
+ * (delegates to the parent — the reminder popover's open state lives in
+ * TaskRow, anchored on the row's reminder chip or, when the row shows
+ * none, an invisible anchor; chunk 71), Notes / Add a
  * note (chunk 59 — opens the task notes sheet NotesProvider owns; it
  * replaced the old notes dialog), Delete (DeleteConfirm).
  *
@@ -47,11 +48,11 @@ export type TaskMenuProps = {
   categories: Category[]
   subcategories: Subcategory[]
   onMoveToSubcategoryId: (targetSubId: string) => void | Promise<void>
-  /** Opens the reminder popover that lives in TaskRow (two entry points). */
+  /** Opens the reminder popover that lives in TaskRow (reminder chip + this item). */
   onOpenReminder: () => void
   /** Opens the priority picker that lives in TaskRow (chip + this item). */
   onOpenPriority: () => void
-  /** Opens the due-date picker that lives in TaskRow (this item only, chunk 66). */
+  /** Opens the due-date picker that lives in TaskRow (due chip + this item). */
   onOpenDue: () => void
   /** The task's notes, newest first — picks the item's label and right side. */
   notes: Note[]

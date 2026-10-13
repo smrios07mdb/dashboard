@@ -6,16 +6,17 @@ import {
   Popover,
   PopoverAnchor,
   PopoverContent,
+  PopoverTrigger,
 } from '@/components/ui/popover'
 import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
 
 /*
  * Due-date picker (chunk 66, Day-7 #11). A native `<input type="date">` in a
- * shadcn Popover, opened only from TaskMenu → "Set due date…". Open state is
- * owned by TaskRow; with no visible trigger the popover anchors to a
- * zero-size span in its own grid slot, exactly like PriorityPicker's
- * menu-only entry.
+ * shadcn Popover. Open state is owned by TaskRow, which has two entries
+ * (chunk 71): the row's due when-chip, passed as `trigger`, and TaskMenu →
+ * "Set due date…". With no trigger the popover anchors to a zero-size span
+ * in its own grid slot, exactly like PriorityPicker's menu-only entry.
  *
  * Value contract:
  *   - A due date is a calendar day in `settings.timezone` (resolved by
@@ -34,6 +35,8 @@ export type SetDuePopoverProps = {
   onOpenChange: (open: boolean) => void
   /** Existing due date as an ISO string, or null if none set. */
   dueAt: string | null
+  /** The button that anchors + toggles the popover. Omit for an invisible anchor. */
+  trigger?: React.ReactNode
   onSave: (isoTimestamp: string) => void | Promise<void>
   onClear: () => void | Promise<void>
 }
@@ -59,6 +62,7 @@ export default function SetDuePopover({
   open,
   onOpenChange,
   dueAt,
+  trigger,
   onSave,
   onClear,
 }: SetDuePopoverProps) {
@@ -106,12 +110,16 @@ export default function SetDuePopover({
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      {/* Menu-only entry: anchor to a zero-size span in the due slot. -ml-3
-          cancels the grid gap the extra column adds while the popover is
-          open (PriorityPicker's idiom). */}
-      <PopoverAnchor asChild>
-        <span aria-hidden className="-ml-3 w-0" />
-      </PopoverAnchor>
+      {trigger ? (
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      ) : (
+        // Menu-only entry: anchor to a zero-size span in the due slot. -ml-3
+        // cancels the grid gap the extra column adds while the popover is
+        // open (PriorityPicker's idiom).
+        <PopoverAnchor asChild>
+          <span aria-hidden className="-ml-3 w-0" />
+        </PopoverAnchor>
+      )}
       <PopoverContent className="w-64 space-y-3" align="end">
         <div className="label">Due date</div>
         {showZone && (

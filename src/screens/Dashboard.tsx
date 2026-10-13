@@ -711,6 +711,7 @@ export default function Dashboard() {
             onMoveSubcategory={onMoveSubcategory}
             todaySet={todaySet}
             onToggleToday={toggleToday}
+            timeZone={timeZone}
           />
         ))}
       </div>

@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
-import { Bell, GripVertical, Trash2 } from 'lucide-react'
+import { Bell, GripVertical } from 'lucide-react'
 
-import DeleteConfirm from '@/components/DeleteConfirm'
-import { Note, Sun } from '@/components/icons'
+import { Sun } from '@/components/icons'
 import {
   useOpenTaskNotes,
   useTaskNotes,
@@ -19,7 +18,9 @@ import type { Category, Subcategory, Task } from '@/db/types'
 import { fmtMin } from '@/lib/cat'
 import { taskXP } from '@/lib/gamify'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
+import { browserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
+import { dueLabel, reminderLabel, type WhenTone } from '@/lib/whenLabel'
 
 /*
  * One task row.
@@ -27,40 +28,47 @@ import { cn } from '@/lib/utils'
  * Title click → inline edit; minutes click → numeric input
  * (chunks 7+8 patterns kept verbatim).
  *
- * Chunk 9 additions:
- *   - The bell icon is now the SetReminderPopover trigger. It also
- *     serves as the popover's positioning anchor when the menu item
- *     "Set reminder…" opens the popover programmatically. The open
- *     state lives here (two entry points: bell icon, menu item).
- *   - The placeholder three-dot button is replaced by <TaskMenu />.
- *   - On desktop (`!useIsTouchDevice()`), the row is a `useDraggable`
- *     source. A small grip handle appears between the checkbox and
- *     title; the rest of the row stays click-friendly so inline
- *     title/minutes edit still works. Touch devices hide the grip
- *     and rely on the three-dot menu's Move-to picker.
+ * Chunk 71 — the row shows only what is read or used daily. Columns, left
+ * to right: selection checkbox (`selectable`), completion checkbox, grip
+ * (`canDrag`), title (up to two lines), priority chip, one "when" chip,
+ * minutes, Today sun (`onToggleToday`), ⋯. Reminder, notes and delete live
+ * only in <TaskMenu />; the row has no bell, no trash and no note column.
  *
- * Chunk 59: a note indicator sits in its own always-reserved column between
- * the priority slot and the minutes (24px; 44px on touch), so a row never
- * shifts when a note appears. Glyph when the task has notes, plus a count at
- * two or more; an empty cell otherwise. The count and the sheet both come
- * from NotesProvider — nothing is drilled through the screens.
+ * The when chip (`lib/whenLabel`) shows the due date or, when there is
+ * none, the reminder — one chip per row, none on completed rows. It is the
+ * trigger of its own picker. A picker with no chip of its own (⋯ → "Set
+ * reminder…" on a row whose chip is a due chip, or either picker on a row
+ * with no chip) renders anchor-only in its own grid slot, and only while
+ * open. Open state for all three pickers lives here.
+ *
+ * On desktop (`!useIsTouchDevice()`), the row is a `useDraggable` source. A
+ * small grip handle appears between the checkbox and title; the rest of the
+ * row stays click-friendly so inline title/minutes edit still works. Touch
+ * devices hide the grip and rely on the three-dot menu's Move-to picker.
  *
  * Why a dedicated grip handle and not row-level drag listeners: the
- * row contains buttons (checkbox, title, minutes, bell, trash, menu)
+ * row contains buttons (checkbox, title, chips, minutes, sun, menu)
  * whose clicks must not start drags. `@dnd-kit`'s PointerSensor has
  * a 5px activation distance, which mostly works, but attaching
  * listeners only to the grip eliminates the conflict entirely. The
  * pattern mirrors chunk-8's SubcategoryHeader drag handle.
  *
- * Standalone trash button is kept alongside the menu's Delete item
- * because the design canon (design/src/screens/dashboard.jsx) shows
- * both: a fast-path icon button + a menu entry. The duplication is
- * intentional UX.
- *
  * Validation is silent: empty title / out-of-range minutes show a
  * visible invalid border and an aria-invalid flag. Enter is a no-op
  * on invalid input, Escape reverts. No toasts on rejection.
  */
+
+// The Checkbox's centred transparent ::before, minus its size — extends a
+// small control's hit area without changing its visual box.
+const HIT_AREA =
+  "relative before:absolute before:left-1/2 before:top-1/2 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
+
+const WHEN_TONE: Record<WhenTone, string> = {
+  late: 'text-destructive',
+  today: 'text-[var(--accent-ink)]',
+  soon: 'text-ink-2',
+  later: 'text-ink-2',
+}
 
 const MAX_MINUTES = 24 * 60
 
@@ -130,6 +138,11 @@ export type TaskRowProps = {
    */
   inToday?: boolean
   onToggleToday?: (id: string, force?: boolean) => void
+  /**
+   * The zone the when chip's day math runs in — the Settings time zone,
+   * resolved by the owning screen. Defaults to the browser's zone.
+   */
+  timeZone?: string
 }
 
 export default function TaskRow({
@@ -151,6 +164,7 @@ export default function TaskRow({
   hue,
   inToday = false,
   onToggleToday,
+  timeZone,
 }: TaskRowProps) {
   const isTouch = useIsTouchDevice()
   const canDrag = dragEnabled && !isTouch
@@ -159,12 +173,28 @@ export default function TaskRow({
   // Priority picker open state lives here (two entry points: the chip
   // and TaskMenu → "Set priority…"), mirroring the reminder popover.
   const [priorityOpen, setPriorityOpen] = useState(false)
-  // Due-date picker (chunk 66): TaskMenu → "Set due date…" is its only
-  // entry, so its grid slot exists only while it is open.
   const [dueOpen, setDueOpen] = useState(false)
   const notes = useTaskNotes(task.id)
   const openTaskNotes = useOpenTaskNotes()
-  const noteSlot = isTouch ? 44 : 24
+  // The when chip (chunk 71): a due date always wins; none on completed rows.
+  const tz = timeZone ?? browserTimezone()
+  const whenKind: 'due' | 'reminder' | null = completed
+    ? null
+    : task.dueAt
+      ? 'due'
+      : task.remindAt
+        ? 'reminder'
+        : null
+  const when =
+    whenKind === 'due'
+      ? dueLabel(task.dueAt!, tz)
+      : whenKind === 'reminder'
+        ? reminderLabel(task.remindAt!, tz)
+        : null
+  // Each picker's slot exists while its chip shows or, anchor-only, while
+  // it is open.
+  const dueSlot = whenKind === 'due' || dueOpen
+  const reminderSlot = whenKind === 'reminder' || reminderOpen
   // Chips hide on completed rows (DESIGN_NOTES § Priority system). The
   // grid slot exists only while a chip shows or the picker is open —
   // unlike the left edge, chip presence may shift layout (matches the
@@ -225,12 +255,10 @@ export default function TaskRow({
     canDrag ? '14px' : null,    // grip
     '1fr',                      // title
     prioritySlot ? 'auto' : null, // priority chip / picker anchor
-    dueOpen ? 'auto' : null,      // due-date picker anchor (chunk 66)
-    `${noteSlot}px`,            // note indicator — reserved even when empty
+    dueSlot ? 'auto' : null,      // due chip / picker anchor
+    reminderSlot ? 'auto' : null, // reminder chip / picker anchor
     'auto',                     // minutes
     onToggleToday ? 'auto' : null, // Today sun toggle (dashboard rows only)
-    'auto',                     // bell
-    'auto',                     // trash
     'auto',                     // three-dot menu
   ]
     .filter(Boolean)
@@ -248,6 +276,28 @@ export default function TaskRow({
     }`,
     '--flush': `color-mix(in srgb, ${flush} 18%, transparent)`,
   } as React.CSSProperties
+
+  const whenChip = when && (
+    <button
+      type="button"
+      aria-label={
+        whenKind === 'due'
+          ? `Due ${when.long} — edit due date`
+          : `Reminder ${when.long} — edit reminder`
+      }
+      title={whenKind === 'due' ? `Due ${when.long}` : `Reminder ${when.long}`}
+      className={cn(
+        HIT_AREA,
+        'inline-flex min-h-6 items-center gap-1 whitespace-nowrap rounded-sm px-1.5 font-mono text-[11px] tabular-nums hover:bg-bg-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        WHEN_TONE[when.tone],
+        // >=44pt hit target on touch (UX-02); visual size unchanged.
+        isTouch && 'before:size-11',
+      )}
+    >
+      {whenKind === 'reminder' && <Bell className="size-3" aria-hidden />}
+      {when.text}
+    </button>
+  )
 
   return (
     <div
@@ -292,7 +342,11 @@ export default function TaskRow({
           {...attributes}
           {...listeners}
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex h-6 w-3.5 cursor-grab items-center justify-center rounded-sm text-ink-3/70 hover:bg-bg-alt hover:text-ink active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          // 14px column and visual; the ::before widens the target to 24px.
+          className={cn(
+            HIT_AREA,
+            'inline-flex h-6 w-3.5 cursor-grab items-center justify-center rounded-sm text-ink-3/70 before:size-6 hover:bg-bg-alt hover:text-ink active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
         >
           <GripVertical className="size-3" aria-hidden />
         </button>
@@ -320,36 +374,25 @@ export default function TaskRow({
           onPick={(p) => onSetPriority(task.id, p)}
         />
       )}
-      {dueOpen && (
+      {dueSlot && (
         <SetDuePopover
           open={dueOpen}
           onOpenChange={setDueOpen}
           dueAt={task.dueAt}
+          trigger={whenKind === 'due' ? whenChip : undefined}
           onSave={(iso) => onSetDue(task.id, iso)}
           onClear={() => onSetDue(task.id, null)}
         />
       )}
-      {notes.length > 0 ? (
-        <button
-          type="button"
-          data-testid="note-indicator"
-          aria-label={
-            notes.length > 1
-              ? `${notes.length} notes for "${task.title}"`
-              : `Notes for "${task.title}"`
-          }
-          title={notes.length > 1 ? `${notes.length} notes` : 'Notes'}
-          onClick={() => openTaskNotes(task.id)}
-          className="inline-flex items-center justify-center gap-[3px] rounded-sm text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          style={{ minWidth: noteSlot, height: noteSlot }}
-        >
-          <Note size={14} aria-hidden />
-          {notes.length > 1 && (
-            <span className="num text-[11px]">{notes.length}</span>
-          )}
-        </button>
-      ) : (
-        <span aria-hidden data-testid="note-indicator-empty" />
+      {reminderSlot && (
+        <SetReminderPopover
+          open={reminderOpen}
+          onOpenChange={setReminderOpen}
+          remindAt={task.remindAt}
+          trigger={whenKind === 'reminder' ? whenChip : undefined}
+          onSave={(iso) => onSetReminder(task.id, iso)}
+          onClear={() => onSetReminder(task.id, null)}
+        />
       )}
       <MinutesField
         task={task}
@@ -377,47 +420,6 @@ export default function TaskRow({
           <Sun className="size-3.5" aria-hidden />
         </button>
       )}
-      <SetReminderPopover
-        open={reminderOpen}
-        onOpenChange={setReminderOpen}
-        remindAt={task.remindAt}
-        trigger={
-          <button
-            type="button"
-            aria-label={task.remindAt ? 'Edit reminder' : 'Set reminder'}
-            title={task.remindAt ? 'Edit reminder' : 'Set reminder'}
-            className={cn(
-              'inline-flex items-center justify-center rounded-sm hover:bg-bg-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              // >=44pt hit target on touch (UX-02); 24px density on pointer.
-              isTouch ? 'h-11 w-11' : 'h-6 w-6',
-              task.remindAt
-                ? 'text-[var(--accent-ink)]'
-                : 'text-ink-3 hover:text-ink',
-            )}
-          >
-            <Bell className="size-3.5" />
-          </button>
-        }
-        onSave={(iso) => onSetReminder(task.id, iso)}
-        onClear={() => onSetReminder(task.id, null)}
-      />
-      <DeleteConfirm
-        trigger={
-          <button
-            type="button"
-            aria-label={`Delete task "${task.title}"`}
-            className={cn(
-              'inline-flex items-center justify-center rounded-sm text-ink-3 hover:bg-bg-alt hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              isTouch ? 'h-11 w-11' : 'h-6 w-6',
-            )}
-          >
-            <Trash2 className="size-3.5" />
-          </button>
-        }
-        title="Delete this task?"
-        description="This cannot be undone."
-        onConfirm={() => onDelete(task.id)}
-      />
       <TaskMenu
         task={task}
         categories={categories}
@@ -477,12 +479,14 @@ function TitleField({
         type="button"
         onClick={() => setDraft(task.title)}
         className={cn(
-          'min-w-0 truncate text-left text-[13px] leading-tight text-ink hover:text-ink-2',
+          'line-clamp-2 min-w-0 whitespace-normal break-words text-left text-[13px] leading-tight text-ink hover:text-ink-2',
           completed && 'line-through decoration-ink-3',
         )}
         title={task.title}
       >
-        {task.title}
+        {/* The clamp is repeated on a span: a <button> lays its content out
+            in an anonymous box, so engines can skip a clamp set on it. */}
+        <span className="line-clamp-2">{task.title}</span>
       </button>
     )
   }
@@ -555,7 +559,7 @@ function MinutesField({
         type="button"
         onClick={() => setDraft(String(task.estimateMinutes))}
         aria-label="Edit minutes"
-        className="rounded-sm px-1 font-mono text-[12px] tabular-nums text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="min-h-6 rounded-sm px-1 font-mono text-[12px] tabular-nums text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         {fmtMin(task.estimateMinutes)}
       </button>

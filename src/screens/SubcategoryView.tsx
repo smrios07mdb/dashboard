@@ -26,6 +26,7 @@ import {
   storeTaskSortKey,
   type TaskSortKey,
 } from '@/lib/taskSort'
+import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/state/uiStore'
 
@@ -109,6 +110,19 @@ export default function SubcategoryView() {
   const { user } = useSession()
   const userId = user?.id ?? null
   const { data, setData, loading } = useSubcategoryViewData()
+
+  // The Settings time zone the rows' when-chips read in (chunk 71). Browser
+  // zone until it resolves — and for good when settings are unreadable.
+  const [timeZone, setTimeZone] = useState(browserTimezone)
+  useEffect(() => {
+    let cancelled = false
+    void loadUserTimezone().then((tz) => {
+      if (!cancelled) setTimeZone(tz)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showCompleted, setShowCompleted] = useState(false)
   const [sortKey, setSortKey] = useState<TaskSortKey>(loadTaskSortKey)
@@ -574,6 +588,7 @@ export default function SubcategoryView() {
                   onSetReminder={onSetTaskReminder}
                   onSetDue={onSetTaskDue}
                   onSetPriority={onSetTaskPriority}
+                  timeZone={timeZone}
                 />
               </div>
             ))}

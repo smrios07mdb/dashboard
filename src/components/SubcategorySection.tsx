@@ -82,6 +82,8 @@ export type SubcategorySectionProps = {
   /** Today-plan wiring, forwarded to each TaskRow (dashboard only). */
   todaySet?: Set<string>
   onToggleToday?: (id: string, force?: boolean) => void
+  /** Settings time zone for each row's when-chip (chunk 71). */
+  timeZone?: string
 }
 
 export default function SubcategorySection({
@@ -111,6 +113,7 @@ export default function SubcategorySection({
   onMoveSubcategory,
   todaySet,
   onToggleToday,
+  timeZone,
 }: SubcategorySectionProps) {
   const [showCompleted, setShowCompleted] = useState(false)
   const hue = subColor(subcategory.id)
@@ -248,6 +251,7 @@ export default function SubcategorySection({
               onSetPriority={onSetTaskPriority}
               inToday={todaySet?.has(t.id)}
               onToggleToday={onToggleToday}
+              timeZone={timeZone}
             />
           ))
         )}
@@ -286,6 +290,7 @@ export default function SubcategorySection({
                   onSetPriority={onSetTaskPriority}
                   inToday={todaySet?.has(t.id)}
                   onToggleToday={onToggleToday}
+                  timeZone={timeZone}
                 />
               ))}
           </>

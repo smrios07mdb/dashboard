@@ -4,8 +4,8 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /*
- * The task side of the Notebook outside the sheet (chunk 59, D6–D7): the row
- * indicator and ⋯ item, the list header count, the drill-down's Notes
+ * The task side of the Notebook outside the sheet (chunk 59, D6–D7): the row's
+ * ⋯ item (the row indicator left in chunk 71), the list header count, the drill-down's Notes
  * section, and the planner block's glyph and preview card. Each reads the
  * notes from context — nothing is drilled — so a context value is all a test
  * needs.
@@ -65,6 +65,7 @@ import TaskBlock from '@/components/planner/TaskBlock'
 import SubcategoryHeader from '@/components/SubcategoryHeader'
 import TaskRow from '@/components/TaskRow'
 import type { Note } from '@/db/types'
+import { noteRel } from '@/lib/notes'
 
 import { CATEGORIES, mkNote, SUBCATEGORIES, TASKS } from './fixtures'
 import ListNotesSection from './ListNotesSection'
@@ -119,10 +120,6 @@ const row = (notes: Note[]) =>
     notes,
   )
 
-/** The row's grid template — the note column must be in it either way. */
-const template = (container: HTMLElement) =>
-  (container.querySelector('.grid') as HTMLElement).style.gridTemplateColumns
-
 async function menuItem(name: RegExp) {
   fireEvent.keyDown(
     screen.getByRole('button', { name: `Actions for "${TASK.title}"` }),
@@ -136,53 +133,40 @@ beforeEach(() => {
   touchMock.value = false
 })
 
-describe('task row note indicator (D6)', () => {
-  it('0 notes: an empty reserved cell, and the menu offers "Add a note"', async () => {
-    const { container } = row([])
+// Chunk 71: the row's note column is gone — notes are reached through ⋯.
+describe('task row notes live in the ⋯ menu (chunk 71)', () => {
+  it.each([
+    ['0 notes', []],
+    ['1 note', ONE],
+    ['2 notes', TWO],
+  ])('%s: no note indicator on the row', (_label, notes) => {
+    row(notes)
     expect(screen.queryByTestId('note-indicator')).toBeNull()
-    expect(screen.getByTestId('note-indicator-empty')).toBeInTheDocument()
-    expect(template(container)).toContain('24px')
+    expect(screen.queryByTestId('note-indicator-empty')).toBeNull()
+    expect(screen.queryByRole('button', { name: /notes for "/i })).toBeNull()
+  })
 
+  it('0 notes: the menu offers "Add a note", which opens the sheet', async () => {
+    row([])
     fireEvent.click(await menuItem(/Add a note/))
     expect(openTaskNotes).toHaveBeenCalledWith('t-open')
   })
 
-  it('1 note: the glyph with no count; clicking opens the sheet', () => {
-    const { container } = row(ONE)
-    const btn = screen.getByRole('button', {
-      name: 'Notes for "Ship the pricing page"',
-    })
-    expect(btn.querySelector('svg')).not.toBeNull()
-    expect(btn).toHaveTextContent('')
-    expect(template(container)).toContain('24px')
-
-    fireEvent.click(btn)
+  it('1 note: the menu reads "Notes" with the relative time, and opens the sheet', async () => {
+    row(ONE)
+    const item = await menuItem(/^Notes/)
+    expect(item).toHaveTextContent(`Notes${noteRel(ONE[0].updatedAt)}`)
+    fireEvent.click(item)
     expect(openTaskNotes).toHaveBeenCalledWith('t-open')
   })
 
-  it('2 notes: glyph + count, and the menu reads "Notes" with the count', async () => {
+  it('2 notes: the menu reads "Notes" with the count, and opens the sheet', async () => {
     row(TWO)
-    expect(
-      screen.getByRole('button', {
-        name: '2 notes for "Ship the pricing page"',
-      }),
-    ).toHaveTextContent('2')
     const item = await menuItem(/^Notes/)
     expect(item).toHaveTextContent('Notes2')
     expect(screen.queryByRole('menuitem', { name: /Edit notes/ })).toBeNull()
-  })
-
-  it('the grid template does not depend on the note count', () => {
-    const none = template(row([]).container)
-    const one = template(row(ONE).container)
-    const two = template(row(TWO).container)
-    expect(one).toBe(none)
-    expect(two).toBe(none)
-  })
-
-  it('touch: the reserved column is 44px', () => {
-    touchMock.value = true
-    expect(template(row([]).container)).toContain('44px')
+    fireEvent.click(item)
+    expect(openTaskNotes).toHaveBeenCalledWith('t-open')
   })
 })
 
