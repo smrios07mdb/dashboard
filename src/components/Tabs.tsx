@@ -67,7 +67,7 @@ export default function Tabs() {
         items={topItems}
         value={value}
         onChange={(id) => navigate(id)}
-        className="-mt-2 mb-2 hidden overflow-x-auto sm:flex"
+        className="-mt-2 mb-2 hidden overflow-x-auto overflow-y-hidden sm:flex"
       />
       {/* Phones: fixed bottom tab bar (hidden at >=sm). */}
       {!isNoteEditorPath(pathname) && (

@@ -651,7 +651,7 @@ export default function Dashboard() {
   }
 
   const columns = (
-    <div className="grid gap-6 sm:grid-cols-2 sm:gap-8">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 sm:grid-cols-2 sm:gap-8">
       {data.categories.map((cat) => (
         <CategoryColumn
           key={cat.id}

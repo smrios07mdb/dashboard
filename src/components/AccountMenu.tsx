@@ -13,6 +13,11 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useSession } from '@/lib/auth'
 
+/** First letter or digit of the email, uppercased; `?` if it has none. */
+function accountInitial(email: string): string {
+  return email.match(/[\p{L}\p{N}]/u)?.[0].toUpperCase() ?? '?'
+}
+
 export default function AccountMenu() {
   const navigate = useNavigate()
   const { user } = useSession()
@@ -33,10 +38,18 @@ export default function AccountMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger
         title={email}
-        className="inline-flex min-h-11 items-center gap-2 rounded-[5px] border border-border bg-card px-3 text-[13px] text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`Account: ${email}`}
+        className="inline-flex size-11 items-center justify-center rounded-full border border-border bg-card text-[13px] text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-auto sm:min-h-11 sm:rounded-[5px] sm:px-3"
       >
-        <span className="max-w-[160px] truncate sm:max-w-[220px]">{email}</span>
-        <ChevronDown className="size-3.5 text-muted-foreground" />
+        {/* Chunk 68: below `sm` the trigger is a round 44px initial; the full
+            email (which needs ~200px) comes back at >=sm. */}
+        <span aria-hidden className="text-[15px] font-semibold sm:hidden">
+          {accountInitial(email)}
+        </span>
+        <span className="hidden items-center gap-2 sm:inline-flex">
+          <span className="max-w-[220px] truncate">{email}</span>
+          <ChevronDown className="size-3.5 text-muted-foreground" />
+        </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" sideOffset={6} className="min-w-[200px]">
         <DropdownMenuLabel className="label text-muted-foreground">

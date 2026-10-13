@@ -200,51 +200,60 @@ export default function CategoryColumn({
             onDrillDown('category', category.id)
           }
         }}
-        className="grid cursor-pointer items-center gap-3.5 p-0.5 pb-4 [grid-template-columns:5px_1fr_auto_auto_auto_auto]"
+        className="flex min-w-0 cursor-pointer flex-wrap items-center justify-end gap-x-3.5 gap-y-1.5 p-0.5 pb-4"
       >
-        {/* Full-bleed accent bar — no card behind the header. */}
-        <span
-          aria-hidden
-          className="min-h-[30px] w-[5px] self-stretch rounded"
-          style={{ background: accent, boxShadow: `0 2px 8px -2px ${accent}` }}
-        />
-        {/* Serif display heading, tinted to the category color. */}
-        <h2
-          className="m-0 font-display text-[31px] font-medium"
-          style={{ letterSpacing: '-0.018em', color: accent }}
-        >
-          {category.name}
-        </h2>
-        {/* "N open" pill — solid category color with a soft colored shadow. */}
-        <span
-          className="num label inline-block rounded-full"
-          style={{
-            background: accent,
-            color: '#fff',
-            fontSize: 10.5,
-            padding: '4px 10px',
-            letterSpacing: '0.1em',
-            boxShadow: `0 5px 14px -5px ${accent}`,
-          }}
-        >
-          {open.length} open
-        </span>
-        <span className="whitespace-nowrap font-display text-[19px] font-medium tabular-nums text-ink-2">
-          {fmtMin(total)}
-        </span>
-        {/* Chunk 33: list sort — global preference, one control per column. */}
-        <TaskSortControl value={sortKey} onChange={onChangeSortKey} />
-        <button
-          type="button"
-          aria-label={`Open ${category.name}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onDrillDown('category', category.id)
-          }}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[20px] leading-none text-ink-3 transition-colors hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span aria-hidden>›</span>
-        </button>
+        {/* Chunk 68: two wrapping groups instead of one no-wrap grid, so the
+            header can never be wider than its column. Line one takes the full
+            width below `sm` (pushing line two under it, right-aligned); at
+            >=sm both sit on one line whenever the column can hold them. */}
+        <div className="flex min-w-0 grow basis-full items-center gap-3.5 sm:basis-auto">
+          {/* Full-bleed accent bar — no card behind the header. */}
+          <span
+            aria-hidden
+            className="min-h-[30px] w-[5px] shrink-0 self-stretch rounded"
+            style={{ background: accent, boxShadow: `0 2px 8px -2px ${accent}` }}
+          />
+          {/* Serif display heading, tinted to the category color. */}
+          <h2
+            title={category.name}
+            className="m-0 min-w-0 grow truncate font-display text-[31px] font-medium"
+            style={{ letterSpacing: '-0.018em', color: accent }}
+          >
+            {category.name}
+          </h2>
+          {/* "N open" pill — solid category color with a soft colored shadow. */}
+          <span
+            className="num label inline-block shrink-0 rounded-full"
+            style={{
+              background: accent,
+              color: '#fff',
+              fontSize: 10.5,
+              padding: '4px 10px',
+              letterSpacing: '0.1em',
+              boxShadow: `0 5px 14px -5px ${accent}`,
+            }}
+          >
+            {open.length} open
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-3.5">
+          <span className="whitespace-nowrap font-display text-[19px] font-medium tabular-nums text-ink-2">
+            {fmtMin(total)}
+          </span>
+          {/* Chunk 33: list sort — global preference, one control per column. */}
+          <TaskSortControl value={sortKey} onChange={onChangeSortKey} />
+          <button
+            type="button"
+            aria-label={`Open ${category.name}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDrillDown('category', category.id)
+            }}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[20px] leading-none text-ink-3 transition-colors hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span aria-hidden>›</span>
+          </button>
+        </div>
       </header>
       <div
         className="overflow-hidden rounded-md"

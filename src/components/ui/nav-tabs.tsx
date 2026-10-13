@@ -47,7 +47,7 @@ export function TopTabs({ items, value, onChange, className, ariaLabel }: NavTab
             <span
               aria-hidden
               className={cn(
-                'absolute inset-x-2.5 -bottom-px h-0.5 rounded-sm',
+                'absolute inset-x-2.5 bottom-0 h-0.5 rounded-sm',
                 active ? 'bg-[hsl(var(--accent))]' : 'bg-transparent',
               )}
             />

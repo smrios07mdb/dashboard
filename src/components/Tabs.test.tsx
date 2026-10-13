@@ -121,6 +121,15 @@ describe('Tabs — primary nav (Chunk 24)', () => {
     expect(screen.queryAllByRole('button', { current: 'page' })).toHaveLength(0)
   })
 
+  // Chunk 68: narrow tablets still scroll the tab row sideways, but the bar
+  // must never scroll vertically (UX audit #17, scrollbar).
+  it('lets the top nav scroll sideways only', () => {
+    renderAt('/')
+    const [top, bottom] = screen.getAllByRole('navigation', { name: 'Primary' })
+    expect(top).toHaveClass('overflow-x-auto', 'overflow-y-hidden')
+    expect(bottom).not.toHaveClass('overflow-y-hidden')
+  })
+
   it('navigates to the route when a tab is clicked', () => {
     renderAt('/')
     fireEvent.click(screen.getAllByText('Insights')[0])

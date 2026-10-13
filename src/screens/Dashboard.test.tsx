@@ -290,6 +290,28 @@ describe('Dashboard', () => {
     expect(buttons.length).toBeGreaterThanOrEqual(2)
   })
 
+  // Chunk 68: an explicit minmax(0,1fr) column below `sm`, so a wide child
+  // can't stretch the implicit auto-sized one (UX audit #2).
+  it('gives the category grid shrinkable columns at every width', async () => {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([
+      mkSub('sw1', 'cat-work'),
+      mkSub('sp1', 'cat-personal'),
+    ])
+    tasksList.mockResolvedValue([])
+
+    renderDashboard()
+
+    const work = await screen.findByRole('button', { name: 'Open Work' })
+    const personal = screen.getByRole('button', { name: 'Open Personal' })
+    const grid = work.closest('header')!.parentElement!.parentElement!
+    expect(grid).toContainElement(personal)
+    expect(grid).toHaveClass('grid', 'grid-cols-[minmax(0,1fr)]', 'sm:grid-cols-2')
+  })
+
   it('shows the first-run card (and no columns) when there are no live subcategories', async () => {
     // Brand-new account: Work/Personal categories seeded, zero subcategories.
     categoriesList.mockResolvedValue([
