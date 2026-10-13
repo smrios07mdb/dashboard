@@ -6,11 +6,15 @@
  * aborts with nothing touched (no partial wipe). Only a validated payload
  * proceeds. Categories are stable infrastructure (seeded by the signup trigger,
  * not user-writable) and are NEVER deleted or re-inserted by import.
+ *
+ * Replace is atomic (chunk 62): the whole payload is built in memory and sent
+ * to `import_replace` (migration 19), which tears down and reinserts in one
+ * transaction — every table is replaced or nothing changed. Merge stays a
+ * sequence of upserts (non-destructive).
  */
 import { db } from '@/db/dexie'
 import { wipeLocalCache } from '@/db/localCache'
 import { repo } from '@/db/repo'
-import type { TableName } from '@/db/types'
 
 import {
   CREDENTIAL_SETTINGS_KEYS,
@@ -85,7 +89,9 @@ export function validateImport(parsed: unknown): ExportPayload {
   // Row-level gate (chunk-16 review): every content row must be an object with
   // a non-empty string id. This catches malformed rows BEFORE the Replace
   // teardown deletes anything (extends R4's validate-before-delete guarantee).
-  // Full FK / NOT NULL integrity is the Day-7 atomic-replace revision.
+  // FK / NOT NULL integrity is not checked here and no longer needs to be
+  // (chunk 62): a file that violates either fails inside `import_replace` and
+  // changes nothing.
   for (const key of [...REQUIRED_TABLE_KEYS, ...OPTIONAL_TABLE_KEYS]) {
     if (!Array.isArray(p[key])) continue // optional key absent; required ones checked above
     for (const row of p[key] as unknown[]) {
@@ -131,120 +137,83 @@ export function previewCounts(payload: ExportPayload): Record<string, number> {
 type RowList = Record<string, unknown>[]
 
 /**
- * Upsert the user-scoped content tables, parents before children. Categories
- * are not touched (stable infra). Settings upserts on `user_id`.
+ * Task rows WITHOUT `notes` (chunk 59, D3): the app no longer reads or writes
+ * `tasks.notes`. Omitting the key leaves an existing column value alone on
+ * Merge and null on Replace; the text itself is carried over as a note by
+ * `legacyNotes` below.
  */
-async function upsertContent(payload: ExportPayload): Promise<void> {
-  await repo.data.bulkUpsert('subcategories', payload.subcategories as RowList)
-  // Task rows are written WITHOUT `notes` (chunk 59, D3): the app no longer
-  // reads or writes `tasks.notes`. Omitting the key leaves an existing column
-  // value alone on Merge and null on Replace; the text itself is carried over
-  // as a note by `legacyTaskNotes` below.
-  await repo.data.bulkUpsert(
-    'tasks',
-    (payload.tasks as RowList).map((row) => {
-      const next = { ...row }
-      delete next.notes
-      return next
-    }),
-  )
-  // Planner blocks after tasks (FK `task_id`), with two chunk-50 rules:
-  //
-  // 1. `calendar_uid` is forced to NULL on every incoming row. A re-imported uid
-  //    points at an iCloud VEVENT this file cannot vouch for — deleted by hand,
-  //    a different calendar selected since, or written by another device. Seeded
-  //    into the DB it poisons the planner's reconcile: the uid appears in
-  //    neither `plannerEvents` nor the mirror's session record, so the drift loop
-  //    finds no observation and skips the block forever (mirrored to nothing);
-  //    where it does still resolve, drift repair rewrites a real event's times.
-  //    Null instead re-uses the mirror's BACKFILL path (chunk 39/46-49): with
-  //    `planner_writeout` on, the next load of the block's week creates the event
-  //    and stamps the new uid, and the orphan sweep removes whatever stale event
-  //    the file's uid used to name. Two consequences, stated so they are not
-  //    discovered later: with `planner_writeout` OFF at import time blocks simply
-  //    stay uid-less until it is turned on (documented chunk-39 behaviour, not a
-  //    bug); and stale events on weeks not visited after the import linger until
-  //    that week is loaded, since the sweep is per-week (B3a). Both acceptable.
-  //    The export itself is NOT redacted — it stays a faithful dump.
-  //
-  // 2. Conflict target is `task_id`, not `id`. `scheduled_blocks` is
-  //    `unique (task_id)`, so a Merge into a live DB that already holds a
-  //    DIFFERENT block for an incoming task would violate that constraint and
-  //    fail partway on an id-keyed upsert. Keying on the real invariant makes the
-  //    incoming row win and leaves exactly one block per task. (Residual edge: an
-  //    imported id that collides with a live block on some other task still
-  //    fails the pk — it needs ids reused across tasks, which an export cannot
-  //    produce.) Harmless in Replace, where the table was just emptied.
-  await repo.data.bulkUpsert(
-    'scheduled_blocks',
-    (payload.scheduled_blocks as RowList).map((row) => ({
-      ...row,
-      calendar_uid: null,
-    })),
-    'task_id',
-  )
-  // Notes after tasks (FK `task_id` / `subcategory_id`, chunk 58). Upsert on
-  // `id` — a task or a subcategory may hold many notes, so `id` is the only
-  // invariant.
-  const fileNotes = await withLiveLinks(payload)
-  await repo.data.bulkUpsert('notes', [
-    ...fileNotes,
-    ...(await legacyTaskNotes(payload, fileNotes)),
-  ])
-  await repo.data.bulkUpsert('routine_items', payload.routine_items as RowList)
-  await repo.data.bulkUpsert('routine_logs', payload.routine_logs as RowList)
-  if (payload.settings) {
-    // Strip every credential column so the upsert's ON CONFLICT DO UPDATE never
-    // touches them (chunk-16 review fix). The export redacts them to null;
-    // writing that null back would zero the LIVE secret (CalDAV password,
-    // Anthropic API key) and silently break calendar/AI. Omitting preserves them.
-    // Server-held state goes the same way (chunk 56 D2): the dropped legacy
-    // `ai_api_key` column, and the three statuses, which describe secrets this
-    // file does not carry — the live row's value is the only truthful one.
-    const settingsRow = { ...(payload.settings as Record<string, unknown>) }
-    for (const k of CREDENTIAL_SETTINGS_KEYS) delete settingsRow[k]
-    for (const k of IMPORT_STRIPPED_SETTINGS_KEYS) delete settingsRow[k]
-    await repo.data.bulkUpsert('settings', [settingsRow], 'user_id')
-  }
+function taskRows(payload: ExportPayload): RowList {
+  return (payload.tasks as RowList).map((row) => {
+    const next = { ...row }
+    delete next.notes
+    return next
+  })
 }
 
 /**
- * Notes ready to write (chunk 58): a `task_id` / `subcategory_id` that names
- * neither a row in this file nor a live row is written `null`, so the note
- * arrives freeform instead of failing its FK and aborting the import partway.
- * `detached_label` / `detached_at` are left exactly as the file has them — the
- * file's memo is the only record of what the note used to sit beside.
- *
- * Runs after `subcategories` and `tasks` are upserted. Only ids the file does
- * not itself carry cost a lookup, so a self-consistent export makes none.
+ * Planner blocks with `calendar_uid` forced to NULL (chunk 50). A re-imported
+ * uid points at an iCloud VEVENT this file cannot vouch for — deleted by hand,
+ * a different calendar selected since, or written by another device. Seeded
+ * into the DB it poisons the planner's reconcile: the uid appears in neither
+ * `plannerEvents` nor the mirror's session record, so the drift loop finds no
+ * observation and skips the block forever (mirrored to nothing); where it does
+ * still resolve, drift repair rewrites a real event's times. Null instead
+ * re-uses the mirror's BACKFILL path (chunk 39/46-49): with `planner_writeout`
+ * on, the next load of the block's week creates the event and stamps the new
+ * uid, and the orphan sweep removes whatever stale event the file's uid used to
+ * name. Two consequences, stated so they are not discovered later: with
+ * `planner_writeout` OFF at import time blocks simply stay uid-less until it is
+ * turned on (documented chunk-39 behaviour, not a bug); and stale events on
+ * weeks not visited after the import linger until that week is loaded, since
+ * the sweep is per-week (B3a). Both acceptable. The export itself is NOT
+ * redacted — it stays a faithful dump.
  */
-async function withLiveLinks(payload: ExportPayload): Promise<RowList> {
-  const notes = payload.notes as RowList
-  if (notes.length === 0) return []
-  const known = {
+function blockRows(payload: ExportPayload): RowList {
+  return (payload.scheduled_blocks as RowList).map((row) => ({
+    ...row,
+    calendar_uid: null,
+  }))
+}
+
+/**
+ * The settings row minus every key an import never writes, or null when the
+ * file has none. Credentials are stripped so the write never touches them
+ * (chunk-16 review fix): the export redacts them to null, and writing that null
+ * back would zero the LIVE secret (CalDAV password, Anthropic API key) and
+ * silently break calendar/AI. Omitting preserves them. Server-held state goes
+ * the same way (chunk 56 D2): the dropped legacy `ai_api_key` column, and the
+ * three statuses, which describe secrets this file does not carry — the live
+ * row's value is the only truthful one.
+ */
+function settingsRow(payload: ExportPayload): Record<string, unknown> | null {
+  if (!payload.settings) return null
+  const row = { ...(payload.settings as Record<string, unknown>) }
+  for (const k of CREDENTIAL_SETTINGS_KEYS) delete row[k]
+  for (const k of IMPORT_STRIPPED_SETTINGS_KEYS) delete row[k]
+  return row
+}
+
+type KnownIds = { task_id: Set<string>; subcategory_id: Set<string> }
+
+/** The task / subcategory ids the file itself carries. */
+function fileIds(payload: ExportPayload): KnownIds {
+  return {
     task_id: new Set((payload.tasks as RowList).map((r) => r.id as string)),
     subcategory_id: new Set(
       (payload.subcategories as RowList).map((r) => r.id as string),
     ),
   }
-  const tables = { task_id: 'tasks', subcategory_id: 'subcategories' } as const
-  for (const column of ['task_id', 'subcategory_id'] as const) {
-    const unknown = [
-      ...new Set(
-        notes
-          .map((n) => n[column])
-          .filter(
-            (id): id is string =>
-              typeof id === 'string' && !known[column].has(id),
-          ),
-      ),
-    ]
-    if (unknown.length === 0) continue
-    for (const id of await repo.data.existingIds(tables[column], unknown)) {
-      known[column].add(id)
-    }
-  }
-  return notes.map((n) => ({
+}
+
+/**
+ * Notes ready to write (chunk 58): a `task_id` / `subcategory_id` not in
+ * `known` is written `null`, so the note arrives freeform instead of failing
+ * its FK. `detached_label` / `detached_at` are left exactly as the file has
+ * them — the file's memo is the only record of what the note used to sit
+ * beside.
+ */
+function linkNotes(payload: ExportPayload, known: KnownIds): RowList {
+  return (payload.notes as RowList).map((n) => ({
     ...n,
     task_id:
       typeof n.task_id === 'string' && known.task_id.has(n.task_id)
@@ -261,33 +230,29 @@ async function withLiveLinks(payload: ExportPayload): Promise<RowList> {
 const bodyKey = (taskId: unknown, body: unknown) =>
   `${String(taskId)}\n${typeof body === 'string' ? body.trim() : ''}`
 
-/**
- * Legacy `tasks.notes` → notes (chunk 59, D3). Every incoming task row with a
- * non-blank `notes` string becomes one untitled note on that task, carrying
- * the task's own timestamps so it does not jump to the top of RECENT — the
- * same shape migration 17 writes.
- *
- * Skipped when a note with the same `task_id` and the same trimmed body is
- * already in the file (a chunk-59 export carries both the column and the
- * copied note) or already live (the file was imported before). So a pre-58
- * file imports into notes, and importing anything twice adds nothing.
- *
- * Runs after `tasks` is upserted, and its rows go out in the same `notes`
- * upsert as the file's own.
- */
-async function legacyTaskNotes(
-  payload: ExportPayload,
-  fileNotes: RowList,
-): Promise<RowList> {
-  const legacy = (payload.tasks as RowList).filter(
+/** Incoming task rows that still carry a non-blank legacy `notes` string. */
+function legacyTasks(payload: ExportPayload): RowList {
+  return (payload.tasks as RowList).filter(
     (row) => typeof row.notes === 'string' && row.notes.trim() !== '',
   )
-  if (legacy.length === 0) return []
-  const seen = new Set(fileNotes.map((n) => bodyKey(n.task_id, n.body)))
-  const live = await repo.data.noteBodiesForTasks(
-    legacy.map((row) => row.id as string),
-  )
-  for (const n of live) seen.add(bodyKey(n.task_id, n.body))
+}
+
+/**
+ * Legacy `tasks.notes` → notes (chunk 59, D3). Every row of `legacy` becomes
+ * one untitled note on that task, carrying the task's own timestamps so it
+ * does not jump to the top of RECENT — the same shape migration 17 writes.
+ *
+ * Skipped when a note with the same `task_id` and the same trimmed body is in
+ * `existing`: the file's own notes (a chunk-59 export carries both the column
+ * and the copied note) and, on Merge, the live ones (the file was imported
+ * before). So a pre-58 file imports into notes, and importing anything twice
+ * adds nothing.
+ */
+function legacyNotes(
+  legacy: RowList,
+  existing: { task_id?: unknown; body?: unknown }[],
+): RowList {
+  const seen = new Set(existing.map((n) => bodyKey(n.task_id, n.body)))
   const out: RowList = []
   for (const row of legacy) {
     const key = bodyKey(row.id, row.notes)
@@ -311,34 +276,117 @@ async function legacyTaskNotes(
 }
 
 /**
- * Replace: teardown children→parents (never categories), reinsert
- * parents→children, clear the outbox (queued mutations are now invalid), and
- * drop the local cache so it rebuilds from Supabase on next read.
+ * Everything Replace writes, built from the file alone (chunk 62) — no
+ * network, no Dexie, and the caller's object is not mutated. Note links and
+ * the legacy-note dedupe resolve against the file only: `import_replace`
+ * empties the account before it inserts, so the file's own rows are the only
+ * ones a link could name.
+ */
+export function buildReplacePayload(
+  payload: ExportPayload,
+): Record<string, unknown> {
+  const fileNotes = linkNotes(payload, fileIds(payload))
+  return {
+    subcategories: payload.subcategories,
+    tasks: taskRows(payload),
+    scheduled_blocks: blockRows(payload),
+    notes: [...fileNotes, ...legacyNotes(legacyTasks(payload), fileNotes)],
+    routine_items: payload.routine_items,
+    routine_logs: payload.routine_logs,
+    settings: settingsRow(payload),
+  }
+}
+
+/**
+ * Merge: upsert the user-scoped content tables, parents before children.
+ * Categories are not touched (stable infra). Settings upserts on `user_id`.
+ */
+async function upsertContent(payload: ExportPayload): Promise<void> {
+  await repo.data.bulkUpsert('subcategories', payload.subcategories as RowList)
+  await repo.data.bulkUpsert('tasks', taskRows(payload))
+  // Planner blocks after tasks (FK `task_id`). Conflict target is `task_id`,
+  // not `id`: `scheduled_blocks` is `unique (task_id)`, so a Merge into a live
+  // DB that already holds a DIFFERENT block for an incoming task would violate
+  // that constraint and fail partway on an id-keyed upsert. Keying on the real
+  // invariant makes the incoming row win and leaves exactly one block per task.
+  // (Residual edge: an imported id that collides with a live block on some
+  // other task still fails the pk — it needs ids reused across tasks, which an
+  // export cannot produce.)
+  await repo.data.bulkUpsert('scheduled_blocks', blockRows(payload), 'task_id')
+  // Notes after tasks (FK `task_id` / `subcategory_id`, chunk 58). Upsert on
+  // `id` — a task or a subcategory may hold many notes, so `id` is the only
+  // invariant.
+  const fileNotes = await withLiveLinks(payload)
+  await repo.data.bulkUpsert('notes', [
+    ...fileNotes,
+    ...(await legacyTaskNotes(payload, fileNotes)),
+  ])
+  await repo.data.bulkUpsert('routine_items', payload.routine_items as RowList)
+  await repo.data.bulkUpsert('routine_logs', payload.routine_logs as RowList)
+  const settings = settingsRow(payload)
+  if (settings) await repo.data.bulkUpsert('settings', [settings], 'user_id')
+}
+
+/**
+ * Merge's note links: an id counts as known when it is in the file or live.
+ * Runs after `subcategories` and `tasks` are upserted. Only ids the file does
+ * not itself carry cost a lookup, so a self-consistent export makes none.
+ */
+async function withLiveLinks(payload: ExportPayload): Promise<RowList> {
+  const notes = payload.notes as RowList
+  if (notes.length === 0) return []
+  const known = fileIds(payload)
+  const tables = { task_id: 'tasks', subcategory_id: 'subcategories' } as const
+  for (const column of ['task_id', 'subcategory_id'] as const) {
+    const unknown = [
+      ...new Set(
+        notes
+          .map((n) => n[column])
+          .filter(
+            (id): id is string =>
+              typeof id === 'string' && !known[column].has(id),
+          ),
+      ),
+    ]
+    if (unknown.length === 0) continue
+    for (const id of await repo.data.existingIds(tables[column], unknown)) {
+      known[column].add(id)
+    }
+  }
+  return linkNotes(payload, known)
+}
+
+/**
+ * Merge's legacy notes: deduped against the file's notes and the live ones.
+ * Runs after `tasks` is upserted, and its rows go out in the same `notes`
+ * upsert as the file's own.
+ */
+async function legacyTaskNotes(
+  payload: ExportPayload,
+  fileNotes: RowList,
+): Promise<RowList> {
+  const legacy = legacyTasks(payload)
+  if (legacy.length === 0) return []
+  const live = await repo.data.noteBodiesForTasks(
+    legacy.map((row) => row.id as string),
+  )
+  return legacyNotes(legacy, [...fileNotes, ...live])
+}
+
+/**
+ * Replace: one `import_replace` call (teardown children→parents, never
+ * categories; reinsert parents→children; settings overlay) in one transaction.
+ * Only once it has landed is the outbox cleared (queued mutations are now
+ * invalid) and the local cache dropped so it rebuilds from Supabase on next
+ * read. If the call throws, the account is as it was and both are left alone.
+ * `userId` is unused — the server scopes to `auth.uid()`.
  */
 export async function replaceAll(
   payload: ExportPayload,
   userId: string,
 ): Promise<void> {
-  const teardown: TableName[] = [
-    // Notes first (chunk 58): they are not deleted by the `tasks` /
-    // `subcategories` teardown (`on delete set null`), and deleting them
-    // before their targets keeps migration 16's detach-memo triggers from
-    // stamping every note on a wipe.
-    'notes',
-    // Deleting `tasks` already cascades blocks; listing them first makes the
-    // intent explicit rather than depending on a cascade a future migration
-    // might change.
-    'scheduled_blocks',
-    'tasks',
-    'routine_logs',
-    'subcategories',
-    'routine_items',
-    'push_subscriptions',
-  ]
-  for (const table of teardown) {
-    await repo.data.bulkDeleteAllForUser(table, userId)
-  }
-  await upsertContent(payload)
+  void userId
+  await repo.data.importReplace(buildReplacePayload(payload))
   await db.outbox.clear()
   await wipeLocalCache()
 }
@@ -350,8 +398,8 @@ export async function mergeAll(payload: ExportPayload): Promise<void> {
 }
 
 /**
- * Validate (R4 gate) then apply. The validation throws before any delete, so a
- * bad file can never cause a partial wipe.
+ * Validate (R4 gate) then apply. The validation throws before any network
+ * call, so a bad file never reaches the server.
  */
 export async function importData(
   parsed: unknown,

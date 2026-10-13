@@ -1371,7 +1371,7 @@ function DataSection() {
       console.error('Import failed', e)
       toast.error(
         mode === 'replace'
-          ? 'Replace failed partway — some data may not have imported. Re-import your export file to restore.'
+          ? 'Replace failed — nothing was changed.'
           : 'Could not import — retry',
       )
     } finally {

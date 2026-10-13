@@ -4,6 +4,7 @@ const {
   bulkUpsert,
   bulkDeleteAllForUser,
   existingIds,
+  importReplace,
   noteBodiesForTasks,
   outboxClear,
   wipeLocalCacheMock,
@@ -16,20 +17,36 @@ const {
     existingIds: vi.fn<(table: string, ids: string[]) => Promise<string[]>>(
       () => Promise.resolve([]),
     ),
+    importReplace: vi.fn<(payload: Record<string, unknown>) => Promise<void>>(
+      () => Promise.resolve(),
+    ),
     outboxClear: vi.fn(() => Promise.resolve()),
     wipeLocalCacheMock: vi.fn(() => Promise.resolve()),
   }))
 
 vi.mock('@/db/repo', () => ({
   repo: {
-    data: { bulkUpsert, bulkDeleteAllForUser, existingIds, noteBodiesForTasks },
+    data: {
+      bulkUpsert,
+      bulkDeleteAllForUser,
+      existingIds,
+      importReplace,
+      noteBodiesForTasks,
+    },
   },
 }))
 vi.mock('@/db/dexie', () => ({ db: { outbox: { clear: outboxClear } } }))
 vi.mock('@/db/localCache', () => ({ wipeLocalCache: wipeLocalCacheMock }))
 
-import { buildExportPayload } from './export'
+import migration19 from '../../supabase/migrations/19_import_replace.sql?raw'
+
 import {
+  buildExportPayload,
+  CREDENTIAL_SETTINGS_KEYS,
+  IMPORT_STRIPPED_SETTINGS_KEYS,
+} from './export'
+import {
+  buildReplacePayload,
   importData,
   ImportValidationError,
   previewCounts,
@@ -48,10 +65,34 @@ const BLOCK = {
   updated_at: '2026-08-01T00:00:00+00:00',
 }
 
-/** The rows of the last bulkUpsert call for `table` (undefined if never called). */
+/** The payload of the last `importReplace` call (undefined if never called). */
+function replacePayload() {
+  return importReplace.mock.calls.at(-1)?.[0]
+}
+
+/**
+ * The rows last written to `table`: Merge's last bulkUpsert call for it, or —
+ * when there is none — that table's slice of the Replace payload (chunk 62;
+ * `settings` is one object there, returned as a one-row list). Undefined if
+ * neither happened.
+ */
 function upsertedRows(table: string) {
   const call = bulkUpsert.mock.calls.filter((c) => c[0] === table).at(-1)
-  return call?.[1] as Record<string, unknown>[] | undefined
+  if (call) return call[1] as Record<string, unknown>[]
+  const sent = replacePayload()?.[table]
+  if (sent == null) return undefined
+  return (Array.isArray(sent) ? sent : [sent]) as Record<string, unknown>[]
+}
+
+/** Table names in the order migration 19 runs `verb public.<table>` on them. */
+function migrationOrder(verb: 'delete from' | 'insert into') {
+  const body = migration19.slice(
+    migration19.indexOf('-- Teardown, children first.'),
+    migration19.indexOf('-- Settings:'),
+  )
+  return [...body.matchAll(new RegExp(`${verb} public\\.(\\w+)`, 'g'))].map(
+    (m) => m[1],
+  )
 }
 
 function validPayload(over: Record<string, unknown> = {}) {
@@ -122,10 +163,7 @@ describe('settings credential safety (chunk-16 review fix)', () => {
       }),
       mode,
       'u1',
-    ).then(() => {
-      const call = bulkUpsert.mock.calls.find((c) => c[0] === 'settings')
-      return (call?.[1] as Record<string, unknown>[])?.[0]
-    })
+    ).then(() => upsertedRows('settings')?.[0])
   }
 
   it('omits every credential key from the settings upsert on Merge — live secrets survive', async () => {
@@ -219,15 +257,23 @@ describe('importData — validate before any delete (R4)', () => {
     ).rejects.toThrow(ImportValidationError)
     expect(bulkDeleteAllForUser).not.toHaveBeenCalled()
     expect(bulkUpsert).not.toHaveBeenCalled()
+    expect(importReplace).not.toHaveBeenCalled()
     expect(outboxClear).not.toHaveBeenCalled()
   })
 })
 
 describe('replace mode', () => {
-  it('tears down (never categories) then upserts parents→children, clears outbox, reloads cache', async () => {
+  it('makes one importReplace call (never categories), then clears outbox and reloads cache', async () => {
     await importData(validPayload(), 'replace', 'u1')
 
-    const deleted = bulkDeleteAllForUser.mock.calls.map((c) => c[0])
+    expect(importReplace).toHaveBeenCalledTimes(1)
+    expect(bulkDeleteAllForUser).not.toHaveBeenCalled()
+    expect(bulkUpsert).not.toHaveBeenCalled()
+    expect(existingIds).not.toHaveBeenCalled()
+    expect(noteBodiesForTasks).not.toHaveBeenCalled()
+
+    // The teardown and reinsert order now live in migration 19.
+    const deleted = migrationOrder('delete from')
     expect(deleted).toEqual([
       'notes',
       'scheduled_blocks',
@@ -238,9 +284,15 @@ describe('replace mode', () => {
       'push_subscriptions',
     ])
     expect(deleted).not.toContain('categories')
-
-    const upserted = bulkUpsert.mock.calls.map((c) => c[0])
-    expect(upserted).toEqual([
+    expect(migrationOrder('insert into')).toEqual([
+      'subcategories',
+      'tasks',
+      'scheduled_blocks',
+      'notes',
+      'routine_items',
+      'routine_logs',
+    ])
+    expect(Object.keys(replacePayload()!)).toEqual([
       'subcategories',
       'tasks',
       'scheduled_blocks',
@@ -249,16 +301,132 @@ describe('replace mode', () => {
       'routine_logs',
       'settings',
     ])
-    const settingsCall = bulkUpsert.mock.calls.find((c) => c[0] === 'settings')
-    expect(settingsCall?.[2]).toBe('user_id')
 
     expect(outboxClear).toHaveBeenCalledTimes(1)
     expect(wipeLocalCacheMock).toHaveBeenCalledTimes(1)
+    const sent = importReplace.mock.invocationCallOrder[0]
+    expect(sent).toBeLessThan(outboxClear.mock.invocationCallOrder[0])
+    expect(sent).toBeLessThan(wipeLocalCacheMock.mock.invocationCallOrder[0])
+  })
 
-    // every delete precedes every upsert
-    const lastDelete = Math.max(...bulkDeleteAllForUser.mock.invocationCallOrder)
-    const firstUpsert = Math.min(...bulkUpsert.mock.invocationCallOrder)
-    expect(lastDelete).toBeLessThan(firstUpsert)
+  it('a failed Replace changes nothing locally', async () => {
+    const boom = new Error('23503')
+    importReplace.mockRejectedValueOnce(boom)
+
+    await expect(importData(validPayload(), 'replace', 'u1')).rejects.toBe(boom)
+    expect(outboxClear).not.toHaveBeenCalled()
+    expect(wipeLocalCacheMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('buildReplacePayload (chunk 62)', () => {
+  const NOTE = {
+    id: 'n1',
+    user_id: 'u1',
+    title: 'Kickoff',
+    body: 'Agenda',
+    pinned: false,
+    task_id: 't1',
+    subcategory_id: null,
+    detached_label: null,
+    detached_at: null,
+    created_at: '2026-10-01T00:00:00+00:00',
+    updated_at: '2026-10-02T00:00:00+00:00',
+  }
+  const task = (id: string, notes?: string) => ({
+    id,
+    user_id: 'u1',
+    title: id,
+    ...(notes === undefined ? {} : { notes }),
+    created_at: '2026-01-01T00:00:00+00:00',
+    updated_at: '2026-01-02T00:00:00+00:00',
+  })
+
+  it('builds everything Replace writes from the file alone, without mutating it', () => {
+    const file = validateImport(
+      validPayload({
+        tasks: [task('t1', 'Already copied  '), task('t2', 'Call the vendor')],
+        notes: [
+          { ...NOTE, body: 'Already copied' }, // t1 is in the file
+          { ...NOTE, id: 'n2', task_id: 't-gone', detached_label: 'Old plan' },
+          { ...NOTE, id: 'n3', task_id: null, subcategory_id: 's-gone' },
+          { ...NOTE, id: 'n4', task_id: null, subcategory_id: 's1' },
+        ],
+        settings: {
+          user_id: 'u1',
+          timezone: 'America/Chicago',
+          caldav_app_password_encrypted: null,
+          ai_api_key_encrypted: null,
+          outlook_ics_url_encrypted: null,
+          ai_api_key: null,
+          ai_status: 'ok',
+          caldav_status: 'ok',
+          outlook_status: 'auth_failed',
+        },
+      }),
+    )
+    const before = structuredClone(file)
+
+    const out = buildReplacePayload(file) as Record<
+      string,
+      Record<string, unknown>[]
+    >
+
+    expect(out.tasks.map((t) => t.id)).toEqual(['t1', 't2'])
+    for (const row of out.tasks) expect(row).not.toHaveProperty('notes')
+    expect(out.scheduled_blocks).toHaveLength(1)
+    for (const row of out.scheduled_blocks) expect(row.calendar_uid).toBeNull()
+
+    const [n1, n2, n3, n4, legacy, ...rest] = out.notes
+    expect(n1).toEqual({ ...NOTE, body: 'Already copied' })
+    expect(n2).toEqual({
+      ...NOTE,
+      id: 'n2',
+      task_id: null,
+      detached_label: 'Old plan',
+    })
+    expect(n3).toEqual({ ...NOTE, id: 'n3', task_id: null, subcategory_id: null })
+    expect(n4).toEqual({ ...NOTE, id: 'n4', task_id: null, subcategory_id: 's1' })
+    // t1's legacy text is already a note in the file (trimmed match); t2's is not.
+    expect(rest).toEqual([])
+    expect(legacy).toMatchObject({
+      user_id: 'u1',
+      title: '',
+      body: 'Call the vendor',
+      task_id: 't2',
+      subcategory_id: null,
+      created_at: '2026-01-01T00:00:00+00:00',
+      updated_at: '2026-01-02T00:00:00+00:00',
+    })
+
+    const settings = out.settings as unknown as Record<string, unknown>
+    for (const k of [
+      ...CREDENTIAL_SETTINGS_KEYS,
+      ...IMPORT_STRIPPED_SETTINGS_KEYS,
+    ]) {
+      expect(settings).not.toHaveProperty(k)
+    }
+    expect(settings.timezone).toBe('America/Chicago')
+
+    expect(file).toEqual(before)
+  })
+
+  it('a file with no settings sends settings: null', () => {
+    const out = buildReplacePayload(validateImport(validPayload({ settings: null })))
+    expect(out.settings).toBeNull()
+  })
+
+  it('migration 19 strips every settings key the client strips', () => {
+    const denylist = migration19.match(
+      /s := \(p->'settings'\) - array\[([\s\S]*?)\];/,
+    )?.[1]
+    expect(denylist).toBeDefined()
+    for (const k of [
+      ...CREDENTIAL_SETTINGS_KEYS,
+      ...IMPORT_STRIPPED_SETTINGS_KEYS,
+    ]) {
+      expect(denylist).toContain(`'${k}'`)
+    }
   })
 })
 
@@ -293,12 +461,10 @@ describe('scheduled_blocks (chunk 50)', () => {
     expect(previewCounts(validated).scheduled_blocks).toBe(0)
 
     await importData(p, 'replace', 'u1')
-    // Nothing to write (repo.bulkUpsert no-ops on an empty list) — but the
-    // teardown still ran, so a stale live block cannot survive a Replace.
+    // Nothing to write — but the teardown still runs, so a stale live block
+    // cannot survive a Replace.
     expect(upsertedRows('scheduled_blocks')).toEqual([])
-    expect(bulkDeleteAllForUser.mock.calls.map((c) => c[0])).toContain(
-      'scheduled_blocks',
-    )
+    expect(migrationOrder('delete from')).toContain('scheduled_blocks')
   })
 
   it('does not mutate the caller\u2019s parsed object when defaulting', () => {
@@ -331,16 +497,17 @@ describe('scheduled_blocks (chunk 50)', () => {
     ).rejects.toThrow(ImportValidationError)
     expect(bulkDeleteAllForUser).not.toHaveBeenCalled()
     expect(bulkUpsert).not.toHaveBeenCalled()
+    expect(importReplace).not.toHaveBeenCalled()
   })
 
   it('replace: blocks are torn down first, re-inserted after tasks, uid nulled', async () => {
     await importData(validPayload(), 'replace', 'u1')
 
-    const deleted = bulkDeleteAllForUser.mock.calls.map((c) => c[0])
+    const deleted = migrationOrder('delete from')
     expect(deleted.indexOf('scheduled_blocks')).toBeLessThan(
       deleted.indexOf('tasks'),
     )
-    const upserted = bulkUpsert.mock.calls.map((c) => c[0])
+    const upserted = migrationOrder('insert into')
     expect(upserted.indexOf('scheduled_blocks')).toBeGreaterThan(
       upserted.indexOf('tasks'),
     )
@@ -463,19 +630,20 @@ describe('notes (chunk 58)', () => {
       importData(validPayload({ notes: [{ title: 'no id' }] }), 'replace', 'u1'),
     ).rejects.toThrow(ImportValidationError)
     expect(bulkDeleteAllForUser).not.toHaveBeenCalled()
+    expect(importReplace).not.toHaveBeenCalled()
   })
 
   it('Replace deletes notes before tasks and subcategories, and inserts them after tasks', async () => {
     await importData(validPayload({ notes: [NOTE] }), 'replace', 'u1')
 
-    const deleted = bulkDeleteAllForUser.mock.calls.map((c) => c[0])
+    const deleted = migrationOrder('delete from')
     expect(deleted[0]).toBe('notes')
     expect(deleted.indexOf('notes')).toBeLessThan(deleted.indexOf('tasks'))
     expect(deleted.indexOf('notes')).toBeLessThan(
       deleted.indexOf('subcategories'),
     )
 
-    const upserted = bulkUpsert.mock.calls.map((c) => c[0])
+    const upserted = migrationOrder('insert into')
     expect(upserted.indexOf('notes')).toBeGreaterThan(upserted.indexOf('tasks'))
     expect(upsertedRows('notes')).toEqual([NOTE])
   })
@@ -488,7 +656,27 @@ describe('notes (chunk 58)', () => {
     expect(bulkDeleteAllForUser).not.toHaveBeenCalled()
   })
 
-  it.each(['replace', 'merge'] as const)(
+  it('replace: a link that is not in the file is written null, with no live read; the memo is kept', async () => {
+    const notes = [
+      NOTE, // t1 is in the file
+      { ...NOTE, id: 'n2', task_id: 't-gone', detached_label: 'Old plan' },
+      { ...NOTE, id: 'n3', task_id: null, subcategory_id: 's-gone' },
+      { ...NOTE, id: 'n5', task_id: null, subcategory_id: 's1' },
+    ]
+
+    await importData(validPayload({ notes }), 'replace', 'u1')
+
+    // The account is emptied in the same transaction, so only the file counts.
+    expect(existingIds).not.toHaveBeenCalled()
+    expect(upsertedRows('notes')).toEqual([
+      NOTE,
+      { ...NOTE, id: 'n2', task_id: null, detached_label: 'Old plan' },
+      { ...NOTE, id: 'n3', task_id: null, subcategory_id: null },
+      { ...NOTE, id: 'n5', task_id: null, subcategory_id: 's1' },
+    ])
+  })
+
+  it.each(['merge'] as const)(
     '%s: a link that is neither in the file nor live is written null; the memo is kept',
     async (mode) => {
       const notes = [
@@ -561,7 +749,9 @@ describe('legacy tasks.notes → notes (chunk 59, D3)', () => {
       expect(notes[0].id).not.toBe(notes[1].id)
       // Blank and null notes are skipped; the body is kept as written.
       expect(notes[1].body).toBe('  padded  ')
-      // Synthesized notes go out with the file's own, after tasks.
+      // Synthesized notes go out with the file's own, after tasks. (Replace
+      // sends one `notes` array; migration 19 inserts it after tasks.)
+      if (mode === 'replace') return
       const order = bulkUpsert.mock.calls.map((c) => c[0])
       expect(order.indexOf('notes')).toBeGreaterThan(order.indexOf('tasks'))
       expect(order.filter((t) => t === 'notes')).toHaveLength(1)
@@ -651,6 +841,7 @@ describe('legacy tasks.notes → notes (chunk 59, D3)', () => {
       // The `legacy.length === 0` early return: no live read, nothing added.
       expect(noteBodiesForTasks).not.toHaveBeenCalled()
       expect(upsertedRows('notes')).toEqual([own])
+      if (mode === 'replace') continue
       const order = bulkUpsert.mock.calls.map((c) => c[0])
       expect(order.indexOf('notes')).toBeGreaterThan(order.indexOf('tasks'))
       expect(order.filter((t) => t === 'notes')).toHaveLength(1)

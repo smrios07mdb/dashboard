@@ -1431,6 +1431,16 @@ const dataRepo = {
       .eq('user_id', userId)
     throwIfClientError(error as SupabaseError | null)
   },
+
+  /**
+   * Replace-import in one server-side transaction (chunk 62, migration 19).
+   * Either every table is replaced or nothing changed. Online-only, like the
+   * rest of `repo.data`; throws on any error.
+   */
+  async importReplace(payload: Record<string, unknown>): Promise<void> {
+    const { error } = await supabase.rpc('import_replace', { p: payload })
+    throwIfClientError(error as SupabaseError | null)
+  },
 }
 
 // ---------- exported namespace ----------

@@ -42,6 +42,16 @@ vi.mock('@/lib/ai', async (importOriginal) => {
   return { ...actual, saveAiKey: saveAiKeyMock, removeAiKey: removeAiKeyMock }
 })
 
+// Chunk 62: only the import's network half is stubbed; `validateImport` and
+// `previewCounts` stay real so the file picker and the dialog behave as shipped.
+const { importDataMock } = vi.hoisted(() => ({ importDataMock: vi.fn() }))
+vi.mock('@/lib/import', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/import')>()
+  return { ...actual, importData: importDataMock }
+})
+
+import { Toaster } from 'sonner'
+
 import Settings from './Settings'
 import { AiError } from '@/lib/ai'
 
@@ -488,5 +498,60 @@ describe('Settings — write target vs read set (chunk 51)', () => {
         }),
       ),
     )
+  })
+})
+
+describe('Settings — Replace failure toast (chunk 62)', () => {
+  beforeEach(() => {
+    settingsGetMock.mockResolvedValue({
+      userId: 'u1',
+      aiStatus: 'unconfigured',
+      caldavAppleId: null,
+      caldavCalendarUrl: null,
+      caldavStatus: 'unconfigured',
+      timezone: 'America/New_York',
+      lastDailyReset: null,
+    })
+  })
+  afterEach(() => vi.clearAllMocks())
+
+  it('a confirmed Replace that fails says nothing was changed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    importDataMock.mockRejectedValue(new Error('23503'))
+    const file = {
+      version: 1,
+      categories: [],
+      subcategories: [],
+      tasks: [{ id: 't1' }],
+      routine_items: [],
+      routine_logs: [],
+      settings: null,
+    }
+    const user = userEvent.setup()
+    const { container } = render(
+      <>
+        <Settings />
+        <Toaster />
+      </>,
+    )
+    await screen.findByRole('button', { name: /import data/i })
+
+    await user.upload(
+      container.querySelector<HTMLInputElement>('input[type="file"]')!,
+      new File([JSON.stringify(file)], 'export.json', {
+        type: 'application/json',
+      }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Replace all' }))
+    await user.type(within(dialog).getByLabelText(/type replace/i), 'REPLACE')
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Replace everything' }),
+    )
+
+    expect(
+      await screen.findByText('Replace failed — nothing was changed.'),
+    ).toBeInTheDocument()
+    expect(importDataMock).toHaveBeenCalledWith(file, 'replace', 'u1')
   })
 })
