@@ -73,7 +73,9 @@ function renderHero(
         subcategories={SUBS}
         categories={categories}
         streak={opts.streak ?? 0}
-        today={opts.today ?? { done: 0, total: 0 }}
+        // Chunk 74: a planned day by default — with nothing planned the hero
+        // is one line and has no bars for the cases below to read.
+        today={opts.today ?? { done: 0, total: 1 }}
       />
     </MemoryRouter>,
   )
@@ -121,15 +123,47 @@ describe('DailyHero today ring and chips (chunk 70)', () => {
     expect(screen.queryByText(/\/\d+ done$/)).not.toBeInTheDocument()
   })
 
-  it('shows an em dash and a prompt when nothing is planned', () => {
+  // Chunk 74: with nothing planned the hero is one line.
+  it('collapses to one line when nothing is planned', () => {
     renderHero([WORK, PERSONAL], { today: { done: 0, total: 0 } })
-    const ring = screen.getByRole('img', { name: 'Today: nothing planned' })
-    expect(within(ring).getByText('—')).toBeInTheDocument()
-    expect(within(ring).queryByText('%')).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /^Today: / })).not.toBeInTheDocument()
     expect(
-      screen.getByText('Nothing planned yet — pick a few for today.'),
-    ).toBeInTheDocument()
+      screen.queryByText('Nothing planned yet — pick a few for today.'),
+    ).not.toBeInTheDocument()
     expect(screen.queryByText(/\d+\/\d+ today/)).not.toBeInTheDocument()
+    // No category bars.
+    expect(screen.queryByText('Work')).not.toBeInTheDocument()
+    expect(screen.queryByText('Personal')).not.toBeInTheDocument()
+
+    const h1 = screen.getByRole('heading', { level: 1 })
+    expect(h1).toHaveStyle({ fontSize: '20px' })
+    const pill = screen.getByRole('button', { name: /what.s next/i })
+    // One row: the greeting and the pill share the card's single flex line.
+    expect(h1.parentElement).toHaveStyle({ display: 'flex', flexWrap: 'wrap' })
+    expect(h1.parentElement).toContainElement(pill)
+    expect(screen.getByLabelText('Available minutes')).toBeInTheDocument()
+  })
+
+  it('keeps the streak and level chips when nothing is planned', () => {
+    renderHero([WORK, PERSONAL], { today: { done: 0, total: 0 }, streak: 2 })
+    const chip = screen.getByTitle('Check-in streak')
+    expect(chip).toHaveTextContent('2')
+    // TASKS has completions, so there is XP and the level chip shows too.
+    expect(screen.getByText('LVL')).toBeInTheDocument()
+    expect(chip.parentElement).toBe(
+      screen.getByRole('heading', { level: 1 }).parentElement,
+    )
+  })
+
+  it('keeps the full hero once anything is planned', () => {
+    renderHero([WORK, PERSONAL], { today: { done: 0, total: 1 } })
+    expect(
+      screen.getByRole('img', { name: 'Today: 0 of 1 planned tasks done' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1 })).toHaveStyle({
+      fontSize: '28px',
+    })
+    expect(screen.getByText('Work')).toBeInTheDocument()
   })
 
   it('says the plan is cleared when every planned task is done', () => {

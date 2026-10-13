@@ -30,6 +30,8 @@ const {
   routineLogsList,
   routineItemsList,
   settingsGet,
+  getBusyDay,
+  sessionUser,
 } = vi.hoisted(() => ({
   categoriesList: vi.fn(),
   subcategoriesList: vi.fn(),
@@ -41,7 +43,16 @@ const {
   routineLogsList: vi.fn(),
   routineItemsList: vi.fn(),
   settingsGet: vi.fn(),
+  // Chunk 74: the busy fetch, and a session user for the cases that need one.
+  getBusyDay: vi.fn(),
+  sessionUser: { value: null as { id: string; email: string } | null },
 }))
+
+// Signed out by default, as before chunk 74; the busy cases sign in.
+vi.mock('@/lib/auth', () => ({
+  useSession: () => ({ user: sessionUser.value, session: null, loading: false }),
+}))
+vi.mock('@/lib/busyCache', () => ({ getBusyDay }))
 
 vi.mock('@/db/repo', () => ({
   repo: {
@@ -88,7 +99,9 @@ vi.mock('@dnd-kit/core', async (importOriginal) => {
 import Dashboard from './Dashboard'
 import { useSyncStore } from '@/db/syncStore'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
+import { REVIEW_KEY } from '@/lib/review'
 import { taskDragCollision } from '@/lib/taskDragCollision'
+import { useTodayListStore } from '@/state/todayList'
 import { useUIStore } from '@/state/uiStore'
 
 // Radix DropdownMenu needs these jsdom shims (chunk 72 opens the ⋯ menu).
@@ -137,7 +150,11 @@ function mkSub(
 function mkTask(
   id: string,
   subcategoryId: string,
-  opts: { completedAt?: string | null; priority?: 1 | 2 | 3 | null } = {},
+  opts: {
+    completedAt?: string | null
+    priority?: 1 | 2 | 3 | null
+    createdAt?: string
+  } = {},
 ) {
   return {
     id,
@@ -150,10 +167,14 @@ function mkTask(
     notified: false,
     priority: opts.priority ?? null,
     completedAt: opts.completedAt ?? null,
-    createdAt: '2026-01-01T00:00:00.000Z',
+    createdAt: opts.createdAt ?? '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000
+/** An ISO instant `n` days before now (chunk 74: task age, last review). */
+const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS).toISOString()
 
 function mkItem(
   id: string,
@@ -201,6 +222,11 @@ describe('Dashboard', () => {
     // Reset stores between tests so refresh-key counts don't bleed across cases.
     useSyncStore.setState({ state: 'synced', lastSyncAt: null })
     useUIStore.setState({ dashboardRefreshKey: 0 })
+    // Chunk 74: signed out, Today stacked, no review on record.
+    getBusyDay.mockReset()
+    sessionUser.value = null
+    useTodayListStore.setState({ todayList: 'stacked' })
+    localStorage.removeItem(REVIEW_KEY)
   })
 
   afterEach(() => {
@@ -421,9 +447,7 @@ describe('Dashboard', () => {
     expect(queryByText('Set up your first list')).toBeNull()
   })
 
-  it('renders the hero ring %, done readout and spark pill from real data', async () => {
-    // 1 of 4 tasks complete → ring 25%, "1/4 done", Work bar 1/4. This is the
-    // hero equivalent of the retired TodayStrip's open-count summary.
+  it('renders the one-line hero and the spark pill when nothing is planned', async () => {
     categoriesList.mockResolvedValue([
       mkCat('cat-work', 'Work'),
       mkCat('cat-personal', 'Personal'),
@@ -438,13 +462,16 @@ describe('Dashboard', () => {
 
     const { container, findByRole } = renderDashboard()
 
-    // Chunk 70: the ring reads the Today plan, not all-time completion. None
-    // of these is planned, so it shows the em dash instead of "25%" / "1/4 done".
-    const ring = await findByRole('img', { name: 'Today: nothing planned' })
-    expect(ring).toHaveTextContent('—')
-    expect(container.textContent).not.toContain('1/4 done')
+    // Chunk 74: none of these is planned, so the hero is one line — no ring
+    // (chunk 70 showed an em dash there), no all-time "1/4 done".
     // The fused spark pill opens the existing "What's next?" sheet.
     expect(await findByRole('button', { name: /what.s next/i })).toBeTruthy()
+    expect(screen.queryByRole('img', { name: /^Today: / })).toBeNull()
+    expect(
+      screen.queryByText('Nothing planned yet — pick a few for today.'),
+    ).toBeNull()
+    expect(container.textContent).not.toContain('1/4 done')
+    expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
   })
 
   it('feeds the hero ring from the Today plan, not all-time completion (chunk 70)', async () => {
@@ -823,5 +850,218 @@ describe('Dashboard', () => {
     await waitFor(() =>
       expect(tasksMarkComplete).toHaveBeenCalledWith('Alpha', false),
     )
+  })
+
+  // ---------- chunk 74: busy line, task age, weekly review ----------
+
+  const SETTINGS = { caldavStatus: 'ok', timezone: 'America/New_York' }
+  // 12:00–12:30 in New York.
+  const BUSY = [
+    { start: '2026-10-13T16:00:00.000Z', end: '2026-10-13T16:30:00.000Z' },
+  ]
+
+  function seedOneList(tasks: ReturnType<typeof mkTask>[]) {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue(tasks)
+  }
+
+  /** The Today header's title row: sun, "Today", the date, the busy line. */
+  const todayTitleRow = () =>
+    screen.getByRole('heading', { name: 'Today' }).parentElement!
+
+  it('shows the reconnect banner and no busy text when the calendar auth failed (chunk 74)', async () => {
+    sessionUser.value = { id: 'u1', email: 'a@b.c' }
+    settingsGet.mockResolvedValue({ ...SETTINGS, caldavStatus: 'auth_failed' })
+    seedOneList([mkTask('Open task', 'sw1', { createdAt: daysAgo(1) })])
+
+    const { container } = renderDashboard()
+
+    const banner = await screen.findByText('Apple Calendar disconnected')
+    // First thing on the page.
+    expect(container.firstElementChild!.firstElementChild).toContainElement(banner)
+    expect(screen.queryByText(/busy/i, { ignore: '[role="alert"] *' })).toBeNull()
+    expect(todayTitleRow().textContent).not.toMatch(/busy/i)
+    expect(getBusyDay).not.toHaveBeenCalled()
+  })
+
+  it('shows the reconnect banner on the first-run screen too (chunk 74)', async () => {
+    sessionUser.value = { id: 'u1', email: 'a@b.c' }
+    settingsGet.mockResolvedValue({ ...SETTINGS, caldavStatus: 'auth_failed' })
+    categoriesList.mockResolvedValue([mkCat('cat-work', 'Work')])
+    subcategoriesList.mockResolvedValue([])
+    tasksList.mockResolvedValue([])
+
+    const { container } = renderDashboard()
+
+    const banner = await screen.findByText('Apple Calendar disconnected')
+    expect(container.firstElementChild!.firstElementChild).toContainElement(banner)
+    expect(screen.getByText('Set up your first list')).toBeInTheDocument()
+  })
+
+  it('puts the busy times in the Today header, with no standalone strip (chunk 74)', async () => {
+    sessionUser.value = { id: 'u1', email: 'a@b.c' }
+    settingsGet.mockResolvedValue(SETTINGS)
+    getBusyDay.mockResolvedValue(BUSY)
+    seedOneList([mkTask('Open task', 'sw1', { createdAt: daysAgo(1) })])
+
+    renderDashboard()
+
+    const line = await screen.findByText('Busy 12–12:30')
+    expect(todayTitleRow()).toContainElement(line)
+    // The strip's own label and text are absent.
+    expect(screen.queryByText('Busy')).toBeNull()
+    expect(screen.queryByText('12–12:30')).toBeNull()
+    expect(screen.queryByText('Apple Calendar disconnected')).toBeNull()
+  })
+
+  it('keeps the standalone busy strip when the Today list is off (chunk 74)', async () => {
+    sessionUser.value = { id: 'u1', email: 'a@b.c' }
+    settingsGet.mockResolvedValue(SETTINGS)
+    getBusyDay.mockResolvedValue(BUSY)
+    useTodayListStore.setState({ todayList: 'off' })
+    seedOneList([mkTask('Open task', 'sw1', { createdAt: daysAgo(1) })])
+
+    renderDashboard()
+
+    const text = await screen.findByText('12–12:30')
+    expect(text.previousElementSibling).toHaveTextContent(/^Busy$/)
+    expect(screen.queryByText('Busy 12–12:30')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Today' })).toBeNull()
+  })
+
+  it('keeps the standalone busy strip on the first-run screen (chunk 74)', async () => {
+    sessionUser.value = { id: 'u1', email: 'a@b.c' }
+    settingsGet.mockResolvedValue(SETTINGS)
+    getBusyDay.mockResolvedValue(BUSY)
+    categoriesList.mockResolvedValue([mkCat('cat-work', 'Work')])
+    subcategoriesList.mockResolvedValue([])
+    tasksList.mockResolvedValue([])
+
+    renderDashboard()
+
+    const text = await screen.findByText('12–12:30')
+    expect(text.previousElementSibling).toHaveTextContent(/^Busy$/)
+    expect(screen.getByText('Set up your first list')).toBeInTheDocument()
+  })
+
+  it('shows each old open row its age (chunk 74)', async () => {
+    seedOneList([
+      mkTask('Old task', 'sw1', { createdAt: daysAgo(120) }),
+      mkTask('New task', 'sw1', { createdAt: daysAgo(3) }),
+    ])
+
+    renderWithToaster()
+    await waitFor(() => expect(actionsFor('Old task')).toBeInTheDocument())
+
+    expect(within(rowOf('Old task')).getByText('17w')).toBeInTheDocument()
+    expect(within(rowOf('New task')).queryByText(/^\d+[wy]$/)).toBeNull()
+  })
+
+  const reviewPrompt = () =>
+    screen.queryByRole('region', { name: 'Review old tasks' })
+
+  it('offers the weekly review; Not now hides it and records the date (chunk 74)', async () => {
+    seedOneList([
+      mkTask('Old one', 'sw1', { createdAt: daysAgo(121) }),
+      mkTask('Old two', 'sw1', { createdAt: daysAgo(120) }),
+      // Not counted: too young, and done.
+      mkTask('Young', 'sw1', { createdAt: daysAgo(89) }),
+      mkTask('Old done', 'sw1', {
+        createdAt: daysAgo(200),
+        completedAt: daysAgo(1),
+      }),
+    ])
+
+    renderDashboard()
+
+    const text = await screen.findByText('2 tasks are older than 90 days.')
+    expect(reviewPrompt()).toContainElement(text)
+    expect(localStorage.getItem(REVIEW_KEY)).toBeNull()
+
+    const before = Date.now()
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+
+    expect(reviewPrompt()).toBeNull()
+    const stored = Date.parse(localStorage.getItem(REVIEW_KEY)!)
+    expect(stored).toBeGreaterThanOrEqual(before)
+    expect(stored).toBeLessThanOrEqual(Date.now())
+    // Nothing was touched.
+    expect(tasksBulkDelete).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('says "1 task is" for a single old task (chunk 74)', async () => {
+    seedOneList([mkTask('Old one', 'sw1', { createdAt: daysAgo(121) })])
+    renderDashboard()
+    expect(
+      await screen.findByText('1 task is older than 90 days.'),
+    ).toBeInTheDocument()
+  })
+
+  it('does not offer the review within a week of the last one, and does after (chunk 74)', async () => {
+    seedOneList([
+      mkTask('Old one', 'sw1', { createdAt: daysAgo(121) }),
+      mkTask('Old two', 'sw1', { createdAt: daysAgo(120) }),
+    ])
+
+    localStorage.setItem(REVIEW_KEY, daysAgo(3))
+    const first = renderDashboard()
+    await screen.findByRole('button', { name: 'Open Work' })
+    expect(reviewPrompt()).toBeNull()
+    expect(screen.queryByText(/older than 90 days/)).toBeNull()
+    first.unmount()
+
+    localStorage.setItem(REVIEW_KEY, daysAgo(8))
+    renderDashboard()
+    expect(
+      await screen.findByText('2 tasks are older than 90 days.'),
+    ).toBeInTheDocument()
+  })
+
+  it('Review → Delete → Escape deletes that task through Undo, and Undo brings it back (chunk 74)', async () => {
+    seedOneList([
+      mkTask('Old one', 'sw1', { createdAt: daysAgo(121) }),
+      mkTask('Old two', 'sw1', { createdAt: daysAgo(120) }),
+    ])
+
+    renderWithToaster()
+    await screen.findByText('2 tasks are older than 90 days.')
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+
+    // The sheet is lazy; the oldest task comes first.
+    const dialog = await screen.findByRole('dialog', { name: 'Review' })
+    expect(within(dialog).getByText('1 of 2')).toBeInTheDocument()
+    expect(within(dialog).getByText('Old one')).toBeInTheDocument()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+    expect(within(dialog).getByText('2 of 2')).toBeInTheDocument()
+    // Nothing happens until the sheet closes (the modal hides the page from
+    // the accessibility tree, hence `hidden`).
+    expect(
+      screen.getByRole('button', {
+        name: 'Actions for "Old one"',
+        hidden: true,
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Task deleted')).toBeNull()
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+
+    await waitFor(() => expect(actionsFor('Old one')).not.toBeInTheDocument())
+    expect(actionsFor('Old two')).toBeInTheDocument()
+    expect(await screen.findByText('Task deleted')).toBeInTheDocument()
+    // Closing counts as reviewed.
+    expect(reviewPrompt()).toBeNull()
+    expect(localStorage.getItem(REVIEW_KEY)).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+
+    await waitFor(() => expect(actionsFor('Old one')).toBeInTheDocument())
+    expect(tasksBulkDelete).not.toHaveBeenCalled()
+    expect(tasksDelete).not.toHaveBeenCalled()
   })
 })

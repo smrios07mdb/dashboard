@@ -53,6 +53,8 @@ export type TodayPanelProps = {
   variant: TodayVariant
   /** Touch/mobile: list flows full-height, no resize handle, no sticky rail. */
   mobile?: boolean
+  /** Today's busy times, shown after the date in the title row (chunk 74). */
+  busy?: React.ReactNode
 }
 
 function todayDateLabel(timeZone: string): string {
@@ -396,6 +398,7 @@ export default function TodayPanel({
   onCompleteTask,
   variant,
   mobile = false,
+  busy,
 }: TodayPanelProps) {
   // Let a just-completed task linger ~1s so the strike-through reads before the
   // row drops. (Hooks run before the `off` early-return so hook order is stable.)
@@ -553,7 +556,11 @@ export default function TodayPanel({
       }}
     >
       <div className="min-w-0">
-        <div className="flex items-center" style={{ gap: 9 }}>
+        {/* Wraps so the busy line drops under the title in the narrow rail. */}
+        <div
+          className="flex flex-wrap items-center"
+          style={{ columnGap: 9, rowGap: 2 }}
+        >
           <span
             className="inline-flex flex-shrink-0 items-center justify-center"
             style={{
@@ -581,6 +588,7 @@ export default function TodayPanel({
           <span className="label" style={{ fontSize: 9.5 }}>
             {todayDateLabel(timeZone)}
           </span>
+          {busy}
         </div>
         {!banner && (
           <p
@@ -694,33 +702,9 @@ export default function TodayPanel({
       </>
     )
   } else if (visible.length === 0) {
-    bodyEl = (
-      <div
-        className="text-center"
-        style={{
-          marginTop: 14,
-          padding: '20px 16px',
-          border: '1px dashed var(--line-strong)',
-          borderRadius: 'var(--radius)',
-        }}
-      >
-        <p
-          style={{
-            margin: 0,
-            fontSize: 12.5,
-            color: 'var(--ink-3)',
-            lineHeight: 1.5,
-          }}
-        >
-          {doneCount > 0 ? 'All done for today. ' : ''}Tap the{' '}
-          <Sun
-            size={12}
-            style={{ display: 'inline', verticalAlign: '-2px', margin: '0 1px' }}
-          />{' '}
-          on any task to plan your day.
-        </p>
-      </div>
-    )
+    // Nothing to list and nothing to suggest: the header line already says
+    // so (chunk 74), so no hint box.
+    bodyEl = null
   } else {
     bodyEl = (
       <>

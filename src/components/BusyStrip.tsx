@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatInTimeZone } from 'date-fns-tz'
 
-import ReconnectBanner from '@/components/ReconnectBanner'
 import { Skeleton } from '@/components/ui/skeleton'
 import { repo } from '@/db/repo'
 import type { BusyRange, CaldavStatus } from '@/db/types'
@@ -12,14 +11,19 @@ import { today as clockToday } from '@/lib/clock'
 import { withSessionRetry } from '@/lib/session'
 
 /*
- * Dashboard busy strip (ARCHITECTURE.md §7, chunk-13 prompt).
+ * Today's busy times on the Dashboard (ARCHITECTURE.md §7, chunk-13 prompt).
  *
- * - caldav_status 'unconfigured' → renders nothing (no nag).
- * - caldav_status 'auth_failed'  → renders the ReconnectBanner in its place.
+ * `useBusyToday` owns the fetch; the Dashboard calls it once and renders the
+ * result (chunk 74):
+ * - caldav_status 'unconfigured' → `hidden` (no nag).
+ * - caldav_status 'auth_failed'  → `reconnect`; the Dashboard shows the
+ *   ReconnectBanner.
  * - caldav_status 'ok'           → fetches today's busy ranges (cache-first,
- *   5-min TTL) on mount, on window focus, and every 5 minutes; shows a merged
- *   compact strip. Day boundaries are computed in settings.timezone, never the
- *   browser's (resolution 6).
+ *   5-min TTL) on mount, on window focus, and every 5 minutes. Day boundaries
+ *   are computed in settings.timezone, never the browser's (resolution 6).
+ *
+ * `BusyInline` is the line in the Today header; `BusyStrip` is the standalone
+ * card, used only on first run and with the Today list off.
  *
  * If a fetch comes back `auth_failed`, the proxy has already flipped
  * caldav_status server-side, so we refetch settings (never set it optimistically
@@ -33,7 +37,15 @@ type Phase =
   | { status: 'ready'; ranges: BusyRange[] }
   | { status: 'error' }
 
-export default function BusyStrip() {
+export type BusyToday =
+  | { kind: 'hidden' } // settings not loaded yet, or unconfigured
+  | { kind: 'reconnect' } // caldav_status auth_failed
+  | { kind: 'loading' }
+  | { kind: 'ready'; text: string } // formatBusyRanges(...), '' when there are no ranges
+  | { kind: 'error' }
+
+// eslint-disable-next-line react-refresh/only-export-components -- the fetch stays beside its two views (chunk 74)
+export function useBusyToday(): BusyToday {
   const { user } = useSession()
   const userId = user?.id ?? null
 
@@ -102,28 +114,52 @@ export default function BusyStrip() {
     }
   }, [caldavStatus, timezone, userId])
 
-  // Render nothing until settings load, and for the unconfigured case.
-  if (caldavStatus === null || caldavStatus === 'unconfigured') return null
-  if (caldavStatus === 'auth_failed') return <ReconnectBanner className="mb-6" />
+  // Hidden until settings load, and for the unconfigured case.
+  if (caldavStatus === null || caldavStatus === 'unconfigured') {
+    return { kind: 'hidden' }
+  }
+  if (caldavStatus === 'auth_failed') return { kind: 'reconnect' }
+  if (phase.status === 'loading') return { kind: 'loading' }
+  if (phase.status === 'error') return { kind: 'error' }
+  return {
+    kind: 'ready',
+    text: formatBusyRanges(phase.ranges, timezone ?? 'America/New_York'),
+  }
+}
 
-  const tz = timezone ?? 'America/New_York'
+/** The standalone card: first run, and with the Today list off. */
+export default function BusyStrip({ busy }: { busy: BusyToday }) {
+  if (busy.kind === 'hidden' || busy.kind === 'reconnect') return null
   return (
     <div className="mb-6 flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-4 py-3">
       <span className="label">Busy</span>
-      {phase.status === 'loading' && <Skeleton className="h-4 w-44" />}
-      {phase.status === 'ready' && (
+      {busy.kind === 'loading' && <Skeleton className="h-4 w-44" />}
+      {busy.kind === 'ready' && (
         <span className="font-mono text-[13px] text-muted-foreground">
-          {phase.ranges.length > 0
-            ? formatBusyRanges(phase.ranges, tz)
-            : 'No busy times today'}
+          {busy.text || 'No busy times today'}
         </span>
       )}
-      {phase.status === 'error' && (
+      {busy.kind === 'error' && (
         <span className="text-[13px] text-muted-foreground">
           Couldn’t load busy times — retry on next refresh.
         </span>
       )}
     </div>
+  )
+}
+
+/** One line for the Today header (chunk 74). */
+export function BusyInline({ busy }: { busy: BusyToday }) {
+  if (busy.kind === 'hidden' || busy.kind === 'reconnect') return null
+  if (busy.kind === 'loading') return <Skeleton className="h-3 w-24" />
+  return (
+    <span className="whitespace-nowrap font-mono text-[12px] text-ink-3">
+      {busy.kind === 'error'
+        ? 'Busy times unavailable'
+        : busy.text
+          ? `Busy ${busy.text}`
+          : 'No busy times'}
+    </span>
   )
 }
 

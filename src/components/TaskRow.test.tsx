@@ -255,3 +255,80 @@ describe('TaskRow — quiet row (chunk 71)', () => {
     expect(chips()[0]).toHaveTextContent('Today')
   })
 })
+
+// Chunk 74: open rows 28 days or older show how old they are.
+describe('TaskRow — age (chunk 74)', () => {
+  const HUNDRED_DAYS = '2026-07-05T16:00:00.000Z' // 12:00 Jul 5, New York
+  const TEN_DAYS = '2026-10-03T16:00:00.000Z'
+  const LONG = 'Added Jul 5 · 14 weeks ago'
+
+  it('a 100-day-old open row shows 14w, with the long text for title and screen readers', () => {
+    const { container } = row({ createdAt: HUNDRED_DAYS })
+    const short = screen.getByText('14w')
+    expect(short).toHaveAttribute('aria-hidden', 'true')
+    const age = short.parentElement!
+    expect(age).toHaveAttribute('title', LONG)
+    const spoken = screen.getByText(LONG)
+    expect(spoken).toHaveClass('sr-only')
+    expect(age).toContainElement(spoken)
+
+    // Its own slot, between the title and the minutes.
+    const grid = container.querySelector('.grid') as HTMLElement
+    expect(grid.style.gridTemplateColumns).toBe(
+      '18px 14px 1fr auto auto auto auto',
+    )
+    const cells = [...grid.children]
+    expect(cells.indexOf(age)).toBe(
+      cells.indexOf(screen.getByRole('button', { name: 'Edit minutes' })) - 1,
+    )
+  })
+
+  it('sits after the when chip', () => {
+    const { container } = row({ createdAt: HUNDRED_DAYS, dueAt: TWO_DAYS_LATE })
+    const cells = [...(container.querySelector('.grid') as HTMLElement).children]
+    expect(cells.indexOf(screen.getByText('14w').parentElement!)).toBe(
+      cells.indexOf(chips()[0]) + 1,
+    )
+  })
+
+  it('shows no age on a 10-day-old row', () => {
+    const { container } = row({ createdAt: TEN_DAYS })
+    expect(screen.queryByText(/^\d+[wy]$/)).toBeNull()
+    expect(screen.queryByText(/^Added /)).toBeNull()
+    expect(
+      (container.querySelector('.grid') as HTMLElement).style.gridTemplateColumns,
+    ).toBe('18px 14px 1fr auto auto auto')
+  })
+
+  it('shows no age on a completed row', () => {
+    row({ createdAt: HUNDRED_DAYS, completedAt: '2026-10-12T12:00:00.000Z' })
+    expect(screen.queryByText('14w')).toBeNull()
+    expect(screen.queryByText(LONG)).toBeNull()
+  })
+
+  it('is not a button and adds no tab stop', () => {
+    const tabStops = (c: HTMLElement) =>
+      c.querySelectorAll('button, input, a[href], [tabindex]').length
+    const young = row({ createdAt: TEN_DAYS })
+    const without = tabStops(young.container)
+    young.unmount()
+
+    const old = row({ createdAt: HUNDRED_DAYS })
+    expect(tabStops(old.container)).toBe(without)
+    const age = screen.getByText('14w').parentElement!
+    expect(age.tagName).toBe('SPAN')
+    expect(age.closest('button')).toBeNull()
+    expect(age).not.toHaveAttribute('tabindex')
+    expect(screen.queryByRole('button', { name: /14w|Added Jul 5/ })).toBeNull()
+  })
+
+  it('counts days in the zone it is given', () => {
+    // 03:30 UTC on Sep 15 is still Sep 14 in New York: 29 days there, 28 in UTC.
+    const createdAt = '2026-09-15T03:30:00.000Z'
+    const ny = row({ createdAt })
+    expect(screen.getByText('Added Sep 14 · 4 weeks ago')).toBeInTheDocument()
+    ny.unmount()
+    row({ createdAt }, { timeZone: 'UTC' })
+    expect(screen.getByText('Added Sep 15 · 4 weeks ago')).toBeInTheDocument()
+  })
+})

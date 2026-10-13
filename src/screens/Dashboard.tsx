@@ -1,20 +1,36 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Flame } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import AllClearBanner from '@/components/AllClearBanner'
-import BusyStrip from '@/components/BusyStrip'
+import BusyStrip, { BusyInline, useBusyToday } from '@/components/BusyStrip'
 import CategoryColumn from '@/components/CategoryColumn'
 import EmptyStateCard from '@/components/EmptyStateCard'
 import DailyHero from '@/components/gamify/DailyHero'
+import ReconnectBanner from '@/components/ReconnectBanner'
 import RecoveredTasks from '@/components/RecoveredTasks'
+import ReviewPrompt from '@/components/ReviewPrompt'
 import TodayPanel from '@/components/TodayPanel'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task, TodayMark } from '@/db/types'
 import { useSession } from '@/lib/auth'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
 import { selectDashboardState } from '@/lib/dashboardState'
+import {
+  isReviewDue,
+  loadLastReview,
+  reviewCandidates,
+  storeLastReview,
+} from '@/lib/review'
 import { calcStreak } from '@/lib/streak'
 import { resolveToday } from '@/lib/today'
 import {
@@ -49,6 +65,9 @@ import { useUIStore } from '@/state/uiStore'
  */
 
 const SAVE_ERROR = 'Could not save — retry'
+
+// The review walk (chunk 74) loads on first open, like the chunk-73 dialogs.
+const ReviewSheet = lazy(() => import('@/components/ReviewSheet'))
 
 /**
  * How far back the hero's routine-log read reaches. Mirrors the
@@ -135,6 +154,21 @@ export default function Dashboard() {
   const { data, setData, loading, streak, todayMarks, timeZone } =
     useDashboardData(userId)
   const navigate = useNavigate()
+  // Today's busy times (chunk 74): fetched once here, rendered as the Today
+  // header's line, the standalone strip, or the reconnect banner.
+  const busy = useBusyToday()
+
+  // Weekly review of old tasks (chunk 74). The last-review date is per device.
+  const [lastReview, setLastReview] = useState<string | null>(loadLastReview)
+  const [reviewOpen, setReviewOpen] = useState(false)
+  // Latched on the first open so the lazy sheet stays mounted to close.
+  const [reviewUsed, setReviewUsed] = useState(false)
+  if (reviewOpen && !reviewUsed) setReviewUsed(true)
+  const markReviewed = useCallback(() => {
+    const now = new Date()
+    storeLastReview(now)
+    setLastReview(now.toISOString())
+  }, [])
 
   // Global list-sort preference (chunk 33) — one localStorage-backed
   // value shared by both column controls and every list in the app.
@@ -366,6 +400,35 @@ export default function Dashboard() {
       })
     },
     [data.tasks, setData, upsertTask],
+  )
+
+  // Several at once, for the review sheet (chunk 74): one toast, one Undo.
+  const onDeleteTasks = useCallback(
+    (ids: string[]) => {
+      const drop = new Set(ids)
+      const tasks = data.tasks.filter((t) => drop.has(t.id))
+      if (tasks.length === 0) return
+      setData((prev) => ({
+        ...prev,
+        tasks: prev.tasks.filter((t) => !drop.has(t.id)),
+      }))
+      deleteTasksWithUndo({
+        tasks,
+        onRestore: (rows) => rows.forEach(upsertTask),
+      })
+    },
+    [data.tasks, setData, upsertTask],
+  )
+
+  // Every close of the review sheet. Deletes run only now: while the modal is
+  // open, the Undo toast cannot be clicked.
+  const onReviewClose = useCallback(
+    (deleteIds: string[]) => {
+      setReviewOpen(false)
+      markReviewed()
+      if (deleteIds.length > 0) onDeleteTasks(deleteIds)
+    },
+    [markReviewed, onDeleteTasks],
   )
 
   const onMoveTaskToSubcategory = useCallback(
@@ -670,7 +733,8 @@ export default function Dashboard() {
   if (dashboardState === 'first-run') {
     return (
       <div>
-        <BusyStrip />
+        {busy.kind === 'reconnect' && <ReconnectBanner className="mb-6" />}
+        <BusyStrip busy={busy} />
         <DailyHero
           user={user}
           tasks={liveTasks}
@@ -686,6 +750,13 @@ export default function Dashboard() {
       </div>
     )
   }
+
+  // Old, open, unplanned tasks, offered for review once a week (chunk 74).
+  const now = new Date()
+  const candidates = reviewCandidates(todayData, todaySet, timeZone, now)
+  // With Today off there is no header to carry the busy line.
+  const busyInline =
+    todayVariant === 'off' ? undefined : <BusyInline busy={busy} />
 
   const columns = (
     // Chunk 69: two columns come from a container query on `.category-cols`
@@ -737,7 +808,8 @@ export default function Dashboard() {
           On a roll ×{comboMsg.n}
         </div>
       )}
-      <BusyStrip />
+      {busy.kind === 'reconnect' && <ReconnectBanner className="mb-6" />}
+      {todayVariant === 'off' && <BusyStrip busy={busy} />}
       <DailyHero
         user={user}
         tasks={liveTasks}
@@ -754,6 +826,26 @@ export default function Dashboard() {
         onMove={onMoveTaskToSubcategory}
         onComplete={(id) => onCompleteTask(id, true)}
       />
+      {isReviewDue(lastReview, now) && (
+        <ReviewPrompt
+          count={candidates.length}
+          onReview={() => setReviewOpen(true)}
+          onNotNow={markReviewed}
+        />
+      )}
+      {reviewUsed && (
+        <Suspense fallback={null}>
+          <ReviewSheet
+            open={reviewOpen}
+            candidates={candidates}
+            categories={data.categories}
+            subcategories={liveSubcategories}
+            timeZone={timeZone}
+            onToggleToday={toggleToday}
+            onClose={onReviewClose}
+          />
+        </Suspense>
+      )}
       {/* All-clear: jade banner above the still-visible columns. */}
       {dashboardState === 'all-clear' && <AllClearBanner />}
       {/* Today plan. stacked/banner sit full-width above the columns; rail sits
@@ -768,6 +860,7 @@ export default function Dashboard() {
             onToggleToday={toggleToday}
             onCompleteTask={onCompleteTask}
             mobile={isTouch}
+            busy={busyInline}
           />
         </div>
       )}
@@ -781,6 +874,7 @@ export default function Dashboard() {
             onToggleToday={toggleToday}
             onCompleteTask={onCompleteTask}
             mobile={isTouch}
+            busy={busyInline}
           />
           {columns}
         </div>

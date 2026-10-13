@@ -21,9 +21,10 @@ import ProgressRing from './ProgressRing'
  * opens the existing `WhatsNextSheet` via its `trigger` prop.
  *
  * The ring is the Today plan (chunk 70): done ÷ planned, passed in by the
- * Dashboard from the same `resolveToday` call the Today panel counts with, and
- * an em dash when nothing is planned. XP, level, the level sliver and the
- * category bars are all-time, over the live tasks.
+ * Dashboard from the same `resolveToday` call the Today panel counts with.
+ * XP, level, the level sliver and the category bars are all-time, over the
+ * live tasks. With nothing planned the hero is one line (chunk 74): greeting,
+ * chips and the pill — no ring, encouragement, sliver or bars.
  *
  * Only inline CSS transitions are used here; the prototype's completion-FX
  * keyframes (checkPop / rowFlush / xpFloat) belong to the task rows (chunk 27).
@@ -105,6 +106,199 @@ export default function DailyHero({
   const showStreak = streak > 0
   const showLevel = stats.xp > 0
   const name = displayName(user)
+  // Nothing planned: one line — greeting, chips, the pill (chunk 74).
+  const compact = today.total === 0
+  const heading = name ? `${greeting()}, ${name}` : greeting()
+
+  const chips = (
+    <>
+      {/* streak chip — gold literals (no token for this hue; chunk-26 step 2) */}
+      {showStreak && (
+        <span
+          title="Check-in streak"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '4px 10px',
+            borderRadius: 999,
+            background: 'rgba(201,148,47,.14)',
+            border: '1px solid rgba(201,148,47,.28)',
+          }}
+        >
+          <Flame size={13} style={{ color: '#c9942f' }} aria-hidden />
+          <span
+            className="num"
+            style={{ fontSize: 12.5, fontWeight: 700, color: '#a9772a' }}
+          >
+            {streak}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            day{streak === 1 ? '' : 's'}
+          </span>
+        </span>
+      )}
+      {/* level chip — amethyst */}
+      {showLevel && (
+        <span
+          title={`${stats.xp.toLocaleString()} XP`}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '4px 10px',
+            borderRadius: 999,
+            background:
+              'color-mix(in srgb, var(--jewel-amethyst) 13%, transparent)',
+            border:
+              '1px solid color-mix(in srgb, var(--jewel-amethyst) 34%, transparent)',
+          }}
+        >
+          <span
+            className="label"
+            style={{ fontSize: 8.5, color: 'var(--jewel-amethyst)' }}
+          >
+            LVL
+          </span>
+          <span
+            className="num"
+            style={{
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: 'var(--jewel-amethyst)',
+            }}
+          >
+            {stats.level}
+          </span>
+          <span
+            style={{
+              width: 1,
+              height: 11,
+              background:
+                'color-mix(in srgb, var(--jewel-amethyst) 30%, transparent)',
+            }}
+          />
+          <CountUp
+            value={stats.xp}
+            className="num"
+            style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 700 }}
+          />
+          <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>xp</span>
+        </span>
+      )}
+    </>
+  )
+
+  const action = (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        position: 'relative',
+        flexShrink: 0,
+        borderRadius: 999,
+        background: 'var(--bg)',
+        border: '1px solid var(--line)',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+        alignSelf: 'center',
+      }}
+    >
+      <label
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '0 6px 0 14px',
+        }}
+      >
+        <span className="label" style={{ fontSize: 9 }}>
+          I have
+        </span>
+        <input
+          value={availableMinutes}
+          type="number"
+          min="0"
+          step="15"
+          onChange={(e) => setAvailableMinutes(Number(e.target.value) || 0)}
+          className="num text-base sm:text-[15px]"
+          aria-label="Available minutes"
+          style={{
+            width: 42,
+            border: 0,
+            outline: 'none',
+            background: 'transparent',
+            fontWeight: 600,
+            textAlign: 'right',
+            color: 'var(--ink)',
+          }}
+        />
+        <span className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+          min
+        </span>
+      </label>
+      <WhatsNextSheet
+        trigger={
+          <button
+            type="button"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
+              padding: '10px 16px',
+              fontSize: 13,
+              fontWeight: 700,
+              color: 'var(--spark-ink, #fff)',
+              whiteSpace: 'nowrap',
+              border: 0,
+              cursor: 'pointer',
+              background: 'var(--spark-grad)',
+              boxShadow:
+                'inset 0 1px 0 rgba(255,255,255,.30), 0 6px 20px -5px var(--spark-glow)',
+            }}
+          >
+            <Sparkles size={14} aria-hidden />
+            What&rsquo;s next?
+          </button>
+        }
+      />
+    </div>
+  )
+
+  if (compact) {
+    return (
+      <div
+        className="mb-6"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 12,
+          background: 'linear-gradient(135deg, var(--surface), var(--surface-2))',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow-md)',
+          padding: '12px 18px',
+        }}
+      >
+        <h1
+          className="display"
+          style={{
+            margin: 0,
+            fontSize: 20,
+            fontWeight: 500,
+            letterSpacing: '-.015em',
+            color: 'var(--ink)',
+            lineHeight: 1.12,
+          }}
+        >
+          {heading}
+        </h1>
+        {chips}
+        <div style={{ marginLeft: 'auto', maxWidth: '100%' }}>{action}</div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -199,7 +393,7 @@ export default function DailyHero({
               lineHeight: 1.12,
             }}
           >
-            {name ? `${greeting()}, ${name}` : greeting()}
+            {heading}
           </h1>
           {(showStreak || showLevel) && (
             <div
@@ -211,80 +405,7 @@ export default function DailyHero({
                 marginTop: 10,
               }}
             >
-              {/* streak chip — gold literals (no token for this hue; chunk-26 step 2) */}
-              {showStreak && (
-                <span
-                  title="Check-in streak"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    padding: '4px 10px',
-                    borderRadius: 999,
-                    background: 'rgba(201,148,47,.14)',
-                    border: '1px solid rgba(201,148,47,.28)',
-                  }}
-                >
-                  <Flame size={13} style={{ color: '#c9942f' }} aria-hidden />
-                  <span
-                    className="num"
-                    style={{ fontSize: 12.5, fontWeight: 700, color: '#a9772a' }}
-                  >
-                    {streak}
-                  </span>
-                  <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                    day{streak === 1 ? '' : 's'}
-                  </span>
-                </span>
-              )}
-              {/* level chip — amethyst */}
-              {showLevel && (
-                <span
-                  title={`${stats.xp.toLocaleString()} XP`}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '4px 10px',
-                    borderRadius: 999,
-                    background:
-                      'color-mix(in srgb, var(--jewel-amethyst) 13%, transparent)',
-                    border:
-                      '1px solid color-mix(in srgb, var(--jewel-amethyst) 34%, transparent)',
-                  }}
-                >
-                  <span
-                    className="label"
-                    style={{ fontSize: 8.5, color: 'var(--jewel-amethyst)' }}
-                  >
-                    LVL
-                  </span>
-                  <span
-                    className="num"
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 700,
-                      color: 'var(--jewel-amethyst)',
-                    }}
-                  >
-                    {stats.level}
-                  </span>
-                  <span
-                    style={{
-                      width: 1,
-                      height: 11,
-                      background:
-                        'color-mix(in srgb, var(--jewel-amethyst) 30%, transparent)',
-                    }}
-                  />
-                  <CountUp
-                    value={stats.xp}
-                    className="num"
-                    style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 700 }}
-                  />
-                  <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>xp</span>
-                </span>
-              )}
+              {chips}
             </div>
           )}
           <p style={{ margin: '7px 0 0', fontSize: 13.5, color: 'var(--ink-2)' }}>
@@ -322,80 +443,7 @@ export default function DailyHero({
           </div>
         </div>
 
-        {/* action: I have __ min / What's next? */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'stretch',
-            position: 'relative',
-            flexShrink: 0,
-            borderRadius: 999,
-            background: 'var(--bg)',
-            border: '1px solid var(--line)',
-            overflow: 'hidden',
-            whiteSpace: 'nowrap',
-            alignSelf: 'center',
-          }}
-        >
-          <label
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '0 6px 0 14px',
-            }}
-          >
-            <span className="label" style={{ fontSize: 9 }}>
-              I have
-            </span>
-            <input
-              value={availableMinutes}
-              type="number"
-              min="0"
-              step="15"
-              onChange={(e) => setAvailableMinutes(Number(e.target.value) || 0)}
-              className="num text-base sm:text-[15px]"
-              aria-label="Available minutes"
-              style={{
-                width: 42,
-                border: 0,
-                outline: 'none',
-                background: 'transparent',
-                fontWeight: 600,
-                textAlign: 'right',
-                color: 'var(--ink)',
-              }}
-            />
-            <span className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-              min
-            </span>
-          </label>
-          <WhatsNextSheet
-            trigger={
-              <button
-                type="button"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 7,
-                  padding: '10px 16px',
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: 'var(--spark-ink, #fff)',
-                  whiteSpace: 'nowrap',
-                  border: 0,
-                  cursor: 'pointer',
-                  background: 'var(--spark-grad)',
-                  boxShadow:
-                    'inset 0 1px 0 rgba(255,255,255,.30), 0 6px 20px -5px var(--spark-glow)',
-                }}
-              >
-                <Sparkles size={14} aria-hidden />
-                What&rsquo;s next?
-              </button>
-            }
-          />
-        </div>
+        {action}
       </div>
 
       {/* category progress bars — ordered by the categories prop to match the dashboard columns */}

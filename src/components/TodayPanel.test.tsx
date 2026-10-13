@@ -167,17 +167,38 @@ describe('TodayPanel suggestions', () => {
     )
     setup({ todaySet: new Set(['Work 1', 'Home 1', 'Work 2']) }, tasks)
     expect(queryRegion()).toBeNull()
-    expect(screen.getByText(/All done for today\./)).toBeInTheDocument()
+    // Chunk 74: the header line says it; no hint box repeats it.
+    expect(
+      screen.getByText('Plan cleared — every today task done.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/All done for today\./)).toBeNull()
+    expect(screen.queryByText(/to plan your day/)).toBeNull()
   })
 
-  it('keeps the empty hint when there is nothing to suggest', () => {
-    setup({}, TASKS.map(done))
+  // Chunk 74: nothing to list, nothing to suggest — the header line is enough.
+  it('shows only the header line when there is nothing to suggest', () => {
+    const { container } = setup({}, TASKS.map(done))
     expect(queryRegion()).toBeNull()
     expect(screen.getByText('Nothing planned yet.')).toBeInTheDocument()
-    expect(
-      screen.getByText(/on any task to plan your day\.$/),
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/to plan your day/)).toBeNull()
+    expect(screen.queryByText(/on any task/)).toBeNull()
+    // The card holds the header and nothing else.
+    expect(container.firstElementChild!.children).toHaveLength(1)
   })
+
+  it.each(['stacked', 'rail', 'banner'] as const)(
+    'renders the busy node in the %s header, after the date',
+    (variant) => {
+      setup({ variant, busy: <span>Busy 12–12:30</span> })
+      const busy = screen.getByText('Busy 12–12:30')
+      const titleRow = screen.getByRole('heading', { name: 'Today' }).parentElement!
+      expect(titleRow).toContainElement(busy)
+      expect(titleRow.lastElementChild).toBe(busy)
+      // Wraps instead of overflowing the narrow rail.
+      expect(titleRow).toHaveClass('flex', 'flex-wrap', 'items-center')
+      expect(titleRow).toHaveStyle({ rowGap: '2px' })
+    },
+  )
 
   it('suggests in rail, not in banner; off renders nothing', () => {
     const rail = setup({ variant: 'rail' })

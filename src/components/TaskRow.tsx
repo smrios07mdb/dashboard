@@ -17,6 +17,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { fmtMin } from '@/lib/cat'
 import { taskXP } from '@/lib/gamify'
+import { taskAge } from '@/lib/taskAge'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { browserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
@@ -31,8 +32,9 @@ import { dueLabel, reminderLabel, type WhenTone } from '@/lib/whenLabel'
  * Chunk 71 — the row shows only what is read or used daily. Columns, left
  * to right: selection checkbox (`selectable`), completion checkbox, grip
  * (`canDrag`), title (up to two lines), priority chip, one "when" chip,
- * minutes, Today sun (`onToggleToday`), ⋯. Reminder, notes and delete live
- * only in <TaskMenu />; the row has no bell, no trash and no note column.
+ * age (chunk 74), minutes, Today sun (`onToggleToday`), ⋯. Reminder, notes
+ * and delete live only in <TaskMenu />; the row has no bell, no trash and no
+ * note column.
  *
  * The when chip (`lib/whenLabel`) shows the due date or, when there is
  * none, the reminder — one chip per row, none on completed rows. It is the
@@ -195,6 +197,8 @@ export default function TaskRow({
   // it is open.
   const dueSlot = whenKind === 'due' || dueOpen
   const reminderSlot = whenKind === 'reminder' || reminderOpen
+  // Age (chunk 74): open rows 28 days or older; plain text, not a control.
+  const age = completed ? null : taskAge(task.createdAt, tz)
   // Chips hide on completed rows (DESIGN_NOTES § Priority system). The
   // grid slot exists only while a chip shows or the picker is open —
   // unlike the left edge, chip presence may shift layout (matches the
@@ -257,6 +261,7 @@ export default function TaskRow({
     prioritySlot ? 'auto' : null, // priority chip / picker anchor
     dueSlot ? 'auto' : null,      // due chip / picker anchor
     reminderSlot ? 'auto' : null, // reminder chip / picker anchor
+    age ? 'auto' : null,          // age
     'auto',                     // minutes
     onToggleToday ? 'auto' : null, // Today sun toggle (dashboard rows only)
     'auto',                     // three-dot menu
@@ -393,6 +398,15 @@ export default function TaskRow({
           onSave={(iso) => onSetReminder(task.id, iso)}
           onClear={() => onSetReminder(task.id, null)}
         />
+      )}
+      {age && (
+        <span
+          className="whitespace-nowrap font-mono text-[11px] tabular-nums text-ink-3"
+          title={age.long}
+        >
+          <span aria-hidden>{age.text}</span>
+          <span className="sr-only">{age.long}</span>
+        </span>
       )}
       <MinutesField
         task={task}
