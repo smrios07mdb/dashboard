@@ -1,4 +1,4 @@
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -50,17 +50,30 @@ const PERSONAL = cat('c-personal', 'Personal')
 const SUBS = [sub('s-w', 'c-work'), sub('s-p', 'c-personal')]
 const TASKS = [doneTask('t-w', 's-w'), doneTask('t-p', 's-p')]
 
-function renderHero(categories: Category[]) {
+const openTask = (id: string, subcategoryId: string): Task => ({
+  ...doneTask(id, subcategoryId),
+  completedAt: null,
+})
+
+function renderHero(
+  categories: Category[],
+  opts: {
+    today?: { done: number; total: number }
+    streak?: number
+    tasks?: Task[]
+  } = {},
+) {
   // WhatsNextSheet (inside the hero's action) calls useNavigate, so a router
   // context is required — mirror Dashboard.test.tsx's MemoryRouter wrapper.
   return render(
     <MemoryRouter>
       <DailyHero
         user={null}
-        tasks={TASKS}
+        tasks={opts.tasks ?? TASKS}
         subcategories={SUBS}
         categories={categories}
-        streak={0}
+        streak={opts.streak ?? 0}
+        today={opts.today ?? { done: 0, total: 0 }}
       />
     </MemoryRouter>,
   )
@@ -89,5 +102,56 @@ describe('DailyHero category bars', () => {
       work.compareDocumentPosition(personal) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
+  })
+})
+
+// Chunk 70: the ring is the Today plan, and chips that read zero are hidden.
+describe('DailyHero today ring and chips (chunk 70)', () => {
+  afterEach(cleanup)
+
+  it('shows the plan as done ÷ planned, not all-time completion', () => {
+    renderHero([WORK, PERSONAL], { today: { done: 1, total: 3 } })
+    const ring = screen.getByRole('img', {
+      name: 'Today: 1 of 3 planned tasks done',
+    })
+    expect(within(ring).getByText('33')).toBeInTheDocument()
+    expect(within(ring).getByText('%')).toBeInTheDocument()
+    expect(screen.getByText('· 1/3 today')).toBeInTheDocument()
+    // TASKS is 2 of 2 done all-time — that figure is gone.
+    expect(screen.queryByText(/\/\d+ done$/)).not.toBeInTheDocument()
+  })
+
+  it('shows an em dash and a prompt when nothing is planned', () => {
+    renderHero([WORK, PERSONAL], { today: { done: 0, total: 0 } })
+    const ring = screen.getByRole('img', { name: 'Today: nothing planned' })
+    expect(within(ring).getByText('—')).toBeInTheDocument()
+    expect(within(ring).queryByText('%')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Nothing planned yet — pick a few for today.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/\d+\/\d+ today/)).not.toBeInTheDocument()
+  })
+
+  it('says the plan is cleared when every planned task is done', () => {
+    renderHero([WORK, PERSONAL], { today: { done: 3, total: 3 } })
+    expect(
+      screen.getByText("Today's plan is cleared. Beautifully done."),
+    ).toBeInTheDocument()
+  })
+
+  it('hides the streak chip at zero and shows it otherwise', () => {
+    renderHero([WORK, PERSONAL], { streak: 0 })
+    expect(screen.queryByTitle('Check-in streak')).not.toBeInTheDocument()
+    cleanup()
+    renderHero([WORK, PERSONAL], { streak: 2 })
+    expect(screen.getByTitle('Check-in streak')).toHaveTextContent('2')
+  })
+
+  it('hides the level chip until there is XP', () => {
+    renderHero([WORK, PERSONAL], { tasks: [openTask('t-o', 's-w')] })
+    expect(screen.queryByText('LVL')).not.toBeInTheDocument()
+    cleanup()
+    renderHero([WORK, PERSONAL], { tasks: [doneTask('t-d', 's-w')] })
+    expect(screen.getByText('LVL')).toBeInTheDocument()
   })
 })

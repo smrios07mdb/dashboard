@@ -51,6 +51,19 @@ function fmtMinutes(mins: number): string {
   return m ? `${h}h ${m}m` : `${h}h`
 }
 
+/** "Sep 2" in `tz`; the year is added when it isn't the current one there. */
+function fmtLastCompletion(iso: string, tz: string): string {
+  const at = new Date(iso)
+  const yearIn = (d: Date) =>
+    new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(d)
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    month: 'short',
+    day: 'numeric',
+    ...(yearIn(at) !== yearIn(new Date()) ? { year: 'numeric' as const } : {}),
+  }).format(at)
+}
+
 const PILL_GROUP =
   'inline-flex rounded-full border border-line bg-bg-alt p-0.5'
 function pill(active: boolean): string {
@@ -124,6 +137,9 @@ export default function Insights() {
   // Set in the same .then as the data below, so the x-axis and the buckets can
   // never come from different zones (chunk 61).
   const [tz, setTz] = useState<string>(() => browserTimezone())
+  // Latest all-time completion (chunk 70) — only looked up when the range came
+  // back empty, so the empty state can say when the last one was.
+  const [lastCompletedAt, setLastCompletedAt] = useState<string | null>(null)
 
   useEffect(() => {
     // `loading` is toggled true in the range handler (event-driven) and reset
@@ -141,12 +157,25 @@ export default function Insights() {
         repo.subcategories.list(),
         repo.categories.list(),
       ])
-      return [zone, t, s, c] as const
+      let last: string | null = null
+      if (t.length === 0) {
+        const all = await repo.tasks.listCompletedInRange(
+          '1970-01-01T00:00:00.000Z',
+          to,
+        )
+        for (const task of all) {
+          if (task.completedAt && (last === null || task.completedAt > last)) {
+            last = task.completedAt
+          }
+        }
+      }
+      return [zone, t, s, c, last] as const
     }
     load()
-      .then(([zone, t, s, c]) => {
+      .then(([zone, t, s, c, last]) => {
         if (cancelled) return
         setTz(zone)
+        setLastCompletedAt(last)
         setTasks(t)
         setSubcategories(s)
         setCategories(c)
@@ -161,6 +190,12 @@ export default function Insights() {
       cancelled = true
     }
   }, [range])
+
+  // `loading` flips here, in the event handler — see the effect's note.
+  const selectRange = (r: Range) => {
+    if (r !== range) setLoading(true)
+    setRange(r)
+  }
 
   const dayKeys = useMemo(() => lastNDays(range, tz), [range, tz])
 
@@ -192,6 +227,7 @@ export default function Insights() {
     [bars],
   )
   const totalMinutes = summary.reduce((s, r) => s + r.minutes, 0)
+  const completedCount = summary.reduce((s, r) => s + r.tasks, 0)
   const grandTotal = totalMinutes
 
   // Lookups for the full-breakdown tooltip (expands what's inside "Other").
@@ -208,31 +244,32 @@ export default function Insights() {
 
   // ---- Headline figures (chunk 29) — derived from existing screen state; no
   // change to lib/insights.ts. `summary` is sorted descending by minutes, so
-  // its length is the active-subcategory count and [0] is the most-touched. ----
+  // [0] is the most-touched. Chunk 70: the cards lead with the task count and
+  // every time figure is labelled as an estimate — nothing here is tracked. ----
   const statCards: { label: string; value: string; hint: string; accent: string }[] =
     [
       {
         label: `Last ${range} days`,
-        value: fmtMinutes(totalMinutes),
-        hint: 'total time logged',
+        value: String(completedCount),
+        hint: 'tasks completed',
         accent: 'var(--jewel-jade)',
+      },
+      {
+        label: 'Estimated time',
+        value: fmtMinutes(totalMinutes),
+        hint: 'sum of task estimates',
+        accent: 'var(--jewel-coral)',
       },
       {
         label: 'Daily average',
         value: fmtMinutes(Math.round(totalMinutes / range)),
-        hint: 'across all categories',
-        accent: 'var(--jewel-coral)',
-      },
-      {
-        label: 'Active subcategories',
-        value: String(summary.length),
-        hint: 'with at least one task',
+        hint: 'estimated, across all categories',
         accent: 'var(--jewel-jade)',
       },
       {
         label: 'Most-touched',
         value: summary[0]?.name ?? '—',
-        hint: 'by minutes',
+        hint: 'by estimated time',
         accent: 'var(--jewel-coral)',
       },
     ]
@@ -261,7 +298,7 @@ export default function Insights() {
         >
           Insights
         </h1>
-        <span className="label pb-1.5">Where the time went</span>
+        <span className="label pb-1.5">What got done</span>
         {!loading && totalMinutes > 0 && (
           <span
             className="ml-auto inline-flex items-center gap-1.5 self-center rounded-full px-[11px] py-[5px] text-[12px] font-semibold"
@@ -336,10 +373,7 @@ export default function Insights() {
               type="button"
               className={pill(range === r)}
               aria-pressed={range === r}
-              onClick={() => {
-                if (r !== range) setLoading(true)
-                setRange(r)
-              }}
+              onClick={() => selectRange(r)}
             >
               {r} days
             </button>
@@ -375,12 +409,22 @@ export default function Insights() {
               className="font-display text-[16px] font-semibold text-ink-2"
               style={{ letterSpacing: '-0.01em' }}
             >
-              No time logged yet.
+              Nothing completed in the last {range} days.
             </div>
             <p className="mt-1 text-[13px] leading-relaxed text-ink-3">
-              Complete a task and its estimated minutes show up here. Try a wider
-              date range or change category filter.
+              {tasks.length === 0 && lastCompletedAt
+                ? `Last completion was ${fmtLastCompletion(lastCompletedAt, tz)}.`
+                : 'Complete a task and it shows up here. Try a wider range or another category.'}
             </p>
+            {range < 90 && (
+              <button
+                type="button"
+                className="mt-4 min-h-11 rounded-full border border-line bg-surface px-4 text-[13px] font-semibold text-ink hover:bg-bg-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => selectRange(90)}
+              >
+                Show 90 days
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -502,7 +546,7 @@ export default function Insights() {
               <th className="label py-2.5">Subcategory</th>
               <th className="label py-2.5">Category</th>
               <th className="label py-2.5 text-right">Tasks</th>
-              <th className="label py-2.5 text-right">Minutes</th>
+              <th className="label py-2.5 text-right">Est. time</th>
               <th className="label py-2.5 text-right">% total</th>
             </tr>
           </thead>

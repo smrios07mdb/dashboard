@@ -8,6 +8,7 @@ import BusyStrip from '@/components/BusyStrip'
 import CategoryColumn from '@/components/CategoryColumn'
 import EmptyStateCard from '@/components/EmptyStateCard'
 import DailyHero from '@/components/gamify/DailyHero'
+import RecoveredTasks from '@/components/RecoveredTasks'
 import TodayPanel from '@/components/TodayPanel'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task, TodayMark } from '@/db/types'
@@ -15,6 +16,7 @@ import { useSession } from '@/lib/auth'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
 import { selectDashboardState } from '@/lib/dashboardState'
 import { calcStreak } from '@/lib/streak'
+import { resolveToday } from '@/lib/today'
 import {
   loadTaskSortKey,
   storeTaskSortKey,
@@ -171,13 +173,29 @@ export default function Dashboard() {
     return m
   }, [data.tasks, liveSubIds])
 
-  // All tasks under live subcategories (done + open) — the hero's ring,
-  // bars and counts derive from these so they stay consistent with the
-  // visible columns (chunk-26 note E).
+  // All tasks under live subcategories (done + open) — the hero's XP, level
+  // and bars derive from these so they stay consistent with the visible
+  // columns (chunk-26 note E). The ring reads the Today plan (chunk 70).
   const liveTasks = useMemo(
     () => data.tasks.filter((t) => liveSubIds.has(t.subcategoryId)),
     [data.tasks, liveSubIds],
   )
+
+  // Open tasks whose subcategory is archived or missing (chunk 70). Every other
+  // view filters them out; the Recovered card is the one place to reach them.
+  const orphanTasks = useMemo(
+    () =>
+      data.tasks
+        .filter((t) => t.completedAt === null && !liveSubIds.has(t.subcategoryId))
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    [data.tasks, liveSubIds],
+  )
+  // Every subcategory's name, archived ones included, for "from <list>".
+  const subNameById = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const s of data.subcategories) m[s.id] = s.name
+    return m
+  }, [data.subcategories])
 
   // Today plan — membership seeded from the live tasks, re-seeded on task-set
   // identity change. The sun toggle on both the Today panel and the dashboard
@@ -624,6 +642,19 @@ export default function Dashboard() {
 
   const dashboardState = selectDashboardState(data.subcategories, data.tasks)
 
+  const todayData = {
+    categories: data.categories,
+    subcategories: liveSubcategories,
+    tasks: liveTasks,
+  }
+  // The hero ring's figures (chunk 70) — the same call the Today panel counts
+  // with, so the two can never disagree.
+  const todayRows = resolveToday(todayData, todaySet, timeZone)
+  const todayFigures = {
+    done: todayRows.filter((r) => r.task.completedAt).length,
+    total: todayRows.length,
+  }
+
   // First-run: a dashed-border CTA card replaces the columns (DESIGN_NOTES §3).
   if (dashboardState === 'first-run') {
     return (
@@ -635,6 +666,7 @@ export default function Dashboard() {
           subcategories={liveSubcategories}
           categories={data.categories}
           streak={streak}
+          today={todayFigures}
         />
         <EmptyStateCard
           categories={data.categories}
@@ -642,12 +674,6 @@ export default function Dashboard() {
         />
       </div>
     )
-  }
-
-  const todayData = {
-    categories: data.categories,
-    subcategories: liveSubcategories,
-    tasks: liveTasks,
   }
 
   const columns = (
@@ -706,6 +732,15 @@ export default function Dashboard() {
         subcategories={liveSubcategories}
         categories={data.categories}
         streak={streak}
+        today={todayFigures}
+      />
+      <RecoveredTasks
+        tasks={orphanTasks}
+        subNameById={subNameById}
+        liveSubcategories={liveSubcategories}
+        categories={data.categories}
+        onMove={onMoveTaskToSubcategory}
+        onComplete={(id) => onCompleteTask(id, true)}
       />
       {/* All-clear: jade banner above the still-visible columns. */}
       {dashboardState === 'all-clear' && <AllClearBanner />}

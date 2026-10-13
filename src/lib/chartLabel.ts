@@ -22,5 +22,5 @@ export function chartLabel({
   range: ChartRange
   categoryFilter: ChartCategoryFilter
 }): string {
-  return `Completed minutes per day for the last ${range} days, ${CATEGORY_PHRASE[categoryFilter]}, by subcategory.`
+  return `Estimated minutes completed per day for the last ${range} days, ${CATEGORY_PHRASE[categoryFilter]}, by subcategory.`
 }

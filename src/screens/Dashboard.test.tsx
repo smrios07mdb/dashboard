@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -258,10 +258,12 @@ describe('Dashboard', () => {
       expect(container.textContent).toContain('Inbox')
     })
 
-    // Archived subcategory must not appear anywhere in the rendered tree.
-    expect(container.textContent).not.toContain('Old project')
-    // And its task must not be visible either.
-    expect(container.textContent).not.toContain('Hidden task')
+    // Chunk 70: an open task under an archived sub now surfaces in the
+    // Recovered card (with its old list's name), so these two lookups are
+    // scoped to the columns — where neither may appear.
+    const columns = container.querySelector('.category-cols')!
+    expect(columns.textContent).not.toContain('Old project')
+    expect(columns.textContent).not.toContain('Hidden task')
     // The "999m" minutes belonging to the archived task must not bubble
     // into the visible totals — 30m is the only live estimate.
     expect(container.textContent).not.toContain('999')
@@ -390,12 +392,96 @@ describe('Dashboard', () => {
 
     const { container, findByRole } = renderDashboard()
 
-    await waitFor(() => {
-      expect(container.textContent).toContain('25%')
-    })
-    expect(container.textContent).toContain('1/4 done')
+    // Chunk 70: the ring reads the Today plan, not all-time completion. None
+    // of these is planned, so it shows the em dash instead of "25%" / "1/4 done".
+    const ring = await findByRole('img', { name: 'Today: nothing planned' })
+    expect(ring).toHaveTextContent('—')
+    expect(container.textContent).not.toContain('1/4 done')
     // The fused spark pill opens the existing "What's next?" sheet.
     expect(await findByRole('button', { name: /what.s next/i })).toBeTruthy()
+  })
+
+  it('feeds the hero ring from the Today plan, not all-time completion (chunk 70)', async () => {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    // One open Priority-1 task (auto-planned) and one old completion: the
+    // all-time ring read 50%; the plan is 0 of 1.
+    tasksList.mockResolvedValue([
+      mkTask('t-p1', 'sw1', { priority: 1 }),
+      mkTask('t-old', 'sw1', { completedAt: '2026-01-03T00:00:00.000Z' }),
+    ])
+
+    const { container, findByRole } = renderDashboard()
+
+    const ring = await findByRole('img', {
+      name: 'Today: 0 of 1 planned tasks done',
+    })
+    expect(within(ring).getByText('0')).toBeInTheDocument()
+    expect(within(ring).getByText('%')).toBeInTheDocument()
+    expect(container.textContent).toContain('0/1 today')
+    expect(within(ring).queryByText('50')).not.toBeInTheDocument()
+  })
+
+  it('lists open tasks under an archived subcategory in Recovered and moves them (chunk 70)', async () => {
+    const user = userEvent.setup()
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([
+      mkSub('sw1', 'cat-work'),
+      mkSub('s-arch', 'cat-work', { archivedAt: '2026-05-25T12:00:00.000Z' }),
+    ])
+    tasksList.mockResolvedValue([
+      mkTask('Live task', 'sw1'),
+      mkTask('Stranded task', 's-arch'),
+      // A completed orphan is not recovered.
+      mkTask('Stranded done', 's-arch', {
+        completedAt: '2026-01-03T00:00:00.000Z',
+      }),
+    ])
+    tasksUpdate.mockResolvedValue({
+      ...mkTask('Stranded task', 's-arch'),
+      subcategoryId: 'sw1',
+    })
+
+    renderDashboard()
+
+    const card = await screen.findByRole('region', { name: 'Recovered' })
+    expect(within(card).getByText('Stranded task')).toBeInTheDocument()
+    expect(within(card).getByText('from s-arch')).toBeInTheDocument()
+    expect(within(card).queryByText('Stranded done')).not.toBeInTheDocument()
+
+    await user.selectOptions(
+      within(card).getByLabelText('Move Stranded task to'),
+      'sw1',
+    )
+    expect(tasksUpdate).toHaveBeenCalledWith('Stranded task', {
+      subcategoryId: 'sw1',
+    })
+    // Moved into a live list → nothing left to recover.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('region', { name: 'Recovered' }),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  it('renders no Recovered card when every open task has a live subcategory (chunk 70)', async () => {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([mkTask('Open task', 'sw1')])
+
+    const { findAllByText, queryByText } = renderDashboard()
+
+    expect((await findAllByText('Open task')).length).toBeGreaterThan(0)
+    expect(queryByText('Recovered')).toBeNull()
   })
 
   it('shows the canonical routines streak (max of morning and night) in the hero chip', async () => {

@@ -9,13 +9,13 @@ import {
 describe('chartLabel', () => {
   it('describes what is plotted, the range, and the category filter', () => {
     expect(chartLabel({ range: 30, categoryFilter: 'all' })).toBe(
-      'Completed minutes per day for the last 30 days, all categories, by subcategory.',
+      'Estimated minutes completed per day for the last 30 days, all categories, by subcategory.',
     )
     expect(chartLabel({ range: 7, categoryFilter: 'work' })).toBe(
-      'Completed minutes per day for the last 7 days, the Work category, by subcategory.',
+      'Estimated minutes completed per day for the last 7 days, the Work category, by subcategory.',
     )
     expect(chartLabel({ range: 90, categoryFilter: 'personal' })).toBe(
-      'Completed minutes per day for the last 90 days, the Personal category, by subcategory.',
+      'Estimated minutes completed per day for the last 90 days, the Personal category, by subcategory.',
     )
   })
 

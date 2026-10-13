@@ -107,8 +107,13 @@ const POPULATED: Task[] = [
   task('s3', 60, 25),
 ]
 
-function setup(tasks: Task[]) {
-  tasksList.mockResolvedValue(tasks)
+const ALL_TIME_FROM = '1970-01-01T00:00:00.000Z'
+
+/** `tasks` answers the range query; `allTime` the chunk-70 last-completion one. */
+function setup(tasks: Task[], allTime: Task[] = []) {
+  tasksList.mockImplementation(async (from: string) =>
+    from === ALL_TIME_FROM ? allTime : tasks,
+  )
   subsList.mockResolvedValue(SUBS)
   catsList.mockResolvedValue(CATS)
 }
@@ -130,18 +135,19 @@ describe('Insights', () => {
     setup(POPULATED)
     render(<Insights />)
 
-    // total time logged
+    // Chunk 70: the lead card counts completed tasks; time moved to its own
+    // "Estimated time" card.
     expect(
       within((await screen.findByText('Last 30 days')).parentElement!).getByText(
-        '8h',
+        '5',
       ),
     ).toBeInTheDocument()
+    expect(within(cardFor('Last 30 days')).getByText('tasks completed')).toBeInTheDocument()
+    expect(within(cardFor('Estimated time')).getByText('8h')).toBeInTheDocument()
     // daily average = round(480 / 30)
     expect(within(cardFor('Daily average')).getByText('16m')).toBeInTheDocument()
-    // active subcategory count (= subs with ≥1 completed task)
-    expect(
-      within(cardFor('Active subcategories')).getByText('3'),
-    ).toBeInTheDocument()
+    // Chunk 70: the "Active subcategories" card is removed.
+    expect(screen.queryByText('Active subcategories')).not.toBeInTheDocument()
     // most-touched = top sub by minutes
     expect(
       within(cardFor('Most-touched')).getByText('Project Atlas'),
@@ -161,7 +167,10 @@ describe('Insights', () => {
     setup([])
     render(<Insights />)
 
-    expect(await screen.findByText('No time logged yet.')).toBeInTheDocument()
+    // Chunk 70: new empty title.
+    expect(
+      await screen.findByText('Nothing completed in the last 30 days.'),
+    ).toBeInTheDocument()
     // The trend chip is gated on having data — it must be absent here.
     expect(screen.queryByLabelText(/trend/i)).not.toBeInTheDocument()
   })
@@ -199,5 +208,62 @@ describe('Insights', () => {
     const label = img.getAttribute('aria-label')
     expect(label).toBeTruthy()
     expect(label!.length).toBeGreaterThan(0)
+  })
+
+  it('(f) names the last completion and offers 90 days when the range is empty (chunk 70)', async () => {
+    const user = userEvent.setup()
+    setup([], [
+      { ...task('s1', 30, 0), completedAt: '2026-08-11T09:00:00.000Z' },
+      { ...task('s1', 30, 0), completedAt: '2026-09-02T15:00:00.000Z' },
+    ])
+    render(<Insights />)
+
+    // Prefix only: the year is appended once the run date leaves 2026.
+    expect(
+      await screen.findByText(/^Last completion was Sep 2(, 2026)?\.$/),
+    ).toBeInTheDocument()
+    // The lookup runs once, after the empty range query.
+    expect(
+      tasksList.mock.calls.filter(([from]) => from === ALL_TIME_FROM),
+    ).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Show 90 days' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '90 days' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      ),
+    )
+    // At 90 days there is no wider range to offer.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Show 90 days' }),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  it('(g) falls back to the generic body when nothing was ever completed (chunk 70)', async () => {
+    setup([], [])
+    render(<Insights />)
+
+    expect(
+      await screen.findByText(
+        'Complete a task and it shows up here. Try a wider range or another category.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Last completion/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show 90 days' })).toBeInTheDocument()
+  })
+
+  it('(h) skips the last-completion lookup when the range has tasks (chunk 70)', async () => {
+    setup(POPULATED)
+    render(<Insights />)
+    await screen.findByRole('img')
+
+    expect(
+      tasksList.mock.calls.filter(([from]) => from === ALL_TIME_FROM),
+    ).toHaveLength(0)
+    expect(screen.getByText('Est. time')).toBeInTheDocument()
+    expect(screen.getByText('What got done')).toBeInTheDocument()
   })
 })

@@ -3,7 +3,7 @@ import type { User } from '@supabase/supabase-js'
 
 import WhatsNextSheet from '@/components/WhatsNextSheet'
 import type { Category, Subcategory, Task } from '@/db/types'
-import { calcStats, catProgress, type Stats } from '@/lib/gamify'
+import { calcStats, catProgress } from '@/lib/gamify'
 import { useUIStore } from '@/state/uiStore'
 
 import CatBar from './CatBar'
@@ -20,9 +20,10 @@ import ProgressRing from './ProgressRing'
  * the minutes input binds to `uiStore.availableMinutes`, and the spark pill
  * opens the existing `WhatsNextSheet` via its `trigger` prop.
  *
- * The ring is captioned "today" but computes overall completion (done/total),
- * matching the prototype — it has no `planned_for` / due-today dependency. A
- * genuinely today-scoped ring is the deferred third-column chunk's call (note A).
+ * The ring is the Today plan (chunk 70): done ÷ planned, passed in by the
+ * Dashboard from the same `resolveToday` call the Today panel counts with, and
+ * an em dash when nothing is planned. XP, level, the level sliver and the
+ * category bars are all-time, over the live tasks.
  *
  * Only inline CSS transitions are used here; the prototype's completion-FX
  * keyframes (checkPop / rowFlush / xpFloat) belong to the task rows (chunk 27).
@@ -38,6 +39,8 @@ type DailyHeroProps = {
   categories: Category[]
   /** Best current routine streak (max of morning/night), computed upstream. */
   streak: number
+  /** Today's plan: rows done and rows planned (chunk 70). */
+  today: { done: number; total: number }
 }
 
 // ── time-aware greeting + encouragement (ported verbatim from gamify.jsx) ──
@@ -51,12 +54,14 @@ function greeting(): string {
   return 'Winding down'
 }
 
-function encourage(s: Stats): string {
-  if (s.total === 0) return 'A clean slate. Add something to chase.'
-  if (s.done === 0) return 'Nothing done yet — knock out the first one.'
-  if (s.ratio >= 1) return 'Every task cleared. Beautifully done.'
-  if (s.ratio >= 0.66) return 'Almost there — the finish line is close.'
-  if (s.ratio >= 0.33) return "You're on a roll. Keep the momentum."
+/** Reads the Today plan, not all-time completion (chunk 70). */
+function encourage(done: number, total: number): string {
+  if (total === 0) return 'Nothing planned yet — pick a few for today.'
+  if (done === 0) return 'Nothing done yet — knock out the first one.'
+  if (done >= total) return "Today's plan is cleared. Beautifully done."
+  const ratio = done / total
+  if (ratio >= 0.66) return 'Almost there — the finish line is close.'
+  if (ratio >= 0.33) return "You're on a roll. Keep the momentum."
   return 'Good start. One at a time.'
 }
 
@@ -86,6 +91,7 @@ export default function DailyHero({
   subcategories,
   categories,
   streak,
+  today,
 }: DailyHeroProps) {
   const availableMinutes = useUIStore((s) => s.availableMinutes)
   const setAvailableMinutes = useUIStore((s) => s.setAvailableMinutes)
@@ -93,7 +99,11 @@ export default function DailyHero({
   const stats = calcStats(tasks)
   const work = catProgress(tasks, subcategories, categories, 'Work')
   const personal = catProgress(tasks, subcategories, categories, 'Personal')
-  const pct = Math.round(stats.ratio * 100)
+  const planned = today.total > 0
+  const ratio = planned ? today.done / today.total : 0
+  const pct = Math.round(ratio * 100)
+  const showStreak = streak > 0
+  const showLevel = stats.xp > 0
   const name = displayName(user)
 
   return (
@@ -147,18 +157,35 @@ export default function DailyHero({
           position: 'relative',
         }}
       >
-        <ProgressRing value={stats.ratio} size={88} stroke={9}>
-          <span
-            className="num display"
-            style={{ fontSize: 21, fontWeight: 600, color: 'var(--ink)' }}
-          >
-            {pct}
-            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>%</span>
-          </span>
-          <span className="label" style={{ fontSize: 8, marginTop: 2 }}>
-            today
-          </span>
-        </ProgressRing>
+        {/* ProgressRing takes no aria-label, so the wrapper carries it. */}
+        <div
+          role="img"
+          aria-label={
+            planned
+              ? `Today: ${today.done} of ${today.total} planned tasks done`
+              : 'Today: nothing planned'
+          }
+          style={{ flexShrink: 0 }}
+        >
+          <ProgressRing value={ratio} size={88} stroke={9}>
+            <span
+              className="num display"
+              style={{ fontSize: 21, fontWeight: 600, color: 'var(--ink)' }}
+            >
+              {planned ? (
+                <>
+                  {pct}
+                  <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>%</span>
+                </>
+              ) : (
+                '—'
+              )}
+            </span>
+            <span className="label" style={{ fontSize: 8, marginTop: 2 }}>
+              today
+            </span>
+          </ProgressRing>
+        </div>
 
         <div style={{ flex: '1 1 240px', minWidth: 0 }}>
           <h1
@@ -174,91 +201,102 @@ export default function DailyHero({
           >
             {name ? `${greeting()}, ${name}` : greeting()}
           </h1>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              flexWrap: 'wrap',
-              marginTop: 10,
-            }}
-          >
-            {/* streak chip — gold literals (no token for this hue; chunk-26 step 2) */}
-            <span
-              title="Check-in streak"
+          {(showStreak || showLevel) && (
+            <div
               style={{
-                display: 'inline-flex',
+                display: 'flex',
                 alignItems: 'center',
-                gap: 5,
-                padding: '4px 10px',
-                borderRadius: 999,
-                background: 'rgba(201,148,47,.14)',
-                border: '1px solid rgba(201,148,47,.28)',
+                gap: 8,
+                flexWrap: 'wrap',
+                marginTop: 10,
               }}
             >
-              <Flame size={13} style={{ color: '#c9942f' }} aria-hidden />
-              <span
-                className="num"
-                style={{ fontSize: 12.5, fontWeight: 700, color: '#a9772a' }}
-              >
-                {streak}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                day{streak === 1 ? '' : 's'}
-              </span>
-            </span>
-            {/* level chip — amethyst */}
-            <span
-              title={`${stats.xp.toLocaleString()} XP`}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '4px 10px',
-                borderRadius: 999,
-                background:
-                  'color-mix(in srgb, var(--jewel-amethyst) 13%, transparent)',
-                border:
-                  '1px solid color-mix(in srgb, var(--jewel-amethyst) 34%, transparent)',
-              }}
-            >
-              <span
-                className="label"
-                style={{ fontSize: 8.5, color: 'var(--jewel-amethyst)' }}
-              >
-                LVL
-              </span>
-              <span
-                className="num"
-                style={{
-                  fontSize: 12.5,
-                  fontWeight: 700,
-                  color: 'var(--jewel-amethyst)',
-                }}
-              >
-                {stats.level}
-              </span>
-              <span
-                style={{
-                  width: 1,
-                  height: 11,
-                  background:
-                    'color-mix(in srgb, var(--jewel-amethyst) 30%, transparent)',
-                }}
-              />
-              <CountUp
-                value={stats.xp}
-                className="num"
-                style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 700 }}
-              />
-              <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>xp</span>
-            </span>
-          </div>
+              {/* streak chip — gold literals (no token for this hue; chunk-26 step 2) */}
+              {showStreak && (
+                <span
+                  title="Check-in streak"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    background: 'rgba(201,148,47,.14)',
+                    border: '1px solid rgba(201,148,47,.28)',
+                  }}
+                >
+                  <Flame size={13} style={{ color: '#c9942f' }} aria-hidden />
+                  <span
+                    className="num"
+                    style={{ fontSize: 12.5, fontWeight: 700, color: '#a9772a' }}
+                  >
+                    {streak}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                    day{streak === 1 ? '' : 's'}
+                  </span>
+                </span>
+              )}
+              {/* level chip — amethyst */}
+              {showLevel && (
+                <span
+                  title={`${stats.xp.toLocaleString()} XP`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    background:
+                      'color-mix(in srgb, var(--jewel-amethyst) 13%, transparent)',
+                    border:
+                      '1px solid color-mix(in srgb, var(--jewel-amethyst) 34%, transparent)',
+                  }}
+                >
+                  <span
+                    className="label"
+                    style={{ fontSize: 8.5, color: 'var(--jewel-amethyst)' }}
+                  >
+                    LVL
+                  </span>
+                  <span
+                    className="num"
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      color: 'var(--jewel-amethyst)',
+                    }}
+                  >
+                    {stats.level}
+                  </span>
+                  <span
+                    style={{
+                      width: 1,
+                      height: 11,
+                      background:
+                        'color-mix(in srgb, var(--jewel-amethyst) 30%, transparent)',
+                    }}
+                  />
+                  <CountUp
+                    value={stats.xp}
+                    className="num"
+                    style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 700 }}
+                  />
+                  <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>xp</span>
+                </span>
+              )}
+            </div>
+          )}
           <p style={{ margin: '7px 0 0', fontSize: 13.5, color: 'var(--ink-2)' }}>
-            {encourage(stats)}{' '}
-            <span className="num" style={{ color: 'var(--ink-3)' }}>
-              · {stats.done}/{stats.total} done
-            </span>
+            {encourage(today.done, today.total)}
+            {planned && (
+              <>
+                {' '}
+                <span className="num" style={{ color: 'var(--ink-3)' }}>
+                  · {today.done}/{today.total} today
+                </span>
+              </>
+            )}
           </p>
           {/* level progress sliver */}
           <div
