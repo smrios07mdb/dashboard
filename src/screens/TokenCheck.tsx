@@ -89,7 +89,7 @@ export default function TokenCheck() {
           <div className="flex flex-col gap-2 rounded-md bg-surface p-5 shadow">
             <p className="text-ink">ink — primary text #221f28</p>
             <p className="text-ink-2">ink-2 — secondary text #635f6c</p>
-            <p className="text-ink-3">ink-3 — hints / captions #948f9e</p>
+            <p className="text-ink-3">ink-3 — hints / captions #6b6676</p>
             <p className="text-ink-4">ink-4 — placeholder / disabled #c7c2d0</p>
           </div>
         </Section>

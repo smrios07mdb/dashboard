@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -126,5 +127,38 @@ describe('ProtectedLayout — capture entry points (chunk 73)', () => {
   it('the Notebook list keeps the floating button', () => {
     renderAt('/notebook')
     expect(floatingButton()).toBeInTheDocument()
+  })
+})
+
+describe('ProtectedLayout — landmarks (chunk 75)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useUIStore.setState({ capture: null })
+  })
+
+  it('has exactly one main landmark, holding the routed screen', () => {
+    renderAt('/')
+    const mains = screen.getAllByRole('main')
+    expect(mains).toHaveLength(1)
+    expect(mains[0]).toContainElement(screen.getByText('screen'))
+  })
+
+  it('the first Tab stop is the skip link', async () => {
+    const user = userEvent.setup()
+    renderAt('/')
+    expect(document.body).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveFocus()
+  })
+
+  it('the skip link moves focus to main and leaves the URL without a hash', async () => {
+    const user = userEvent.setup()
+    renderAt('/')
+    await user.tab()
+    await user.keyboard('{Enter}')
+    const main = screen.getByRole('main')
+    expect(main).toHaveAttribute('id', 'main')
+    expect(main).toHaveFocus()
+    expect(window.location.hash).toBe('')
   })
 })

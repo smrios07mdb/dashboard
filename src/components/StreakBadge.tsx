@@ -30,6 +30,13 @@ const ACCENT: Record<NonNullable<StreakBadgeProps['tone']>, string> = {
   neutral: 'var(--ink)',
 }
 
+// Text-safe variants for the number (chunk 75); the flame and fill stay on ACCENT.
+const ACCENT_INK: Record<NonNullable<StreakBadgeProps['tone']>, string> = {
+  morning: 'var(--jewel-gold-ink)',
+  night: 'var(--jewel-amethyst-ink)',
+  neutral: 'var(--ink)',
+}
+
 export default function StreakBadge({
   streak,
   tone = 'neutral',
@@ -39,7 +46,7 @@ export default function StreakBadge({
     return (
       <span
         className={cn(
-          'inline-flex items-center rounded-full bg-bg-alt px-2.5 py-1 font-mono text-[10px] uppercase tracking-wider text-ink-3',
+          'inline-flex items-center rounded-full bg-bg-alt px-2.5 py-1 font-mono text-[11px] uppercase tracking-wider text-ink-3',
           className,
         )}
       >
@@ -61,7 +68,7 @@ export default function StreakBadge({
       aria-label={`${streak} day streak`}
     >
       <Flame className="size-3" aria-hidden style={{ color: accent }} />
-      <span className="num font-bold" style={{ color: accent }}>
+      <span className="num font-bold" style={{ color: ACCENT_INK[tone] }}>
         {streak}
       </span>
       <span className="text-ink-3">day{streak === 1 ? '' : 's'}</span>

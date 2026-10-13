@@ -246,31 +246,41 @@ export default function Insights() {
   // change to lib/insights.ts. `summary` is sorted descending by minutes, so
   // [0] is the most-touched. Chunk 70: the cards lead with the task count and
   // every time figure is labelled as an estimate — nothing here is tracked. ----
-  const statCards: { label: string; value: string; hint: string; accent: string }[] =
+  const statCards: {
+    label: string
+    value: string
+    hint: string
+    accent: string
+    ink: string
+  }[] =
     [
       {
         label: `Last ${range} days`,
         value: String(completedCount),
         hint: 'tasks completed',
         accent: 'var(--jewel-jade)',
+        ink: 'var(--jewel-jade-ink)',
       },
       {
         label: 'Estimated time',
         value: fmtMinutes(totalMinutes),
         hint: 'sum of task estimates',
         accent: 'var(--jewel-coral)',
+        ink: 'var(--jewel-coral-ink)',
       },
       {
         label: 'Daily average',
         value: fmtMinutes(Math.round(totalMinutes / range)),
         hint: 'estimated, across all categories',
         accent: 'var(--jewel-jade)',
+        ink: 'var(--jewel-jade-ink)',
       },
       {
         label: 'Most-touched',
         value: summary[0]?.name ?? '—',
         hint: 'by estimated time',
         accent: 'var(--jewel-coral)',
+        ink: 'var(--jewel-coral-ink)',
       },
     ]
 
@@ -306,7 +316,7 @@ export default function Insights() {
               trend >= 0
                 ? {
                     background: 'var(--work-soft)',
-                    color: 'var(--work)',
+                    color: 'var(--work-ink)',
                     border:
                       '1px solid color-mix(in srgb, var(--work) 30%, transparent)',
                   }
@@ -346,10 +356,7 @@ export default function Insights() {
                   background: `linear-gradient(90deg, ${c.accent}, transparent 70%)`,
                 }}
               />
-              <div
-                className="label mb-1.5"
-                style={{ color: c.accent, opacity: 0.85 }}
-              >
+              <div className="label mb-1.5" style={{ color: c.ink }}>
                 {c.label}
               </div>
               <div
@@ -454,14 +461,14 @@ export default function Insights() {
                   />
                   <XAxis
                     dataKey="label"
-                    tick={{ fill: 'var(--ink-3)', fontSize: 10 }}
+                    tick={{ fill: 'var(--ink-3)', fontSize: 11 }}
                     axisLine={{ stroke: 'var(--line)' }}
                     tickLine={false}
                     interval="preserveStartEnd"
                     minTickGap={20}
                   />
                   <YAxis
-                    tick={{ fill: 'var(--ink-3)', fontSize: 10 }}
+                    tick={{ fill: 'var(--ink-3)', fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(v: number) => `${v}m`}

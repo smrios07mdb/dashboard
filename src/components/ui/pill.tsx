@@ -22,8 +22,8 @@ export type PillTone =
 const SOFT: Record<PillTone, React.CSSProperties> = {
   neutral: { background: 'var(--bg-alt)', color: 'var(--ink-2)' },
   accent: { background: 'var(--accent-soft)', color: 'var(--accent-ink)' },
-  work: { background: 'var(--work-soft)', color: 'var(--work)' },
-  personal: { background: 'var(--personal-soft)', color: 'var(--personal)' },
+  work: { background: 'var(--work-soft)', color: 'var(--work-ink)' },
+  personal: { background: 'var(--personal-soft)', color: 'var(--personal-ink)' },
   warn: {
     background: 'color-mix(in srgb, var(--warn) 16%, transparent)',
     color: 'color-mix(in srgb, var(--warn) 62%, var(--ink))',

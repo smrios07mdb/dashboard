@@ -79,7 +79,7 @@
     /* Ink scale */
     --ink:    #221f28;
     --ink-2:  #635f6c;
-    --ink-3:  #948f9e;
+    --ink-3:  #6b6676;
     --ink-4:  #c7c2d0;
 
     /* Focal accent (overridden at runtime by ApplyAccent; forest default). The
@@ -118,6 +118,16 @@
     --work-soft:     rgba(17, 160, 110, 0.15);
     --personal:      #f2552f;
     --personal-soft: rgba(242, 85, 47, 0.15);
+
+    /* Text-safe ("-ink") variants of the identity and jewel colours (chunk 75):
+       >= 4.5:1 on white, on --bg and on the colour's own 10–15% wash. Fills,
+       borders, bars and dots keep the base colour; text uses these. */
+    --work-ink:            color-mix(in srgb, var(--work) 70%, black);
+    --personal-ink:        color-mix(in srgb, var(--personal) 70%, black);
+    --jewel-amethyst-ink:  color-mix(in srgb, var(--jewel-amethyst) 70%, black);
+    --jewel-jade-ink:      color-mix(in srgb, var(--jewel-jade) 70%, black);
+    --jewel-coral-ink:     color-mix(in srgb, var(--jewel-coral) 70%, black);
+    --jewel-gold-ink:      color-mix(in srgb, var(--jewel-gold) 60%, black);
 
     /* "What's next?" spark gradient — base (the default data-spark="purple" block
        below switches it to purple). */
@@ -478,7 +488,7 @@
   /* Plex Mono structural label — kickers, "TODAY", section dividers. A primitive. */
   .label {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 500;
     letter-spacing: 0.16em;
     text-transform: uppercase;

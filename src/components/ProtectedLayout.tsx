@@ -62,6 +62,18 @@ export default function ProtectedLayout() {
     <Protected>
       {/* Every note, plus the task notes sheet, for every screen (chunk 59). */}
       <NotesProvider>
+        {/* First focusable element on every signed-in screen (chunk 75).
+            preventDefault keeps `#main` out of the URL under BrowserRouter. */}
+        <a
+          href="#main"
+          onClick={(e) => {
+            e.preventDefault()
+            document.getElementById('main')?.focus()
+          }}
+          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-[calc(env(safe-area-inset-top)+8px)] focus:z-[60] focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-[13px] focus:font-medium focus:text-ink focus:shadow-md focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          Skip to main content
+        </a>
         <AppShell
           topBanner={<InstallHint />}
           headerEnd={
@@ -75,7 +87,7 @@ export default function ProtectedLayout() {
               >
                 <Plus className="size-3.5" aria-hidden />
                 New task
-                <kbd className="rounded-sm border border-line px-1 font-mono text-[10px] leading-4 text-ink-3">
+                <kbd className="rounded-sm border border-line px-1 font-mono text-[11px] leading-4 text-ink-3">
                   N
                 </kbd>
               </button>
@@ -85,9 +97,9 @@ export default function ProtectedLayout() {
           bottomNav={!noteEditor}
         >
           <Tabs />
-          <div className="pt-6">
+          <main id="main" tabIndex={-1} className="pt-6 focus:outline-none">
             <Outlet />
-          </div>
+          </main>
         </AppShell>
         {/* Phones: floating +, clear of the bottom tab bar (3.5rem + inset). */}
         {!noteEditor && !captureOpen && (

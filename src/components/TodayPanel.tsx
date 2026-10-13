@@ -4,7 +4,7 @@ import { Plus, Sun, X } from '@/components/icons'
 import { Checkbox } from '@/components/ui/checkbox'
 import { IconBtn } from '@/components/ui/icon-button'
 import type { Category, Subcategory, Task } from '@/db/types'
-import { catColor, fmtMin } from '@/lib/cat'
+import { catColor, catInk, fmtMin } from '@/lib/cat'
 import { resolveToday, type TodayRow as TodayRowData } from '@/lib/today'
 import {
   suggestToday,
@@ -81,6 +81,7 @@ function TodayRow({
   const { task, reason, subName, catName } = row
   const completed = !!task.completedAt
   const cat = catColor(catName)
+  const ink = catInk(catName)
   return (
     <div
       className="relative grid items-center transition-[background-color,opacity] hover:bg-bg-alt/60"
@@ -124,7 +125,7 @@ function TodayRow({
               gap: 5,
               fontSize: 11,
               fontWeight: 500,
-              color: cat,
+              color: ink,
               padding: '2px 8px 2px 6px',
               borderRadius: 999,
               background: `color-mix(in srgb, ${cat} 10%, transparent)`,
@@ -146,11 +147,11 @@ function TodayRow({
               className="num flex-shrink-0"
               style={{
                 fontFamily: 'var(--font-mono)',
-                fontSize: 9,
+                fontSize: 11,
                 fontWeight: 600,
                 letterSpacing: '.08em',
                 textTransform: 'uppercase',
-                color: cat,
+                color: ink,
                 padding: '1px 6px',
                 borderRadius: 999,
                 background: `color-mix(in srgb, ${cat} 12%, transparent)`,
@@ -585,7 +586,7 @@ export default function TodayPanel({
           >
             Today
           </h2>
-          <span className="label" style={{ fontSize: 9.5 }}>
+          <span className="label">
             {todayDateLabel(timeZone)}
           </span>
           {busy}

@@ -17,7 +17,7 @@ import AddSubcategoryInline from '@/components/AddSubcategoryInline'
 import SubcategorySection from '@/components/SubcategorySection'
 import TaskSortControl from '@/components/TaskSortControl'
 import type { Category, Subcategory, Task } from '@/db/types'
-import { catColor, fmtMin } from '@/lib/cat'
+import { catColor, catInk, fmtMin } from '@/lib/cat'
 import { isTaskDragId, taskDragCollision } from '@/lib/taskDragCollision'
 import type { TaskSortKey } from '@/lib/taskSort'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
@@ -224,13 +224,13 @@ export default function CategoryColumn({
           >
             {category.name}
           </h2>
-          {/* "N open" pill — solid category color with a soft colored shadow. */}
+          {/* "N open" pill — solid text-safe category color (white on it clears
+              AA, chunk 75) with a soft colored shadow. */}
           <span
             className="num label inline-block shrink-0 rounded-full"
             style={{
-              background: accent,
+              background: catInk(category.name),
               color: '#fff',
-              fontSize: 10.5,
               padding: '4px 10px',
               letterSpacing: '0.1em',
               boxShadow: `0 5px 14px -5px ${accent}`,

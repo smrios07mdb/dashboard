@@ -213,7 +213,7 @@ export default function QuickCapture() {
           inputRef.current?.focus()
         }}
       >
-        <DialogTitle className="label text-[10px] font-medium leading-normal tracking-[0.16em]">
+        <DialogTitle className="label text-[11px] font-medium leading-normal tracking-[0.16em]">
           New task
         </DialogTitle>
         <DialogDescription className="sr-only">

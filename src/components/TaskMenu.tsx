@@ -100,7 +100,7 @@ export default function TaskMenu({
             <ListFilter className="size-3.5" aria-hidden />
             Set priority…
             {task.priority !== null && (
-              <span className="ml-auto pl-4 font-mono text-[10px] tracking-[0.1em] text-ink-3">
+              <span className="ml-auto pl-4 font-mono text-[11px] tracking-[0.1em] text-ink-3">
                 P{task.priority}
               </span>
             )}

@@ -81,7 +81,7 @@ export default function BusyPopover({
         {fmtRange(block.startMin, block.endMin)}
       </div>
       <hr className="my-[9px] border-line" />
-      <div className="label inline-flex items-center gap-1.5" style={{ fontSize: 8.5 }}>
+      <div className="label inline-flex items-center gap-1.5">
         {block.color && (
           <span
             aria-hidden

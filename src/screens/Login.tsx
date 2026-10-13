@@ -131,7 +131,7 @@ export default function Login() {
             <span>hupomnemata</span>
             <span className="font-medium text-work">.</span>
           </div>
-          <div className="label mt-[14px] text-[9px] tracking-[0.22em]">
+          <div className="label mt-[14px] tracking-[0.22em]">
             PERSONAL · QUIET · YOURS
           </div>
         </div>

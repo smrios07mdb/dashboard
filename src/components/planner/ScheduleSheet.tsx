@@ -138,7 +138,7 @@ function Body({
           {overdue && (
             <span
               className="label"
-              style={{ fontSize: 8.5, color: 'hsl(var(--destructive))' }}
+              style={{ color: 'hsl(var(--destructive))' }}
             >
               OVERDUE
             </span>

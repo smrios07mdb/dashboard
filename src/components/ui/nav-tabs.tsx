@@ -81,7 +81,7 @@ export function BottomTabs({ items, value, onChange, className, ariaLabel }: Nav
             onClick={() => onChange(it.id)}
             aria-current={active ? 'page' : undefined}
             className={cn(
-              'relative flex flex-col items-center gap-1 px-1.5 pb-3 pt-2.5 text-[10px] tracking-[0.02em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+              'relative flex flex-col items-center gap-1 px-1.5 pb-3 pt-2.5 text-[11px] tracking-[0.02em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
               active ? 'font-semibold text-ink' : 'font-medium text-ink-3',
             )}
           >

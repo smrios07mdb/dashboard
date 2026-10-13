@@ -40,7 +40,7 @@ function renderColumn(overrides: Partial<CategoryColumnProps> = {}) {
     ...overrides,
   } as CategoryColumnProps
   render(<CategoryColumn {...props} />)
-  const name = screen.getByRole('heading', { level: 2, name: 'Work' })
+  const name = screen.getByRole('heading', { level: 2, name: props.category.name })
   const header = name.closest('header') as HTMLElement
   return { onDrillDown, name, header }
 }
@@ -101,5 +101,20 @@ describe('CategoryColumn header — phone width (chunk 68)', () => {
       .parentElement as HTMLElement
     expect(lineTwo).toHaveClass('flex-wrap', 'min-w-0', 'justify-end')
     expect(lineTwo).not.toHaveClass('shrink-0')
+  })
+})
+
+describe('CategoryColumn "N open" pill (chunk 75)', () => {
+  // White on the base category colour is under 4.5:1; the pill sits on the
+  // text-safe `-ink` variant instead.
+  it.each([
+    ['Work', 'var(--work-ink)'],
+    ['Personal', 'var(--personal-ink)'],
+  ] as const)('%s sits on %s', (name, background) => {
+    const cat = { id: `cat-${name}`, name, userId: 'u1' }
+    renderColumn({ category: cat, allCategories: [cat] })
+    expect(screen.getByText('0 open').getAttribute('style')).toContain(
+      `background: ${background}`,
+    )
   })
 })

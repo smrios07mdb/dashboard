@@ -48,7 +48,7 @@ export default function TaskSortControl({
           onClick={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-sm border border-line px-2 py-1 font-mono text-[10px] font-medium uppercase tracking-[0.1em] text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'inline-flex items-center gap-1.5 rounded-sm border border-line px-2 py-1 font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-ink-3 hover:bg-bg-alt hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             className,
           )}
         >

@@ -179,7 +179,7 @@ function localHHMM(iso: string | null): string | null {
 function StaleChip() {
   return (
     <span
-      className="mono inline-flex items-center gap-1.5 rounded-full px-[9px] py-[3px] text-[9px] font-semibold tracking-[.13em]"
+      className="mono inline-flex items-center gap-1.5 rounded-full px-[9px] py-[3px] text-[11px] font-semibold tracking-[.13em]"
       style={{
         background: 'color-mix(in srgb, var(--warn) 13%, transparent)',
         border: '1px solid color-mix(in srgb, var(--warn) 28%, transparent)',
@@ -1201,7 +1201,7 @@ export default function Planner() {
     <header className="mb-3.5 flex flex-wrap items-center gap-3.5">
       <div>
         <h1 className="title m-0 text-[27px]">{weekRangeLabel(weekStartDate)}</h1>
-        <span className="label" style={{ fontSize: 9 }}>
+        <span className="label">
           {weekMetaLabel(weekStartDate)}
         </span>
       </div>
@@ -1279,7 +1279,7 @@ export default function Planner() {
           touch={isTouch}
           proposedByTask={proposedByTask}
         />
-        <main className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1">
           {header(true)}
           {proposals.length > 0 && (
             <div
@@ -1329,7 +1329,7 @@ export default function Planner() {
             onCarryMove={(b) => void carryMove(b)}
             onOpenActions={setActionBlock}
           />
-        </main>
+        </div>
       </div>
 
       {/* Mobile <sm (AppShell already pads the page x-axis) */}
@@ -1341,7 +1341,7 @@ export default function Planner() {
           todayIdx={todayIdx}
           onSelect={setSelectedDay}
         />
-        <div className="num mono pb-2 text-[10px] text-ink-3">
+        <div className="num mono pb-2 text-[11px] text-ink-3">
           {DAY_FULL[selectedDay]} ·{' '}
           {selectedDayFree === undefined
             ? 'weekend'

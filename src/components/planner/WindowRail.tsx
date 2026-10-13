@@ -27,7 +27,7 @@ export default function WindowRail({
       type="button"
       onClick={onToggle}
       className={cn(
-        'mono flex w-full items-center justify-center gap-1.5 py-[5px] text-[9px] font-medium uppercase tracking-[.12em] text-ink-3 transition-colors hover:text-ink-2',
+        'mono flex w-full items-center justify-center gap-1.5 py-[5px] text-[11px] font-medium uppercase tracking-[.12em] text-ink-3 transition-colors hover:text-ink-2',
         side === 'bottom' && 'border-t border-line',
       )}
     >

@@ -79,7 +79,7 @@ export default function BlockActionSheet({
               <span className="label">
                 {notes.length > 1 ? `Notes · ${notes.length}` : 'Note'}
               </span>
-              <span className="num text-[10px] text-ink-3">
+              <span className="num text-[11px] text-ink-3">
                 {notes.length > 1 ? 'latest' : 'updated'}{' '}
                 {noteRel(newest.updatedAt)}
               </span>

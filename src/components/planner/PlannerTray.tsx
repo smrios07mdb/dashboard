@@ -93,7 +93,7 @@ export function TrayCard({
         {proposedLabel ? (
           <span
             data-testid="tray-proposed"
-            className="num mono text-[10.5px] font-semibold text-accent-ink"
+            className="num mono text-[11px] font-semibold text-accent-ink"
           >
             → {proposedLabel}
           </span>
@@ -205,7 +205,7 @@ export default function PlannerTray({
         {overdueN > 0 && (
           <span
             className="label"
-            style={{ fontSize: 9, color: 'hsl(var(--destructive))' }}
+            style={{ color: 'hsl(var(--destructive))' }}
           >
             {overdueN} OVERDUE
           </span>
@@ -228,7 +228,7 @@ export default function PlannerTray({
                 <span className="label" style={{ color: g.color }}>
                   {g.label}
                 </span>
-                <span className="num mono text-[10px] text-ink-4">
+                <span className="num mono text-[11px] text-ink-4">
                   {g.items.length}
                 </span>
               </div>
@@ -295,7 +295,7 @@ export function MobileUnscheduledList({
               {item.overdue && (
                 <span
                   className="label"
-                  style={{ fontSize: 8, color: 'hsl(var(--destructive))' }}
+                  style={{ color: 'hsl(var(--destructive))' }}
                 >
                   OVERDUE
                 </span>

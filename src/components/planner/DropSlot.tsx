@@ -1,4 +1,4 @@
-import { catColor } from '@/lib/cat'
+import { catColor, catInk } from '@/lib/cat'
 import { blockPos, fmtRange } from '@/lib/plannerGeometry'
 
 /*
@@ -35,6 +35,7 @@ export default function DropSlot({
   const pos = blockPos(startMin, endMin, hourH, windowStartMin, windowEndMin)
   if (!pos) return null
   const c = kind === 'conflict' ? 'hsl(var(--destructive))' : catColor(catName)
+  const ink = kind === 'conflict' ? c : catInk(catName)
   return (
     <div
       data-testid="drop-slot"
@@ -48,7 +49,7 @@ export default function DropSlot({
         background: `color-mix(in srgb, ${c} 7%, transparent)`,
       }}
     >
-      <span className="num mono text-[10px] font-semibold" style={{ color: c }}>
+      <span className="num mono text-[10px] font-semibold" style={{ color: ink }}>
         {fmtRange(startMin, endMin)}
       </span>
       {kind === 'conflict' && (

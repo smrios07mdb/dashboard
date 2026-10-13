@@ -47,7 +47,7 @@ export default function AttachmentChip({
         {attachment.name}
       </span>
       {attachment.kind === 'task' && size === 'md' && (
-        <span className="label text-[8.5px] tracking-[0.12em]">task</span>
+        <span className="label tracking-[0.12em]">task</span>
       )}
     </>
   )

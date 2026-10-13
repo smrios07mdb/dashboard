@@ -54,7 +54,7 @@ export type PriorityChipProps = {
 >
 
 const chipClass =
-  'mono inline-flex shrink-0 items-center rounded-sm px-1.5 py-[2px] text-[9.5px] font-semibold leading-[14px] tracking-[0.1em]'
+  'mono inline-flex shrink-0 items-center rounded-sm px-1.5 py-[2px] text-[11px] font-semibold leading-[14px] tracking-[0.1em]'
 
 const PriorityChip = forwardRef<HTMLButtonElement, PriorityChipProps>(
   function PriorityChip({ priority, onClick, className, ...rest }, ref) {

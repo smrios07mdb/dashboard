@@ -68,7 +68,7 @@ export default function PriorityPicker({
         </PopoverAnchor>
       )}
       <PopoverContent className="w-56 p-1" align="end">
-        <div className="label px-2.5 pb-1 pt-1.5 text-[9px]">Priority</div>
+        <div className="label px-2.5 pb-1 pt-1.5">Priority</div>
         {OPTIONS.map((opt) => (
           <button
             key={opt.value}

@@ -232,7 +232,7 @@ export default function AttachPicker({
                         note.taskId === t.id ? (
                           check
                         ) : count > 0 ? (
-                          <span className="label shrink-0 text-[9px]">
+                          <span className="label shrink-0">
                             {count} {count === 1 ? 'note' : 'notes'}
                           </span>
                         ) : undefined

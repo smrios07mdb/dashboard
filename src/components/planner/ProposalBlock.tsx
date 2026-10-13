@@ -1,5 +1,5 @@
 import type { Task } from '@/db/types'
-import { catColor } from '@/lib/cat'
+import { catColor, catInk } from '@/lib/cat'
 import { blockPos, fmtRange } from '@/lib/plannerGeometry'
 import type { Proposal } from '@/lib/plannerSchedule'
 
@@ -56,7 +56,10 @@ export default function ProposalBlock({
         {proposal.task.title}
       </span>
       {pos.height >= 40 && (
-        <span className="num mono text-[9.5px]" style={{ color: c }}>
+        <span
+          className="num mono text-[9.5px]"
+          style={{ color: catInk(proposal.catName) }}
+        >
           {fmtRange(proposal.startMin, proposal.endMin)} · proposed
         </span>
       )}

@@ -12,6 +12,11 @@ export function catColor(name: string): string {
   return name === 'Work' ? 'var(--work)' : 'var(--personal)'
 }
 
+/** Category colour for text, as a CSS var: `--work-ink` / `--personal-ink` (chunk 75). */
+export function catInk(name: string): string {
+  return name === 'Work' ? 'var(--work-ink)' : 'var(--personal-ink)'
+}
+
 /** Category soft wash as a CSS var: `--work-soft` / `--personal-soft`. */
 export function catSoft(name: string): string {
   return name === 'Work' ? 'var(--work-soft)' : 'var(--personal-soft)'

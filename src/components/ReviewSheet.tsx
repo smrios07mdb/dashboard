@@ -122,7 +122,7 @@ export default function ReviewSheet({
       }}
     >
       <DialogContent className="gap-3">
-        <DialogTitle className="label text-[10px] font-medium leading-normal tracking-[0.16em]">
+        <DialogTitle className="label text-[11px] font-medium leading-normal tracking-[0.16em]">
           Review
         </DialogTitle>
         <DialogDescription className="sr-only">

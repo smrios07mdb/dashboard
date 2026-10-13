@@ -156,7 +156,7 @@ export default function DailyHero({
         >
           <span
             className="label"
-            style={{ fontSize: 8.5, color: 'var(--jewel-amethyst)' }}
+            style={{ color: 'var(--jewel-amethyst-ink)' }}
           >
             LVL
           </span>
@@ -165,7 +165,7 @@ export default function DailyHero({
             style={{
               fontSize: 12.5,
               fontWeight: 700,
-              color: 'var(--jewel-amethyst)',
+              color: 'var(--jewel-amethyst-ink)',
             }}
           >
             {stats.level}
@@ -183,7 +183,7 @@ export default function DailyHero({
             className="num"
             style={{ fontSize: 11.5, color: 'var(--ink-2)', fontWeight: 700 }}
           />
-          <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>xp</span>
+          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>xp</span>
         </span>
       )}
     </>
@@ -212,7 +212,7 @@ export default function DailyHero({
           padding: '0 6px 0 14px',
         }}
       >
-        <span className="label" style={{ fontSize: 9 }}>
+        <span className="label">
           I have
         </span>
         <input
@@ -375,7 +375,7 @@ export default function DailyHero({
                 '—'
               )}
             </span>
-            <span className="label" style={{ fontSize: 8, marginTop: 2 }}>
+            <span className="label" style={{ marginTop: 2 }}>
               today
             </span>
           </ProgressRing>

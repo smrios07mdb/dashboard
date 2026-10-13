@@ -157,7 +157,7 @@ export default function CalendarPicker({
         <button
           type="button"
           aria-label="Calendars"
-          className="mono inline-flex items-center gap-1.5 rounded-full px-[9px] py-[3px] text-[9px] font-semibold tracking-[.13em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mono inline-flex items-center gap-1.5 rounded-full px-[9px] py-[3px] text-[11px] font-semibold tracking-[.13em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           style={{
             background: 'color-mix(in srgb, var(--ink) 6%, transparent)',
             border: '1px solid color-mix(in srgb, var(--ink) 14%, transparent)',
@@ -171,7 +171,7 @@ export default function CalendarPicker({
         align="end"
         className="w-[264px] rounded border-line bg-surface p-0 text-ink shadow-md"
       >
-        <div className="label px-[13px] pt-[11px]" style={{ fontSize: 8.5 }}>
+        <div className="label px-[13px] pt-[11px]">
           READ FROM
         </div>
         {shown === null ? (
@@ -215,7 +215,6 @@ export default function CalendarPicker({
                     <span
                       className="label rounded-sm px-1 py-px"
                       style={{
-                        fontSize: 8,
                         background: 'var(--accent-soft)',
                         color: 'var(--accent-ink)',
                       }}
@@ -250,7 +249,6 @@ export default function CalendarPicker({
                 <span
                   className="label rounded-sm px-1 py-px"
                   style={{
-                    fontSize: 8,
                     background: 'color-mix(in srgb, var(--ink) 6%, transparent)',
                     color: 'var(--ink-2)',
                   }}

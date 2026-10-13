@@ -143,6 +143,9 @@ export default function RoutinePanel({
   const accent =
     routine === 'morning' ? 'var(--jewel-gold)' : 'var(--jewel-amethyst)'
   const accentSoft = `color-mix(in srgb, ${accent} 15%, transparent)`
+  // Text-safe variant for text set in the routine colour (chunk 75).
+  const accentInk =
+    routine === 'morning' ? 'var(--jewel-gold-ink)' : 'var(--jewel-amethyst-ink)'
 
   return (
     <section className="rounded-md border border-line bg-surface p-[22px] shadow-md">
@@ -212,7 +215,7 @@ export default function RoutinePanel({
         {!editing && allDoneToday && (
           <div
             className="mt-4 flex items-center gap-2 rounded px-3.5 py-2.5 text-[13px] font-medium"
-            style={{ background: accentSoft, color: accent }}
+            style={{ background: accentSoft, color: accentInk }}
           >
             <Check className="size-3.5" aria-hidden />
             All done for today.

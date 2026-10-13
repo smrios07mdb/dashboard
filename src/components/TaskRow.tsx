@@ -318,7 +318,12 @@ export default function TaskRow({
       )}
     >
       {cheer && (
-        <span className="xp-floater" style={{ color: flush }}>
+        <span
+          className="xp-floater"
+          // Darkened for text (chunk 75): any of the eight jewels, so mixed
+          // inline rather than through a per-colour `-ink` token.
+          style={{ color: `color-mix(in srgb, ${flush} 60%, black)` }}
+        >
           +{cheer.xp}
         </span>
       )}
