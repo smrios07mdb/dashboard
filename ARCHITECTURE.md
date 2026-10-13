@@ -380,6 +380,8 @@ If more than 8 subcategories appear in the filtered range, group all but the top
 
 Days are calendar days in `settings.timezone` (chunk 61), for both the x-axis window and each completion's bucket; the zone is resolved by `loadUserTimezone`, with the browser's zone as the fallback.
 
+Insights reports estimates, not tracked time (chunk 70): the headline cards lead with tasks completed, then `Estimated time` (sum of `estimateMinutes`), and every label says estimated. When a range is empty the screen names the last completion date (an all-time `listCompletedInRange` read, only when the range returned nothing) and offers `Show 90 days`.
+
 ---
 
 ## 13. UI interaction rules
@@ -438,6 +440,7 @@ Days are calendar days in `settings.timezone` (chunk 61), for both the x-axis wi
 - Block time: the `Include notes in calendar event` checkbox shows when the task has at least one non-blank note in the `notes` table. The description, when included, is every such note, newest first, each as `title\n\nbody` (or the body alone), joined by a blank line.
 - One link pattern (`NOTE_LINK_SOURCE` in `src/lib/notes.ts`) serves both the renderer and the list excerpt; it allows one level of balanced parentheses in the URL.
 - Phone width (chunk 68): below `sm` the account trigger is a 44 px initial (full email at `≥ sm`, `aria-label` 'Account: <email>'); category headers wrap to two lines (name + count, then total, sort, ›) and never exceed their column; the category grid uses `minmax(0,1fr)` columns. The top tab bar's active underline sits inside the nav (`bottom-0`), so the bar has no vertical overflow.
+- Hero (chunk 70): the ring is the Today plan — done ÷ planned, from the same `resolveToday` call as the Today panel — and shows `—` when nothing is planned; XP, level and the category bars stay all-time. The streak and level chips hide at zero. Open tasks under archived or missing subcategories are listed in a `Recovered` card on the Dashboard (move to a live list, or mark done); they stay out of every other view.
 
 ---
 
