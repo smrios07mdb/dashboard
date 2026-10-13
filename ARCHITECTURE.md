@@ -437,6 +437,7 @@ Days are calendar days in `settings.timezone` (chunk 61), for both the x-axis wi
 - Planner: when a block's task has notes, the block action sheet shows a read-only `--surface-2` card (`NOTE` or `NOTES · N` · `updated` / `latest` + relative time · `Open →`, then the newest note's first line and a three-line excerpt); `Open →` closes it and opens the task sheet at that note. A block of 40px or more carries the note glyph after its title.
 - Block time: the `Include notes in calendar event` checkbox shows when the task has at least one non-blank note in the `notes` table. The description, when included, is every such note, newest first, each as `title\n\nbody` (or the body alone), joined by a blank line.
 - One link pattern (`NOTE_LINK_SOURCE` in `src/lib/notes.ts`) serves both the renderer and the list excerpt; it allows one level of balanced parentheses in the URL.
+- Phone width (chunk 68): below `sm` the account trigger is a 44 px initial (full email at `≥ sm`, `aria-label` 'Account: <email>'); category headers wrap to two lines (name + count, then total, sort, ›) and never exceed their column; the category grid uses `minmax(0,1fr)` columns. The top tab bar's active underline sits inside the nav (`bottom-0`), so the bar has no vertical overflow.
 
 ---
 
