@@ -26,6 +26,7 @@ import type {
   Settings,
   Subcategory,
   Task,
+  TodayMark,
 } from './types'
 
 export class DashboardCacheDB extends Dexie {
@@ -40,6 +41,7 @@ export class DashboardCacheDB extends Dexie {
   push_subscriptions!: EntityTable<PushSubscription, 'id'>
   scheduled_blocks!: EntityTable<ScheduledBlock, 'id'>
   notes!: EntityTable<Note, 'id'>
+  today_marks!: EntityTable<TodayMark, 'id'>
   outbox!: EntityTable<OutboxRow, 'id'>
   // Cache-only (not a Postgres mirror): one local day's busy ranges keyed by
   // dateKey, with a short TTL applied in lib/busyCache. camelCase name since
@@ -99,6 +101,14 @@ export class DashboardCacheDB extends Dexie {
     // through it — the Notebook sorts and filters in JS.
     this.version(6).stores({
       notes: '&id, taskId, subcategoryId, pinned, updatedAt',
+    })
+    // v7: chunk 64 adds the `today_marks` mirror (the synced Today plan). New
+    // store only — unchanged stores are inherited, so no .upgrade() is
+    // needed. `id` is the task's id (one mark per task, migration 20); `day`
+    // is indexed per the chunk prompt, though the hook filters the whole set
+    // in JS.
+    this.version(7).stores({
+      today_marks: '&id, day',
     })
   }
 }

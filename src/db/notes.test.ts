@@ -198,7 +198,8 @@ describe('Dexie v6 (chunk 58)', () => {
   })
 
   it('the real DashboardCacheDB carries the notes store with the D4 indexes', () => {
-    expect(db.verno).toBe(6)
+    // v7 = today_marks (chunk 64); the notes store is unchanged from v6.
+    expect(db.verno).toBe(7)
     expect(db.notes.schema.primKey.name).toBe('id')
     expect(db.notes.schema.indexes.map((i) => i.name).sort()).toEqual(
       ['pinned', 'subcategoryId', 'taskId', 'updatedAt'].sort(),
@@ -406,8 +407,8 @@ describe('realtime — notes', () => {
     startRealtime('u-1')
     const handler = bindings.get('notes')
     expect(handler).toBeDefined()
-    // Nine user-scoped tables on the one channel.
-    expect(bindings.size).toBe(9)
+    // Ten user-scoped tables on the one channel (today_marks, chunk 64).
+    expect(bindings.size).toBe(10)
 
     await handler!({ eventType: 'INSERT', new: aRow(), old: {} })
     expect(await db.notes.get('n-1')).toMatchObject({ title: 'Kickoff' })

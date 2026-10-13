@@ -32,6 +32,8 @@ import {
   subcategoryToRow,
   taskFromRow,
   taskToRow,
+  todayMarkFromRow,
+  todayMarkToRow,
 } from './mappers'
 import { syncStore } from './syncStore'
 import type { OutboxRow } from './types'
@@ -253,6 +255,16 @@ const SPECS: Record<string, TableSpec> = {
     deleteKeyColumn: 'id',
     deleteKeyValue: byId,
     cacheDelete: (p) => db.notes.delete(p.id as string),
+  },
+  today_marks: {
+    toRow: todayMarkToRow,
+    cachePut: (r) => db.today_marks.put(todayMarkFromRow(r)),
+    updateKeyColumn: 'id',
+    updateKeyValue: byId,
+    deleteKeyColumn: 'id',
+    deleteKeyValue: byId,
+    cacheDelete: (p) => db.today_marks.delete(p.id as string),
+    upsertOnConflict: 'id',
   },
   push_subscriptions: {
     toRow: pushSubscriptionToRow,

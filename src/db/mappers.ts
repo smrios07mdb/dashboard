@@ -16,6 +16,7 @@ import type {
   Settings,
   Subcategory,
   Task,
+  TodayMark,
   ReadCalendar,
 } from './types'
 
@@ -213,6 +214,38 @@ export function noteToRow(
   if (value.detachedLabel !== undefined) row.detached_label = value.detachedLabel
   if (value.detachedAt !== undefined) row.detached_at = value.detachedAt
   if (value.createdAt !== undefined) row.created_at = value.createdAt
+  if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
+  return row
+}
+
+// ---------- today_marks ----------
+
+export type TodayMarkRow = {
+  id: string
+  user_id: string
+  day: string
+  kind: 'pin' | 'remove'
+  updated_at: string
+}
+
+export function todayMarkFromRow(row: TodayMarkRow): TodayMark {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    day: row.day,
+    kind: row.kind,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function todayMarkToRow(
+  value: Partial<TodayMark> & { id?: string },
+): Partial<TodayMarkRow> {
+  const row: Partial<TodayMarkRow> = {}
+  if (value.id !== undefined) row.id = value.id
+  if (value.userId !== undefined) row.user_id = value.userId
+  if (value.day !== undefined) row.day = value.day
+  if (value.kind !== undefined) row.kind = value.kind
   if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
   return row
 }

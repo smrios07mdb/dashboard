@@ -10,7 +10,7 @@ import EmptyStateCard from '@/components/EmptyStateCard'
 import DailyHero from '@/components/gamify/DailyHero'
 import TodayPanel from '@/components/TodayPanel'
 import { repo } from '@/db/repo'
-import type { Category, Subcategory, Task } from '@/db/types'
+import type { Category, Subcategory, Task, TodayMark } from '@/db/types'
 import { useSession } from '@/lib/auth'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
 import { selectDashboardState } from '@/lib/dashboardState'
@@ -22,7 +22,7 @@ import {
 } from '@/lib/taskSort'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useTodayListStore } from '@/state/todayList'
-import { useTodayPlan } from '@/state/todayPlan'
+import { useTodayPlan, type WriteTodayMark } from '@/state/todayPlan'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -70,6 +70,9 @@ function useDashboardData(userId: string | null) {
   // night streaks. Computed at load since it depends only on routine
   // items/logs (not task CRUD), so it survives optimistic task mutations.
   const [streak, setStreak] = useState(0)
+  // The user's Today marks (chunk 64) — `null` until the first load completes,
+  // which is how `useTodayPlan` tells "no marks" from "not loaded yet".
+  const [todayMarks, setTodayMarks] = useState<TodayMark[] | null>(null)
   const [loading, setLoading] = useState(true)
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
 
@@ -85,13 +88,14 @@ function useDashboardData(userId: string | null) {
       const tz = settings?.timezone ?? 'America/New_York'
       const todayKey = clockToday(tz)
       const fromKey = dateKeyDaysAgo(todayKey, STREAK_LOOKBACK_DAYS - 1)
-      const [categories, subcategories, tasks, logs, items] =
+      const [categories, subcategories, tasks, logs, items, marks] =
         await Promise.all([
           repo.categories.list(),
           repo.subcategories.list(),
           repo.tasks.list(),
           repo.routineLogs.listByRange(fromKey, todayKey),
           repo.routineItems.list(),
+          repo.todayMarks.list(),
         ])
       if (cancelled) return
       // The canonical routines streak is per-routine; the hero shows the
@@ -103,6 +107,7 @@ function useDashboardData(userId: string | null) {
       )
       setData({ categories, subcategories, tasks })
       setStreak(heroStreak)
+      setTodayMarks(marks)
       setLoading(false)
     }
     load().catch((e) => {
@@ -114,13 +119,14 @@ function useDashboardData(userId: string | null) {
     }
   }, [dashboardRefreshKey, userId])
 
-  return { data, setData, loading, streak }
+  return { data, setData, loading, streak, todayMarks }
 }
 
 export default function Dashboard() {
   const { user } = useSession()
   const userId = user?.id ?? null
-  const { data, setData, loading, streak } = useDashboardData(userId)
+  const { data, setData, loading, streak, todayMarks } =
+    useDashboardData(userId)
   const navigate = useNavigate()
 
   // Global list-sort preference (chunk 33) — one localStorage-backed
@@ -171,10 +177,23 @@ export default function Dashboard() {
 
   // Today plan — membership seeded from the live tasks, re-seeded on task-set
   // identity change. The sun toggle on both the Today panel and the dashboard
-  // rows drives this one shared set (chunk: Today list).
+  // rows drives this one shared set (chunk: Today list). The manual pins and
+  // removals are synced through `today_marks` (chunk 64): the hook reads the
+  // loaded marks and writes one per toggle.
   const isTouch = useIsTouchDevice()
   const todayVariant = useTodayListStore((s) => s.todayList)
-  const { todaySet, toggleToday } = useTodayPlan(liveTasks)
+  const writeTodayMark = useCallback<WriteTodayMark>(
+    async (taskId, kind, day) => {
+      if (!userId) return
+      await repo.todayMarks.set({ taskId, userId, day, kind })
+    },
+    [userId],
+  )
+  const { todaySet, toggleToday } = useTodayPlan(
+    liveTasks,
+    todayMarks,
+    writeTodayMark,
+  )
 
   // "On a roll ×N" combo (chunk 27). A render-diff over the live tasks: when
   // exactly one task flips to done (open −1, done +1) within ~9s of the last

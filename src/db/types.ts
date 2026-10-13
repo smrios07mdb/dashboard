@@ -83,6 +83,20 @@ export type Note = {
   updatedAt: string
 }
 
+/**
+ * A manual Today mark (chunk 64, ARCHITECTURE.md §4). `id` IS the task's id —
+ * one row per task at most, so a toggle is an upsert on `id`. `day` is the
+ * browser-local calendar day (YYYY-MM-DD) the mark was made for; a mark for
+ * any other day is ignored. `kind` is the user's intent for that day.
+ */
+export type TodayMark = {
+  id: string
+  userId: string
+  day: string
+  kind: 'pin' | 'remove'
+  updatedAt: string
+}
+
 export type RoutineItem = {
   id: string
   userId: string
@@ -210,5 +224,6 @@ export const TABLES = {
   pushSubscriptions: 'push_subscriptions',
   scheduledBlocks: 'scheduled_blocks',
   notes: 'notes',
+  todayMarks: 'today_marks',
 } as const
 export type TableName = (typeof TABLES)[keyof typeof TABLES]

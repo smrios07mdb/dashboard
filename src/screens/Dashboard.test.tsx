@@ -31,6 +31,11 @@ vi.mock('@/db/repo', () => ({
     routineLogs: { listByRange: routineLogsList },
     routineItems: { list: routineItemsList },
     settings: { get: settingsGet },
+    // Chunk 64: the Today plan's synced marks — none, and writes resolve.
+    todayMarks: {
+      list: () => Promise.resolve([]),
+      set: () => Promise.resolve(undefined),
+    },
   },
 }))
 

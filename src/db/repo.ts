@@ -37,6 +37,8 @@ import {
   subcategoryToRow,
   taskFromRow,
   taskToRow,
+  todayMarkFromRow,
+  todayMarkToRow,
   type CategoryRow,
   type NoteRow,
   type PushSubscriptionRow,
@@ -46,6 +48,7 @@ import {
   type SettingsRow,
   type SubcategoryRow,
   type TaskRow,
+  type TodayMarkRow,
 } from './mappers'
 import { syncStore } from './syncStore'
 import {
@@ -62,6 +65,7 @@ import {
   type Subcategory,
   type TableName,
   type Task,
+  type TodayMark,
 } from './types'
 
 // ---------- error & offline helpers ----------
@@ -1292,6 +1296,71 @@ const pushSubscriptionsRepo = {
   },
 }
 
+// ---------- today_marks (chunk 64) ----------
+
+const todayMarksRepo = {
+  /**
+   * Every Today mark the user owns — at most one per task (migration 20), so
+   * the set is small; `useTodayPlan` keeps the ones dated today. Online path
+   * replaces the Dexie mirror (clear-then-bulkPut, so a mark cascaded away
+   * with its task while this device was offline does not linger); fallback
+   * reads the cache.
+   */
+  async list(): Promise<TodayMark[]> {
+    return readWithFallback({
+      online: async () => {
+        const { data, error } = await supabase.from('today_marks').select('*')
+        throwIfClientError(error)
+        const mapped = ((data ?? []) as TodayMarkRow[]).map(todayMarkFromRow)
+        await db.transaction('rw', db.today_marks, async () => {
+          await db.today_marks.clear()
+          await db.today_marks.bulkPut(mapped)
+        })
+        return mapped
+      },
+      fallback: async () => db.today_marks.toArray(),
+    })
+  },
+
+  /**
+   * Record the user's Today intent for one task on one day. The row's id IS
+   * the task's id, so this is an upsert on `id`: a second toggle — from this
+   * device or another — overwrites the same row, last write wins. Nothing
+   * deletes a mark except the task cascade.
+   */
+  async set(input: {
+    taskId: string
+    userId: string
+    day: string
+    kind: 'pin' | 'remove'
+  }): Promise<TodayMark> {
+    const full: TodayMark = {
+      id: input.taskId,
+      userId: input.userId,
+      day: input.day,
+      kind: input.kind,
+      updatedAt: new Date().toISOString(),
+    }
+    return writeRow({
+      op: 'insert',
+      table: TABLES.todayMarks,
+      optimistic: full,
+      cacheApply: async () => {
+        await db.today_marks.put(full)
+      },
+      online: async () => {
+        const { data, error } = await supabase
+          .from('today_marks')
+          .upsert(todayMarkToRow(full), { onConflict: 'id' })
+          .select()
+          .single()
+        throwIfClientError(error)
+        return todayMarkFromRow(data as TodayMarkRow)
+      },
+    })
+  },
+}
+
 // ---------- shared write engine ----------
 
 async function writeRow<T>(args: {
@@ -1359,6 +1428,9 @@ async function applyServerEcho(table: TableName, row: unknown): Promise<void> {
       return
     case TABLES.notes:
       await db.notes.put(row as Note)
+      return
+    case TABLES.todayMarks:
+      await db.today_marks.put(row as TodayMark)
       return
   }
 }
@@ -1456,4 +1528,5 @@ export const repo = {
   pushSubscriptions: pushSubscriptionsRepo,
   scheduledBlocks: scheduledBlocksRepo,
   notes: notesRepo,
+  todayMarks: todayMarksRepo,
 }

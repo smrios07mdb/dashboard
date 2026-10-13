@@ -33,6 +33,7 @@ import {
   toCachedSettings,
   subcategoryFromRow,
   taskFromRow,
+  todayMarkFromRow,
   type CategoryRow,
   type NoteRow,
   type PushSubscriptionRow,
@@ -42,6 +43,7 @@ import {
   type SettingsRow,
   type SubcategoryRow,
   type TaskRow,
+  type TodayMarkRow,
 } from './mappers'
 
 type PostgresChangePayload<Row> = {
@@ -161,6 +163,14 @@ const handlers = {
       await db.notes.delete(id)
     },
   }),
+  today_marks: makeHandler<TodayMarkRow>({
+    apply: async (row) => {
+      await db.today_marks.put(todayMarkFromRow(row))
+    },
+    remove: async (id) => {
+      await db.today_marks.delete(id)
+    },
+  }),
 }
 
 /** Settings is keyed by user_id — handler uses the same as PK. */
@@ -244,6 +254,12 @@ export function startRealtime(userId: string): void {
       'postgres_changes' as any,
       { event: '*', schema: 'public', table: 'notes', filter },
       handlers.notes,
+    )
+    .on(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      'postgres_changes' as any,
+      { event: '*', schema: 'public', table: 'today_marks', filter },
+      handlers.today_marks,
     )
     .subscribe()
 }

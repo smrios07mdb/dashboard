@@ -3,14 +3,25 @@
  *
  * Membership is a `Set<taskId>` seeded from `autoTodayIds(tasks)` plus the
  * user's manual deltas — pins and removals — and mutated by the sun toggle
- * (on both the Today rows and the main-list rows — one shared set). It is
- * client-local view state, NOT a persisted DB field: chunk 43 resolved the
- * persistence deferral by storing the deltas per-device in localStorage
- * (the `todayList` pattern — no schema, no sync, quiet failure in private
- * mode). Only the deltas persist, never the resolved set, so auto signals
- * keep flowing as tasks change; the stored entry is day-scoped (local
- * midnight, same frame as `lib/today`) so yesterday's plan never resurfaces
- * today.
+ * (on both the Today rows and the main-list rows — one shared set). Since
+ * chunk 64 the deltas are server-synced through `today_marks` (migration 20):
+ * one row per task, keyed by the task's id, carrying the local calendar day
+ * it was made for and the intent (`pin` / `remove`). The hook is handed the
+ * user's marks and a writer; it keeps the ones dated today and ignores the
+ * rest, so yesterday's plan never resurfaces and nothing has to be cleaned
+ * up. Only the deltas are stored, never the resolved set, so auto signals
+ * keep flowing as tasks change. The day frame is the browser-local midnight
+ * `lib/today` uses.
+ *
+ * A toggle on another device arrives as a changed `marks` array (realtime →
+ * dashboard refresh) and is applied with the same operation a local toggle
+ * performs. Where this session has toggled a task itself, the newer of the
+ * two observations decides — a refresh that predates a rapid second toggle
+ * cannot flip the row back, and a later toggle elsewhere still wins.
+ *
+ * `hup:todayPlan`, the per-device localStorage entry that held the deltas
+ * from chunk 43 until chunk 64, is read once, written to the server as marks
+ * and removed.
  *
  * "Changes identity" is detected by the set of task IDs, so:
  *   - in-place edits (title, minutes, completion) never disturb the plan — which
@@ -18,12 +29,14 @@
  *     done/total;
  *   - a created/deleted/swapped task triggers an incremental reconcile that adds
  *     newly-signalled tasks and drops deleted ones while preserving the user's
- *     manual pins and removals (see `reconcileTodayMembership`), and prunes
- *     stored delta ids whose task no longer exists.
+ *     manual pins and removals (see `reconcileTodayMembership`). A deleted
+ *     task's mark is cascaded away server-side; until the refresh that drops
+ *     it, a mark whose task is not in `tasks` is simply ignored.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 
-import type { Task } from '@/db/types'
+import type { Task, TodayMark } from '@/db/types'
 import { autoTodayIds, reconcileTodayMembership } from '@/lib/today'
 
 export type TodayPlan = {
@@ -39,6 +52,17 @@ export type TodayDeltas = {
   removed: Set<string>
 }
 
+type MarkKind = TodayMark['kind']
+
+/** One of this session's own toggles: what it set and when (ISO). */
+type LocalWrite = { kind: MarkKind; at: string }
+
+export type WriteTodayMark = (
+  taskId: string,
+  kind: MarkKind,
+  day: string,
+) => Promise<unknown>
+
 const STORAGE_KEY = 'hup:todayPlan'
 
 /** Local-calendar day key (YYYY-MM-DD) — the `lib/today` local-midnight frame. */
@@ -51,7 +75,11 @@ function emptyDeltas(): TodayDeltas {
   return { pinned: new Set(), removed: new Set() }
 }
 
-/** Stored deltas for today, or empty ones — a stale-dated or bad entry is discarded. */
+/**
+ * The deltas a pre-chunk-64 build left in localStorage for today, or empty
+ * ones — a stale-dated or bad entry is discarded. Kept ONLY for the one-time
+ * move onto `today_marks` in `useTodayPlan`; nothing writes this key any more.
+ */
 export function readTodayDeltas(now: Date = new Date()): TodayDeltas {
   if (typeof localStorage === 'undefined') return emptyDeltas()
   try {
@@ -80,22 +108,6 @@ export function readTodayDeltas(now: Date = new Date()): TodayDeltas {
   }
 }
 
-function writeTodayDeltas(deltas: TodayDeltas, day: string): void {
-  try {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        date: day,
-        pinned: [...deltas.pinned],
-        removed: [...deltas.removed],
-      }),
-    )
-  } catch {
-    // Private mode / quota / SSR shim — this session still works from memory;
-    // the plan just won't survive a remount. Same stance as `todayList`.
-  }
-}
-
 /** Resolved membership = (auto ∪ pinned) − removed. */
 export function applyTodayDeltas(
   auto: Set<string>,
@@ -107,99 +119,189 @@ export function applyTodayDeltas(
   return next
 }
 
-export function useTodayPlan(tasks: Task[]): TodayPlan {
-  // One mutable deltas object for the hook's lifetime; every mutation is
-  // followed by a `writeTodayDeltas` so storage tracks it. `day` is the local
-  // day the deltas were read for — every write stamps THIS key, not the wall
-  // clock, so a tab open across midnight can never re-stamp yesterday's
-  // deltas with today's date (the write-path half of the day scoping; the
-  // read half is `readTodayDeltas`' stale-date discard).
-  const [{ deltas, day: initialDay }] = useState(() => {
-    const now = new Date()
-    return { deltas: readTodayDeltas(now), day: dayKey(now) }
+/**
+ * Today's deltas: the marks dated `day` whose task is in `tasks`, with this
+ * session's own toggles layered in. Where a task has both, the later
+ * observation decides — compared as instants, never as strings (an optimistic
+ * `…000Z` and PostgREST's `…+00:00` name the same moment; chunk 48 D13).
+ * Empty until both marks and tasks have loaded.
+ */
+function resolveTodayDeltas(
+  marks: TodayMark[] | null,
+  tasks: Task[],
+  day: string,
+  localWrites: Map<string, LocalWrite>,
+): TodayDeltas {
+  const deltas = emptyDeltas()
+  if (marks === null || tasks.length === 0) return deltas
+  const ids = new Set(tasks.map((t) => t.id))
+  const kinds = new Map<string, MarkKind>()
+  const markAt = new Map<string, number>()
+  for (const m of marks) {
+    if (m.day !== day || !ids.has(m.id)) continue
+    kinds.set(m.id, m.kind)
+    markAt.set(m.id, Date.parse(m.updatedAt))
+  }
+  for (const [id, w] of localWrites) {
+    if (!ids.has(id)) continue
+    const at = markAt.get(id)
+    if (at === undefined || !(at >= Date.parse(w.at))) kinds.set(id, w.kind)
+  }
+  for (const [id, kind] of kinds) {
+    if (kind === 'pin') deltas.pinned.add(id)
+    else deltas.removed.add(id)
+  }
+  return deltas
+}
+
+/** Content signature of a deltas pair — what "the deltas changed" compares. */
+function deltasSignature(deltas: TodayDeltas): string {
+  return `${[...deltas.pinned].sort().join(',')}|${[...deltas.removed].sort().join(',')}`
+}
+
+export function useTodayPlan(
+  tasks: Task[],
+  marks: TodayMark[] | null,
+  writeMark: WriteTodayMark,
+): TodayPlan {
+  // `day` is the local day the plan is being resolved for. Every write stamps
+  // THIS key, not the wall clock, and only marks carrying it count — so a tab
+  // open across midnight keeps one consistent frame until `rollIfNewDay`
+  // observes the change.
+  const [initial] = useState(() => {
+    const day = dayKey(new Date())
+    const deltas = resolveTodayDeltas(marks, tasks, day, new Map())
+    return { day, deltas, signature: deltasSignature(deltas) }
   })
-  const dayRef = useRef(initialDay)
+  const dayRef = useRef(initial.day)
   const [membership, setMembership] = useState<Set<string>>(() =>
-    applyTodayDeltas(autoTodayIds(tasks), deltas),
+    applyTodayDeltas(autoTodayIds(tasks), initial.deltas),
   )
   // The task-id set from the render that last seeded/reconciled membership.
   const idsRef = useRef<Set<string>>(new Set(tasks.map((t) => t.id)))
+  // Signature of the deltas membership last had applied.
+  const signatureRef = useRef(initial.signature)
+  // This session's own toggles for the current day, by task id.
+  const localWritesRef = useRef<Map<string, LocalWrite>>(new Map())
+  // The localStorage → marks move runs at most once per mount.
+  const movedRef = useRef(false)
   // Current membership for the toggle's synchronous read (no updater-side
   // effects — StrictMode double-invokes updaters).
   const membershipRef = useRef(membership)
   useEffect(() => {
     membershipRef.current = membership
   }, [membership])
-  // Latest tasks for the toggle's rollover re-seed (a roll invalidates the
-  // resolved set in `membershipRef`, so it re-derives from the auto signals).
+  // Latest inputs for the toggle's rollover re-seed (a roll invalidates the
+  // resolved set in `membershipRef`, so it re-derives from the auto signals)
+  // and for writes issued outside render.
   const tasksRef = useRef(tasks)
+  const marksRef = useRef(marks)
+  const writeMarkRef = useRef(writeMark)
   useEffect(() => {
     tasksRef.current = tasks
+    marksRef.current = marks
+    writeMarkRef.current = writeMark
   })
+
+  // Send one mark. Offline is not a failure — the repo queues the write — so
+  // a rejection is the server refusing it (a 4xx): say so and keep the local
+  // plan, which is what the user asked for and what a retry will re-send.
+  const sendMark = useCallback((id: string, kind: MarkKind, day: string) => {
+    void (async () => {
+      try {
+        await writeMarkRef.current(id, kind, day)
+      } catch {
+        toast.error('Could not save Today plan — retry')
+      }
+    })()
+  }, [])
 
   // Day rollover, observed lazily on the next interaction or task refresh —
   // deliberately no timer/interval/visibility listener (the app has no
-  // day-tick). When the local day has changed since the deltas were read,
-  // yesterday's plan is over: clear both delta sets in place and persist the
-  // now-empty entry under the new day.
-  const rollIfNewDay = useCallback(
-    (now: Date): boolean => {
-      const key = dayKey(now)
-      if (key === dayRef.current) return false
-      deltas.pinned.clear()
-      deltas.removed.clear()
-      dayRef.current = key
-      writeTodayDeltas(deltas, key)
-      return true
-    },
-    [deltas],
-  )
+  // day-tick). When the local day has changed, yesterday's plan is over:
+  // its marks no longer match `dayRef` and this session's toggles are
+  // dropped. Nothing is written — a stale mark is overwritten by the next
+  // toggle of its task.
+  const rollIfNewDay = useCallback((now: Date): boolean => {
+    const key = dayKey(now)
+    if (key === dayRef.current) return false
+    localWritesRef.current.clear()
+    dayRef.current = key
+    return true
+  }, [])
 
-  // Reconcile only when the task-id set changes identity (added, removed, or
-  // swapped) — not on in-place field edits (which keep the same ids) or reorder.
-  // That's what lets a just-completed task linger in the plan and keep counting
-  // toward done/total. Runs in an effect (post-commit) so refs aren't touched
-  // during render; the conditional setState mirrors the SubcategorySection
-  // linger idiom. `tasks` is the only live dep — the ref read/write stays here.
+  // Re-resolve when the task-id set changes identity (added, removed, or
+  // swapped) or the deltas change content (marks loaded, or a toggle on
+  // another device arrived) — not on in-place field edits (which keep the
+  // same ids) or reorder. That's what lets a just-completed task linger in
+  // the plan and keep counting toward done/total. Runs in an effect
+  // (post-commit) so refs aren't touched during render; the conditional
+  // setState mirrors the SubcategorySection linger idiom.
   useEffect(() => {
     const rolled = rollIfNewDay(new Date())
+    const day = dayRef.current
     const curIds = tasks.map((t) => t.id)
     const prevIds = idsRef.current
     const changed =
       curIds.length !== prevIds.size ||
       curIds.some((id) => !prevIds.has(id))
-    if (!changed && !rolled) return
-    idsRef.current = new Set(curIds)
-    // Prune delta ids whose task is gone — but never against an empty list,
-    // which is the still-loading state and would wipe the stored plan.
-    if (curIds.length > 0) {
-      const cur = idsRef.current
-      let pruned = false
-      for (const set of [deltas.pinned, deltas.removed]) {
-        for (const id of [...set]) {
-          if (!cur.has(id)) {
-            set.delete(id)
-            pruned = true
-          }
+
+    // One-time move off localStorage, on the first pass where both marks and
+    // tasks are loaded: each stored pin/removal whose task exists and has no
+    // mark for today becomes a mark (a server mark already there wins), then
+    // the key is removed for good.
+    if (!movedRef.current && marks !== null && curIds.length > 0) {
+      movedRef.current = true
+      const stored = readTodayDeltas(new Date())
+      const live = new Set(curIds)
+      const marked = new Set(
+        marks.filter((m) => m.day === day).map((m) => m.id),
+      )
+      const at = new Date().toISOString()
+      const move = (ids: Set<string>, kind: MarkKind) => {
+        for (const id of ids) {
+          if (!live.has(id) || marked.has(id)) continue
+          localWritesRef.current.set(id, { kind, at })
+          sendMark(id, kind, day)
         }
       }
-      if (pruned) writeTodayDeltas(deltas, dayRef.current)
+      move(stored.pinned, 'pin')
+      move(stored.removed, 'remove')
+      try {
+        localStorage.removeItem(STORAGE_KEY)
+      } catch {
+        // Private mode / SSR shim — nothing to remove.
+      }
     }
+
+    const deltas = resolveTodayDeltas(marks, tasks, day, localWritesRef.current)
+    const signature = deltasSignature(deltas)
+    const deltasChanged = signature !== signatureRef.current
+    if (!changed && !rolled && !deltasChanged) return
+    idsRef.current = new Set(curIds)
+    signatureRef.current = signature
     // After a roll the previous membership is yesterday's resolved set —
-    // re-seed from the auto signals rather than layering the (now empty)
-    // deltas over it.
-    setMembership((cur) =>
-      rolled
-        ? applyTodayDeltas(autoTodayIds(tasks), deltas)
-        : applyTodayDeltas(reconcileTodayMembership(cur, prevIds, tasks), deltas),
-    )
-  }, [tasks, deltas, rollIfNewDay])
+    // re-seed from the auto signals rather than layering the deltas over it.
+    setMembership((cur) => {
+      if (rolled) return applyTodayDeltas(autoTodayIds(tasks), deltas)
+      const base = changed ? reconcileTodayMembership(cur, prevIds, tasks) : cur
+      return applyTodayDeltas(base, deltas)
+    })
+  }, [tasks, marks, rollIfNewDay, sendMark])
 
   const toggleToday = useCallback(
     (id: string, force?: boolean) => {
       const rolled = rollIfNewDay(new Date())
       const cur = rolled
-        ? applyTodayDeltas(autoTodayIds(tasksRef.current), deltas)
+        ? applyTodayDeltas(
+            autoTodayIds(tasksRef.current),
+            resolveTodayDeltas(
+              marksRef.current,
+              tasksRef.current,
+              dayRef.current,
+              localWritesRef.current,
+            ),
+          )
         : membershipRef.current
       const want = force === undefined ? !cur.has(id) : force
       if (want === cur.has(id)) {
@@ -209,21 +311,16 @@ export function useTodayPlan(tasks: Task[]): TodayPlan {
         }
         return
       }
-      if (want) {
-        deltas.pinned.add(id)
-        deltas.removed.delete(id)
-      } else {
-        deltas.removed.add(id)
-        deltas.pinned.delete(id)
-      }
-      writeTodayDeltas(deltas, dayRef.current)
+      const kind: MarkKind = want ? 'pin' : 'remove'
+      localWritesRef.current.set(id, { kind, at: new Date().toISOString() })
       const next = new Set(cur)
       if (want) next.add(id)
       else next.delete(id)
       membershipRef.current = next
       setMembership(next)
+      sendMark(id, kind, dayRef.current)
     },
-    [deltas, rollIfNewDay],
+    [rollIfNewDay, sendMark],
   )
 
   return { todaySet: membership, toggleToday }
