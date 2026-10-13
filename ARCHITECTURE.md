@@ -402,7 +402,7 @@ Days are calendar days in `settings.timezone` (chunk 61), for both the x-axis wi
 - 640–1024px: two-column dashboard
 - ≥1024px: sidebar + dashboard + detail
 - All interactive elements ≥44pt hit target on mobile
-- Inline inputs render at ≥16px font-size on touch (compact only at `sm:` and up) so iOS Safari does not zoom the viewport on focus.
+- Every text-entry field (inputs, textareas, selects, date/time pickers) renders at ≥16px font-size on touch, compact only at `sm:` and up, so iOS Safari does not zoom the viewport on focus. `src/lib/iosFocusZoom.test.ts` fails the build on any field that does not (chunk 65).
 - `viewport-fit=cover` + `env(safe-area-inset-*)`: the top inset is applied at the AppShell wrapper (not the header alone) so the header and the InstallHint banner clear the notch / Dynamic Island; the fixed bottom nav and scroll container are padded for the home indicator.
 - Page margins (chunks 51d/51e): the shell fills the window — no max-width. Default padding is declared as `--shell-side` / `--shell-top` / `--shell-bottom` on `.shell` in `index.css` (16/28/40px sides by breakpoint, 24–32px top, 32px bottom; phones add the bottom-nav clearance). Settings → Display → Page margins opens `MarginEditor`: draggable guides on the content wrapper's padding edges, live preview, Save persists `hup:shellMargins` per device (localStorage, no schema, no sync) as an inline override of those variables; saving the defaults clears the key.
 
