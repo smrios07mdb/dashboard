@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 /*
@@ -51,14 +52,21 @@ vi.mock('@/lib/auth', () => ({
 vi.mock('@/lib/useIsTouchDevice', () => ({
   useIsTouchDevice: () => false,
 }))
+// Chunk 72: lib/taskUndo reads the store imperatively (`getState`) on Undo.
 vi.mock('@/state/uiStore', () => ({
-  useUIStore: (selector: (s: { dashboardRefreshKey: number }) => unknown) =>
-    selector({ dashboardRefreshKey: 0 }),
+  useUIStore: Object.assign(
+    (selector: (s: { dashboardRefreshKey: number }) => unknown) =>
+      selector({ dashboardRefreshKey: 0 }),
+    { getState: () => ({ forceDashboardRefresh: () => undefined }) },
+  ),
 }))
 
 import SubcategoryView from './SubcategoryView'
 
-function mkTask(id: string, opts: { priority?: number | null } = {}) {
+function mkTask(
+  id: string,
+  opts: { priority?: number | null; completedAt?: string | null } = {},
+) {
   return {
     id,
     userId: 'u1',
@@ -69,7 +77,7 @@ function mkTask(id: string, opts: { priority?: number | null } = {}) {
     remindAt: null,
     notified: false,
     priority: opts.priority ?? null,
-    completedAt: null,
+    completedAt: opts.completedAt ?? null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }
@@ -84,6 +92,7 @@ function renderSub(subcategoryId = 'sub-1') {
           element={<SubcategoryView />}
         />
       </Routes>
+      <Toaster />
     </MemoryRouter>,
   )
 }
@@ -180,5 +189,56 @@ describe('SubcategoryView (chunk 31 re-skin)', () => {
     await waitFor(() =>
       expect(screen.queryByRole('toolbar')).not.toBeInTheDocument(),
     )
+  })
+
+  // ---------- chunk 72: undo for bulk delete and bulk complete ----------
+
+  it('Delete 2 removes both with no confirm; Undo restores both and nothing is deleted (chunk 72)', async () => {
+    renderSub()
+    await screen.findByRole('heading', { name: /^inbox$/i })
+
+    fireEvent.click(screen.getByLabelText(/select all tasks/i))
+    fireEvent.click(await screen.findByRole('button', { name: /delete 2/i }))
+
+    await waitFor(() =>
+      expect(screen.queryByText('Alpha')).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByText('Bravo')).not.toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('toolbar')).not.toBeInTheDocument()
+    expect(await screen.findByText('2 tasks deleted')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+
+    expect(await screen.findByText('Alpha')).toBeInTheDocument()
+    expect(screen.getByText('Bravo')).toBeInTheDocument()
+    expect(bulkDelete).not.toHaveBeenCalled()
+  })
+
+  it('bulk complete offers Undo, which restores each prior completedAt (chunk 72)', async () => {
+    const X = '2026-01-02T00:00:00.000Z'
+    tasksList.mockResolvedValue([
+      mkTask('Alpha'),
+      mkTask('Bravo', { completedAt: X }),
+    ])
+    renderSub()
+    await screen.findByRole('heading', { name: /^inbox$/i })
+
+    // Show the done row so select-all picks up both.
+    fireEvent.click(screen.getByRole('button', { name: /show 1 done/i }))
+    fireEvent.click(screen.getByLabelText(/select all tasks/i))
+    await screen.findByText(/2 selected/i)
+    fireEvent.click(screen.getByRole('button', { name: /mark complete/i }))
+
+    await waitFor(() => expect(bulkUpdate).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText('2 tasks completed')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+
+    await waitFor(() => expect(bulkUpdate).toHaveBeenCalledTimes(2))
+    expect(bulkUpdate.mock.calls[1][0]).toEqual([
+      { id: 'Alpha', patch: { completedAt: null } },
+      { id: 'Bravo', patch: { completedAt: X } },
+    ])
   })
 })

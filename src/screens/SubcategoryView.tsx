@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 
 import AddTaskInline from '@/components/AddTaskInline'
 import Breadcrumbs from '@/components/Breadcrumbs'
-import DeleteConfirm from '@/components/DeleteConfirm'
 import { MoveToPickerContent } from '@/components/MoveToPicker'
 import ListNotesSection from '@/components/notebook/ListNotesSection'
 import TaskRow from '@/components/TaskRow'
@@ -26,6 +25,7 @@ import {
   storeTaskSortKey,
   type TaskSortKey,
 } from '@/lib/taskSort'
+import { deleteTasksWithUndo, offerCompleteUndo } from '@/lib/taskUndo'
 import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/state/uiStore'
@@ -38,7 +38,7 @@ import { useUIStore } from '@/state/uiStore'
  *   - Bulk-select via a leading square checkbox per row. Sticky
  *     toolbar appears at the top when any row is selected: Move to…
  *     (cascading picker, reuses MoveToPickerContent) / Delete N tasks
- *     (DeleteConfirm) / Clear selection.
+ *     (no confirm — a 6 s Undo toast, chunk 72) / Clear selection.
  *   - No cross-subcategory drag. The chunk-9 prompt's UX choice:
  *     bulk-select + Move-to is the within-subcategory move pattern,
  *     not drag.
@@ -299,38 +299,48 @@ export default function SubcategoryView() {
 
   const onCompleteTask = useCallback(
     async (id: string, isCompleted: boolean) => {
+      const before = data.tasks.find((t) => t.id === id)
       try {
         const updated = await repo.tasks.markComplete(id, isCompleted)
         upsertTask(updated)
+        // Checking off offers a 6 s Undo (chunk 72); unchecking does not.
+        if (isCompleted && before) {
+          offerCompleteUndo({
+            before: [before],
+            onRestored: (rows) => rows.forEach(upsertTask),
+          })
+        }
       } catch (e) {
         console.error('Complete task failed', e)
         toast.error(SAVE_ERROR)
       }
     },
-    [upsertTask],
+    [data.tasks, upsertTask],
   )
 
+  // No confirm and no write here (chunk 72): the row leaves the screen now and
+  // lib/taskUndo hard-deletes it 6 s later unless Undo is pressed.
   const onDeleteTask = useCallback(
-    async (id: string) => {
-      try {
-        await repo.tasks.delete(id)
-        setData((prev) => ({
-          ...prev,
-          tasks: prev.tasks.filter((t) => t.id !== id),
-        }))
-        setSelected((prev) => {
-          if (!prev.has(id)) return prev
-          const next = new Set(prev)
-          next.delete(id)
-          return next
-        })
-        toast('Task deleted')
-      } catch (e) {
-        console.error('Delete task failed', e)
-        toast.error(SAVE_ERROR)
-      }
+    (id: string) => {
+      const task = data.tasks.find((t) => t.id === id)
+      if (!task) return
+      setData((prev) => ({
+        ...prev,
+        tasks: prev.tasks.filter((t) => t.id !== id),
+      }))
+      setSelected((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+      deleteTasksWithUndo({
+        tasks: [task],
+        // Undo puts the held row back (upsert is by id, so no duplicates).
+        onRestore: (rows) => rows.forEach(upsertTask),
+      })
     },
-    [setData],
+    [data.tasks, setData, upsertTask],
   )
 
   const onMoveTaskToSubcategory = useCallback(
@@ -425,7 +435,9 @@ export default function SubcategoryView() {
   )
 
   const onBulkComplete = useCallback(async () => {
-    const ids = Array.from(selected)
+    // The rows as they are now — Undo restores each one's own completedAt.
+    const before = data.tasks.filter((t) => selected.has(t.id))
+    const ids = before.map((t) => t.id)
     if (ids.length === 0) return
     // markComplete(id) is just update(id, { completedAt }) (repo.ts) — no extra
     // side effects — so one shared timestamp lets bulkUpdate group every id into
@@ -442,30 +454,31 @@ export default function SubcategoryView() {
           tasks: prev.tasks.map((t) => byId.get(t.id) ?? t),
         }
       })
-      toast(`${ids.length} task${ids.length === 1 ? '' : 's'} completed`)
+      offerCompleteUndo({
+        before,
+        onRestored: (rows) => rows.forEach(upsertTask),
+      })
       clearSelection()
     } catch (e) {
       console.error('Bulk complete failed', e)
       toast.error(SAVE_ERROR)
     }
-  }, [selected, setData])
+  }, [data.tasks, selected, setData, upsertTask])
 
-  const onBulkDelete = useCallback(async () => {
-    const ids = Array.from(selected)
-    if (ids.length === 0) return
-    try {
-      await repo.tasks.bulkDelete(ids)
-      setData((prev) => ({
-        ...prev,
-        tasks: prev.tasks.filter((t) => !selected.has(t.id)),
-      }))
-      toast(`${ids.length} task${ids.length === 1 ? '' : 's'} deleted`)
-      clearSelection()
-    } catch (e) {
-      console.error('Bulk delete failed', e)
-      toast.error(SAVE_ERROR)
-    }
-  }, [selected, setData])
+  // No confirm and no write here (chunk 72) — see onDeleteTask.
+  const onBulkDelete = useCallback(() => {
+    const tasks = data.tasks.filter((t) => selected.has(t.id))
+    if (tasks.length === 0) return
+    setData((prev) => ({
+      ...prev,
+      tasks: prev.tasks.filter((t) => !selected.has(t.id)),
+    }))
+    clearSelection()
+    deleteTasksWithUndo({
+      tasks,
+      onRestore: (rows) => rows.forEach(upsertTask),
+    })
+  }, [data.tasks, selected, setData, upsertTask])
 
   if (loading) {
     return <div className="text-[13px] text-ink-3">Loading…</div>
@@ -669,20 +682,14 @@ function BulkToolbar({
         Mark complete
       </button>
       <span className="ml-auto" />
-      <DeleteConfirm
-        trigger={
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 text-[13px] text-destructive hover:opacity-70"
-          >
-            <Trash2 className="size-3.5" aria-hidden />
-            Delete {selectedCount}
-          </button>
-        }
-        title={`Delete ${selectedCount} task${selectedCount === 1 ? '' : 's'}?`}
-        description="This cannot be undone."
-        onConfirm={onDelete}
-      />
+      <button
+        type="button"
+        onClick={() => void onDelete()}
+        className="inline-flex items-center gap-1.5 text-[13px] text-destructive hover:opacity-70"
+      >
+        <Trash2 className="size-3.5" aria-hidden />
+        Delete {selectedCount}
+      </button>
       <Button
         type="button"
         variant="ghost"

@@ -208,13 +208,13 @@ describe('TaskRow — quiet row (chunk 71)', () => {
     expect(chips()).toHaveLength(0)
   })
 
-  it('(6) ⋯ → Delete still shows the confirm', async () => {
+  // Chunk 72: the confirm is gone — Delete calls straight through.
+  it('(6) ⋯ → Delete calls onDelete with no confirm', async () => {
     const onDelete = vi.fn()
     row({ dueAt: TWO_DAYS_LATE }, { onDelete })
     fireEvent.click(await menuItem(/^Delete$/))
-    const confirm = await screen.findByRole('alertdialog')
-    expect(within(confirm).getByText('Delete this task?')).toBeInTheDocument()
-    expect(onDelete).not.toHaveBeenCalled()
+    expect(onDelete).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
   it('(7) title wraps to two lines; grip and minutes reach 24px', () => {

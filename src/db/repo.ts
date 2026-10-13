@@ -16,6 +16,7 @@
  */
 import { supabase } from '@/lib/supabase'
 import { isOnline } from '@/lib/network'
+import { withoutPendingDeletes } from '@/lib/taskUndo'
 
 import { db } from './dexie'
 import {
@@ -305,9 +306,11 @@ const subcategoriesRepo = {
 
 // ---------- tasks ----------
 
+// The four list reads drop tasks inside their undo window (chunk 72): the
+// Dexie cache keeps the row, only the returned array is filtered.
 const tasksRepo = {
   async list(): Promise<Task[]> {
-    return readWithFallback({
+    const tasks = await readWithFallback({
       online: async () => {
         const { data, error } = await supabase
           .from('tasks')
@@ -325,10 +328,11 @@ const tasksRepo = {
       fallback: async () =>
         db.tasks.orderBy('updatedAt').reverse().toArray(),
     })
+    return withoutPendingDeletes(tasks)
   },
 
   async listBySubcategory(subcategoryId: string): Promise<Task[]> {
-    return readWithFallback({
+    const tasks = await readWithFallback({
       online: async () => {
         const { data, error } = await supabase
           .from('tasks')
@@ -349,10 +353,11 @@ const tasksRepo = {
       fallback: async () =>
         db.tasks.where('subcategoryId').equals(subcategoryId).toArray(),
     })
+    return withoutPendingDeletes(tasks)
   },
 
   async listIncomplete(): Promise<Task[]> {
-    return readWithFallback({
+    const tasks = await readWithFallback({
       online: async () => {
         const { data, error } = await supabase
           .from('tasks')
@@ -371,6 +376,7 @@ const tasksRepo = {
           .filter((t) => t.completedAt === null)
           .toArray(),
     })
+    return withoutPendingDeletes(tasks)
   },
 
   /**
@@ -379,7 +385,7 @@ const tasksRepo = {
    * `completed_at`, NOT `created_at`.
    */
   async listCompletedInRange(from: string, to: string): Promise<Task[]> {
-    return readWithFallback({
+    const tasks = await readWithFallback({
       online: async () => {
         const { data, error } = await supabase
           .from('tasks')
@@ -403,6 +409,7 @@ const tasksRepo = {
           )
           .toArray(),
     })
+    return withoutPendingDeletes(tasks)
   },
 
   async create(

@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 
 import BlockTimeSheet from '@/components/BlockTimeSheet'
-import DeleteConfirm from '@/components/DeleteConfirm'
 import { Note as NoteGlyph } from '@/components/icons'
 import MoveToPicker from '@/components/MoveToPicker'
 import {
@@ -32,15 +31,15 @@ import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
  * TaskRow, anchored on the row's reminder chip or, when the row shows
  * none, an invisible anchor; chunk 71), Notes / Add a
  * note (chunk 59 — opens the task notes sheet NotesProvider owns; it
- * replaced the old notes dialog), Delete (DeleteConfirm).
+ * replaced the old notes dialog), Delete.
  *
  * "Move to" uses MoveToPicker as a DropdownMenuSub branch — picking a
  * target closes the dropdown via Radix's default item-select behavior
  * and fires onMoveToSubcategoryId.
  *
- * "Delete" wraps the menu item in DeleteConfirm (chunk-7's wrapper).
- * The item's onSelect calls preventDefault so the dropdown doesn't
- * race the AlertDialog for focus on click.
+ * "Delete" is a plain item with no confirm (chunk 72): the parent hides
+ * the task and lib/taskUndo hard-deletes it 6 s later unless Undo is
+ * pressed in the toast.
  */
 
 export type TaskMenuProps = {
@@ -128,24 +127,13 @@ export default function TaskMenu({
             )}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DeleteConfirm
-            trigger={
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  // Keep the menu's onSelect from auto-closing the
-                  // dropdown before AlertDialog adopts focus.
-                  e.preventDefault()
-                }}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 className="size-3.5" aria-hidden />
-                Delete
-              </DropdownMenuItem>
-            }
-            title="Delete this task?"
-            description="This cannot be undone."
-            onConfirm={onDelete}
-          />
+          <DropdownMenuItem
+            onSelect={() => void onDelete()}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            Delete
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

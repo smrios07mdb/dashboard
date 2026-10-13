@@ -1,13 +1,32 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Toaster } from 'sonner'
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
 const {
   categoriesList,
   subcategoriesList,
   tasksList,
   tasksUpdate,
+  tasksMarkComplete,
+  tasksDelete,
+  tasksBulkDelete,
   routineLogsList,
   routineItemsList,
   settingsGet,
@@ -16,6 +35,9 @@ const {
   subcategoriesList: vi.fn(),
   tasksList: vi.fn(),
   tasksUpdate: vi.fn(),
+  tasksMarkComplete: vi.fn(),
+  tasksDelete: vi.fn(),
+  tasksBulkDelete: vi.fn(),
   routineLogsList: vi.fn(),
   routineItemsList: vi.fn(),
   settingsGet: vi.fn(),
@@ -25,7 +47,14 @@ vi.mock('@/db/repo', () => ({
   repo: {
     categories: { list: categoriesList },
     subcategories: { list: subcategoriesList },
-    tasks: { list: tasksList, update: tasksUpdate },
+    tasks: {
+      list: tasksList,
+      update: tasksUpdate,
+      // Chunk 72: undo for delete and complete.
+      markComplete: tasksMarkComplete,
+      delete: tasksDelete,
+      bulkDelete: tasksBulkDelete,
+    },
     // The hero's streak is the canonical routines streak — it loads routine
     // items + logs + settings (timezone), mirroring Routines.tsx's sourcing.
     routineLogs: { listByRange: routineLogsList },
@@ -61,6 +90,20 @@ import { useSyncStore } from '@/db/syncStore'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
 import { taskDragCollision } from '@/lib/taskDragCollision'
 import { useUIStore } from '@/state/uiStore'
+
+// Radix DropdownMenu needs these jsdom shims (chunk 72 opens the ⋯ menu).
+beforeAll(() => {
+  Element.prototype.hasPointerCapture ??= () => false
+  Element.prototype.releasePointerCapture ??= () => {}
+  Element.prototype.scrollIntoView ??= () => {}
+  if (typeof globalThis.ResizeObserver === 'undefined') {
+    globalThis.ResizeObserver = class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver
+  }
+})
 
 function renderDashboard() {
   return render(
@@ -144,6 +187,9 @@ describe('Dashboard', () => {
     subcategoriesList.mockReset()
     tasksList.mockReset()
     tasksUpdate.mockReset()
+    tasksMarkComplete.mockReset()
+    tasksDelete.mockReset()
+    tasksBulkDelete.mockReset()
     routineLogsList.mockReset()
     routineItemsList.mockReset()
     settingsGet.mockReset()
@@ -677,5 +723,105 @@ describe('Dashboard', () => {
     for (const recorded of dndCollisionProps) {
       expect(recorded).toBe(taskDragCollision)
     }
+  })
+
+  // ---------- chunk 72: undo for delete and complete ----------
+
+  function renderWithToaster() {
+    return render(
+      <MemoryRouter>
+        <Dashboard />
+        <Toaster />
+      </MemoryRouter>,
+    )
+  }
+
+  const actionsFor = (title: string) =>
+    screen.queryByRole('button', { name: `Actions for "${title}"` })
+
+  /** The nearest ancestor of a row's ⋯ holding exactly one complete checkbox. */
+  function rowOf(title: string): HTMLElement {
+    let el: HTMLElement | null = actionsFor(title)
+    while (el) {
+      if (el.querySelectorAll('[aria-label^="Mark task"]').length === 1) return el
+      el = el.parentElement
+    }
+    throw new Error(`no row for ${title}`)
+  }
+
+  function seedTwoTasks() {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+  }
+
+  it('⋯ → Delete removes the row with no confirm; Undo brings it back and nothing is deleted (chunk 72)', async () => {
+    seedTwoTasks()
+    tasksList.mockResolvedValue([mkTask('Alpha', 'sw1'), mkTask('Bravo', 'sw1')])
+
+    renderWithToaster()
+    await waitFor(() => expect(actionsFor('Alpha')).toBeInTheDocument())
+
+    fireEvent.keyDown(actionsFor('Alpha')!, { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: /^Delete$/ }))
+
+    await waitFor(() => expect(actionsFor('Alpha')).not.toBeInTheDocument())
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(actionsFor('Bravo')).toBeInTheDocument()
+    expect(await screen.findByText('Task deleted')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+
+    await waitFor(() => expect(actionsFor('Alpha')).toBeInTheDocument())
+    expect(tasksBulkDelete).not.toHaveBeenCalled()
+    expect(tasksDelete).not.toHaveBeenCalled()
+  })
+
+  it('checking a row off offers Undo, which un-completes it; unchecking shows no toast (chunk 72)', async () => {
+    seedTwoTasks()
+    tasksList.mockResolvedValue([
+      mkTask('Alpha', 'sw1'),
+      mkTask('Done', 'sw1', { completedAt: '2026-01-03T00:00:00.000Z' }),
+    ])
+    tasksMarkComplete.mockImplementation((id: string, completed: boolean) =>
+      Promise.resolve(
+        mkTask(id, 'sw1', {
+          completedAt: completed ? '2026-01-04T00:00:00.000Z' : null,
+        }),
+      ),
+    )
+
+    renderWithToaster()
+    await waitFor(() => expect(actionsFor('Alpha')).toBeInTheDocument())
+
+    // Unchecking: the write happens, no toast.
+    fireEvent.click(screen.getByRole('button', { name: '1 completed' }))
+    await waitFor(() => expect(actionsFor('Done')).toBeInTheDocument())
+    fireEvent.click(within(rowOf('Done')).getByLabelText('Mark task incomplete'))
+    await waitFor(() =>
+      expect(tasksMarkComplete).toHaveBeenCalledWith('Done', false),
+    )
+    await waitFor(() =>
+      expect(
+        within(rowOf('Done')).getByLabelText('Mark task complete'),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('Task completed')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+
+    // Checking off: toast with Undo; Undo writes the un-complete.
+    tasksMarkComplete.mockClear()
+    fireEvent.click(within(rowOf('Alpha')).getByLabelText('Mark task complete'))
+    await waitFor(() =>
+      expect(tasksMarkComplete).toHaveBeenCalledWith('Alpha', true),
+    )
+    expect(await screen.findByText('Task completed')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() =>
+      expect(tasksMarkComplete).toHaveBeenCalledWith('Alpha', false),
+    )
   })
 })

@@ -22,6 +22,7 @@ import {
   storeTaskSortKey,
   type TaskSortKey,
 } from '@/lib/taskSort'
+import { deleteTasksWithUndo, offerCompleteUndo } from '@/lib/taskUndo'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useTodayListStore } from '@/state/todayList'
 import { useTodayPlan, type WriteTodayMark } from '@/state/todayPlan'
@@ -326,35 +327,45 @@ export default function Dashboard() {
 
   const onCompleteTask = useCallback(
     async (id: string, completed: boolean) => {
+      const before = data.tasks.find((t) => t.id === id)
       try {
         const updated = await repo.tasks.markComplete(id, completed)
         // Tag this as a local completion so the "On a roll" combo only counts
         // the user's own clicks — not realtime/resync echoes.
         if (completed) localCompletions.current += 1
         upsertTask(updated)
+        // Checking off offers a 6 s Undo (chunk 72); unchecking does not.
+        if (completed && before) {
+          offerCompleteUndo({
+            before: [before],
+            onRestored: (rows) => rows.forEach(upsertTask),
+          })
+        }
       } catch (e) {
         console.error('Complete task failed', e)
         toast.error(SAVE_ERROR)
       }
     },
-    [upsertTask],
+    [data.tasks, upsertTask],
   )
 
+  // No confirm and no write here (chunk 72): the row leaves the screen now and
+  // lib/taskUndo hard-deletes it 6 s later unless Undo is pressed.
   const onDeleteTask = useCallback(
-    async (id: string) => {
-      try {
-        await repo.tasks.delete(id)
-        setData((prev) => ({
-          ...prev,
-          tasks: prev.tasks.filter((t) => t.id !== id),
-        }))
-        toast('Task deleted')
-      } catch (e) {
-        console.error('Delete task failed', e)
-        toast.error(SAVE_ERROR)
-      }
+    (id: string) => {
+      const task = data.tasks.find((t) => t.id === id)
+      if (!task) return
+      setData((prev) => ({
+        ...prev,
+        tasks: prev.tasks.filter((t) => t.id !== id),
+      }))
+      deleteTasksWithUndo({
+        tasks: [task],
+        // Undo puts the held row back (upsert is by id, so no duplicates).
+        onRestore: (rows) => rows.forEach(upsertTask),
+      })
     },
-    [setData],
+    [data.tasks, setData, upsertTask],
   )
 
   const onMoveTaskToSubcategory = useCallback(

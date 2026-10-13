@@ -1,0 +1,253 @@
+/*
+ * Undo for task delete and task complete (chunk 72).
+ *
+ * Delete is deferred, not soft: `deleteTasksWithUndo` marks the ids pending
+ * and the real `repo.tasks.bulkDelete` runs UNDO_MS later from this module's
+ * own timer — never from the toast's lifecycle, so closing the toast neither
+ * commits early nor cancels. Until the commit nothing is written anywhere, so
+ * Undo restores the task with its planner block, calendar event, Today mark
+ * and note links untouched.
+ *
+ * Pending ids are filtered out of every `repo.tasks` list read
+ * (`withoutPendingDeletes`) and mirrored to localStorage, so a page that dies
+ * inside the window still commits: `flushPendingDeletes` on `pagehide`, and
+ * `resumePendingDeletes` for whatever is left on the next start.
+ *
+ * Complete is written at once by the screen; `offerCompleteUndo` only offers
+ * to put the prior `completedAt` back.
+ */
+import { toast } from 'sonner'
+
+import { repo } from '@/db/repo'
+import type { Task } from '@/db/types'
+import { useUIStore } from '@/state/uiStore'
+
+export const UNDO_MS = 6000
+
+const STORAGE_KEY = 'hup:pendingTaskDeletes'
+const SAVE_ERROR = 'Could not save — retry'
+
+type Batch = {
+  ids: string[]
+  timer: ReturnType<typeof setTimeout>
+  toastId?: string | number
+}
+
+/** Every id inside its window, including ones whose commit is in flight. */
+const pending = new Map<string, { at: number }>()
+/** Batches whose timer has not fired — the only ones Undo can still cancel. */
+const waiting = new Set<Batch>()
+/** Ids some waiting batch owns. Leftovers seeded from storage own none. */
+const scheduled = new Set<string>()
+/** Ids whose `bulkDelete` has been issued and has not settled. */
+const committing = new Set<string>()
+
+function readStored(): { id: string; at: number }[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const parsed: unknown = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(
+      (e): e is { id: string; at: number } =>
+        typeof e?.id === 'string' && typeof e?.at === 'number',
+    )
+  } catch {
+    return []
+  }
+}
+
+function persist() {
+  try {
+    if (pending.size === 0) {
+      localStorage.removeItem(STORAGE_KEY)
+      return
+    }
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(Array.from(pending, ([id, { at }]) => ({ id, at }))),
+    )
+  } catch {
+    // Storage unavailable (private mode, quota): the in-memory map still
+    // drives this session; only the killed-app recovery is lost.
+  }
+}
+
+// Seed at module load so list reads filter leftovers before anything else runs.
+for (const e of readStored()) pending.set(e.id, { at: e.at })
+
+function drop(ids: string[]) {
+  for (const id of ids) {
+    pending.delete(id)
+    scheduled.delete(id)
+    committing.delete(id)
+  }
+  persist()
+}
+
+function refresh() {
+  useUIStore.getState().forceDashboardRefresh()
+}
+
+async function commit(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  for (const id of ids) committing.add(id)
+  try {
+    // `repo` handles offline itself (outbox); only a client error throws.
+    await repo.tasks.bulkDelete(ids)
+    drop(ids)
+  } catch (e) {
+    console.error('Deferred task delete failed', e)
+    drop(ids)
+    toast.error(SAVE_ERROR)
+    refresh()
+  }
+}
+
+function plural(n: number, verb: string): string {
+  return n === 1 ? `Task ${verb}` : `${n} tasks ${verb}`
+}
+
+/** Hide `tasks` now; hard-delete them after UNDO_MS unless undone. */
+export function deleteTasksWithUndo(opts: {
+  /** The full rows, kept for restore. */
+  tasks: Task[]
+  /** Re-insert into the calling screen's state. */
+  onRestore?: (tasks: Task[]) => void
+}): void {
+  // An id already pending is ignored, so a double delete commits once.
+  const seen = new Set<string>()
+  const tasks = opts.tasks.filter((t) => {
+    if (pending.has(t.id) || seen.has(t.id)) return false
+    seen.add(t.id)
+    return true
+  })
+  if (tasks.length === 0) return
+
+  const at = Date.now()
+  const ids = tasks.map((t) => t.id)
+  for (const id of ids) {
+    pending.set(id, { at })
+    scheduled.add(id)
+  }
+  persist()
+
+  const batch: Batch = {
+    ids,
+    timer: setTimeout(() => {
+      waiting.delete(batch)
+      // The window is over: take the toast down with it so no dead Undo lingers
+      // (sonner pauses its own countdown on hover and on window blur).
+      if (batch.toastId !== undefined) toast.dismiss(batch.toastId)
+      void commit(ids)
+    }, UNDO_MS),
+  }
+  waiting.add(batch)
+
+  batch.toastId = toast(plural(ids.length, 'deleted'), {
+    duration: UNDO_MS,
+    action: {
+      label: 'Undo',
+      onClick: () => {
+        if (!waiting.has(batch)) return
+        clearTimeout(batch.timer)
+        waiting.delete(batch)
+        drop(ids)
+        opts.onRestore?.(tasks)
+        refresh()
+      },
+    },
+  })
+}
+
+/** Toast "Task completed" / "N tasks completed" with Undo after a successful complete. */
+export function offerCompleteUndo(opts: {
+  /** The rows as they were before the complete. */
+  before: Task[]
+  onRestored?: (tasks: Task[]) => void
+}): void {
+  const { before, onRestored } = opts
+  if (before.length === 0) return
+  let used = false
+  toast(plural(before.length, 'completed'), {
+    duration: UNDO_MS,
+    action: {
+      label: 'Undo',
+      onClick: () => {
+        if (used) return
+        used = true
+        void (async () => {
+          try {
+            // One open task → the plain un-complete. Anything else restores
+            // each task's own prior stamp: null for the ones that were open,
+            // the old value for the ones that were already complete.
+            const restored =
+              before.length === 1 && before[0].completedAt === null
+                ? [await repo.tasks.markComplete(before[0].id, false)]
+                : await repo.tasks.bulkUpdate(
+                    before.map((t) => ({
+                      id: t.id,
+                      patch: { completedAt: t.completedAt },
+                    })),
+                  )
+            onRestored?.(restored)
+            refresh()
+          } catch (e) {
+            console.error('Undo complete failed', e)
+            toast.error(SAVE_ERROR)
+          }
+        })()
+      },
+    },
+  })
+}
+
+export function isPendingDelete(id: string): boolean {
+  return pending.has(id)
+}
+
+export function withoutPendingDeletes<T extends { id: string }>(rows: T[]): T[] {
+  if (pending.size === 0) return rows
+  return rows.filter((r) => !pending.has(r.id))
+}
+
+/**
+ * Commit everything now (pagehide). Fire-and-forget: the ids stay pending and
+ * in storage until the write resolves, so a request the unload cuts short is
+ * picked up by `resumePendingDeletes` on the next start.
+ */
+export function flushPendingDeletes(): void {
+  for (const batch of waiting) {
+    clearTimeout(batch.timer)
+    if (batch.toastId !== undefined) toast.dismiss(batch.toastId)
+  }
+  waiting.clear()
+  const ids = Array.from(pending.keys()).filter((id) => !committing.has(id))
+  for (const id of ids) scheduled.add(id)
+  void commit(ids)
+}
+
+/** Commit leftovers from storage (startup). No toast; Undo is not offered. */
+export function resumePendingDeletes(): void {
+  const now = Date.now()
+  const overdue: string[] = []
+  for (const [id, { at }] of pending) {
+    // Skip ids this session already owns — they still have a live Undo.
+    if (scheduled.has(id) || committing.has(id)) continue
+    scheduled.add(id)
+    const wait = Math.min(UNDO_MS, at + UNDO_MS - now)
+    if (wait <= 0) {
+      overdue.push(id)
+      continue
+    }
+    const batch: Batch = {
+      ids: [id],
+      timer: setTimeout(() => {
+        waiting.delete(batch)
+        void commit([id])
+      }, wait),
+    }
+    waiting.add(batch)
+  }
+  void commit(overdue)
+}

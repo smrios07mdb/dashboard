@@ -42,8 +42,13 @@ import {
   type TaskRow,
 } from './mappers'
 import { repo } from './repo'
-import type { ScheduledBlock } from './types'
+import type { ScheduledBlock, Task } from './types'
 import { useSyncStore } from './syncStore'
+import {
+  deleteTasksWithUndo,
+  flushPendingDeletes,
+  isPendingDelete,
+} from '@/lib/taskUndo'
 
 // ---------- helpers ----------
 
@@ -1074,5 +1079,50 @@ describe('repo.scheduledBlocks (chunk 37)', () => {
       }),
     ).rejects.toThrow(/duplicate key/)
     expect(await db.outbox.count()).toBe(0)
+  })
+})
+
+// Chunk 72: a task inside its undo window is hidden from every list read while
+// the Dexie cache keeps the row.
+describe('repo — pending deletes (chunk 72)', () => {
+  function mk(id: string): Task {
+    return {
+      id,
+      userId: 'u-1',
+      subcategoryId: 'sub-1',
+      title: id,
+      estimateMinutes: 0,
+      dueAt: null,
+      remindAt: null,
+      notified: false,
+      priority: null,
+      completedAt: null,
+      createdAt: '2026-05-23T00:00:00.000Z',
+      updatedAt: '2026-05-23T00:00:00.000Z',
+    }
+  }
+
+  it('tasks.list omits a pending id on the fallback path and on the online path', async () => {
+    const keep = mk('t-keep')
+    const gone = mk('t-gone')
+    await db.tasks.bulkPut([keep, gone])
+    deleteTasksWithUndo({ tasks: [gone] })
+    try {
+      isOnlineMock.mockReturnValue(false)
+      expect((await repo.tasks.list()).map((t) => t.id)).toEqual(['t-keep'])
+      expect(await db.tasks.get('t-gone')).toBeDefined()
+
+      isOnlineMock.mockReturnValue(true)
+      fromMock.mockReturnValue(
+        makeChain({ data: [taskToRow(keep), taskToRow(gone)], error: null }),
+      )
+      expect((await repo.tasks.list()).map((t) => t.id)).toEqual(['t-keep'])
+      expect(await db.tasks.get('t-gone')).toBeDefined()
+    } finally {
+      // Close the window now so its 6 s timer cannot outlive the test.
+      fromMock.mockReturnValue(makeChain({ data: null, error: null }))
+      flushPendingDeletes()
+      await vi.waitFor(() => expect(isPendingDelete('t-gone')).toBe(false))
+    }
   })
 })
