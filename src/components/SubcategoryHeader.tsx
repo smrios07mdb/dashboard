@@ -209,7 +209,7 @@ export default function SubcategoryHeader({
             aria-invalid={invalid || undefined}
             aria-label="Subcategory name"
             className={cn(
-              'min-w-0 flex-1 rounded-sm bg-background px-2 py-1 text-[14px] font-medium text-ink shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
+              'min-w-0 flex-1 rounded-sm bg-background px-2 py-1 text-base sm:text-[14px] font-medium text-ink shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
               invalid && 'shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
             )}
           />

@@ -316,14 +316,13 @@ export default function DailyHero({
               min="0"
               step="15"
               onChange={(e) => setAvailableMinutes(Number(e.target.value) || 0)}
-              className="num"
+              className="num text-base sm:text-[15px]"
               aria-label="Available minutes"
               style={{
                 width: 42,
                 border: 0,
                 outline: 'none',
                 background: 'transparent',
-                fontSize: 15,
                 fontWeight: 600,
                 textAlign: 'right',
                 color: 'var(--ink)',

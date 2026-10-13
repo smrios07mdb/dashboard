@@ -114,7 +114,7 @@ export default function AddSubcategoryInline({
         aria-label="New subcategory name"
         aria-invalid={invalid && name.length > 0 ? true : undefined}
         className={cn(
-          'h-8 bg-background px-2 py-1 text-[13px]',
+          'h-8 bg-background px-2 py-1 text-base sm:text-[13px]',
           invalid &&
             name.length > 0 &&
             'border-destructive focus-visible:ring-destructive',

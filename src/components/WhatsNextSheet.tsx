@@ -214,7 +214,7 @@ export default function WhatsNextSheet({
               value={availableMinutes}
               onChange={(e) => setAvailableMinutes(Number(e.target.value) || 0)}
               aria-label="Available minutes"
-              className="w-16 rounded-sm border border-line bg-bg-alt px-2 py-1 text-right font-mono text-[13px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-16 rounded-sm border border-line bg-bg-alt px-2 py-1 text-right font-mono text-base sm:text-[13px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
             <span className="font-mono text-[11px] text-ink-3">minutes</span>
           </label>

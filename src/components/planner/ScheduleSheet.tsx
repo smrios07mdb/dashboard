@@ -201,7 +201,7 @@ function Body({
               setCustom(e.target.value)
               setSel('custom')
             }}
-            className="mono h-[38px] rounded px-2.5 text-[13px] text-ink"
+            className="mono h-[38px] rounded px-2.5 text-base sm:text-[13px] text-ink"
             style={{
               border: `1px solid ${sel === 'custom' ? 'hsl(var(--accent))' : 'var(--line)'}`,
               background: sel === 'custom' ? 'var(--accent-soft)' : 'var(--surface)',

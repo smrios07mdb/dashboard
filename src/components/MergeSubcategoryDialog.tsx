@@ -84,7 +84,7 @@ export default function MergeSubcategoryDialog({
               value={targetId}
               onChange={(e) => setTargetId(e.target.value)}
               aria-label="Target subcategory"
-              className="w-full rounded-sm border border-border bg-background px-2 py-1 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="w-full rounded-sm border border-border bg-background px-2 py-1 text-base sm:text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {otherSubsInCategory.map((s) => (
                 <option key={s.id} value={s.id}>

@@ -132,7 +132,7 @@ export default function DeleteSubcategoryDialog({
                   onChange={(e) => setMoveToId(e.target.value)}
                   disabled={action !== 'move'}
                   aria-label="Target subcategory"
-                  className="w-full rounded-sm border border-border bg-background px-2 py-1 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  className="w-full rounded-sm border border-border bg-background px-2 py-1 text-base sm:text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 >
                   {otherSubsInCategory.map((s) => (
                     <option key={s.id} value={s.id}>

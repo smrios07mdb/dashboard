@@ -136,7 +136,7 @@ export default function SetReminderPopover({
           aria-label="Reminder date and time"
           aria-invalid={value.length > 0 && !iso ? true : undefined}
           className={cn(
-            'w-full rounded-sm border border-border bg-background px-2 py-1 text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'w-full rounded-sm border border-border bg-background px-2 py-1 text-base sm:text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             value.length > 0 &&
               !iso &&
               'border-destructive focus-visible:ring-destructive',

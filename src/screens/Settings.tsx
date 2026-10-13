@@ -871,7 +871,7 @@ function CalendarSection() {
                 value={calendarUrl}
                 onChange={(e) => setCalendarUrl(e.target.value)}
                 aria-label="Planner writes to"
-                className="h-9 rounded-md border border-line bg-surface px-2 text-[13px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="h-9 rounded-md border border-line bg-surface px-2 text-base sm:text-[13px] text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {calendars.map((c) => (
                   <option key={c.url} value={c.url}>
@@ -1122,7 +1122,7 @@ function OutlookRows() {
             aria-label="Outlook ICS link"
             autoComplete="off"
             spellCheck={false}
-            className="mono text-[12px]"
+            className="mono text-base sm:text-[12px]"
           />
           <Button
             type="button"

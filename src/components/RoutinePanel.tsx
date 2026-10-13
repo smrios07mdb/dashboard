@@ -351,7 +351,7 @@ function EditRow({
           aria-invalid={invalid || undefined}
           aria-label="Routine item label"
           className={cn(
-            'min-w-0 rounded-sm bg-bg-alt px-2 py-1 text-[14px] text-ink shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
+            'min-w-0 rounded-sm bg-bg-alt px-2 py-1 text-base sm:text-[14px] text-ink shadow-[inset_0_0_0_1px_hsl(var(--ring))] outline-none',
             invalid &&
               'shadow-[inset_0_0_0_1px_hsl(var(--destructive))]',
           )}
@@ -497,7 +497,7 @@ function AddItemRow({
         aria-label={`New ${routine} item`}
         aria-invalid={invalid && draft.length > 0 ? true : undefined}
         className={cn(
-          'h-9 bg-bg-alt text-[14px]',
+          'h-9 bg-bg-alt text-base sm:text-[14px]',
           invalid &&
             draft.length > 0 &&
             'border-destructive focus-visible:ring-destructive',
