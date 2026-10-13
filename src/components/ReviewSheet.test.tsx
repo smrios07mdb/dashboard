@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Category, Subcategory, Task } from '@/db/types'
+import { REVIEW_SETTLE_MS } from '@/lib/review'
 
 import ReviewSheet from './ReviewSheet'
 
@@ -49,22 +50,45 @@ const CANDIDATES = [
 function setup() {
   const onToggleToday = vi.fn()
   const onClose = vi.fn()
-  render(
+  const sheet = (open: boolean) => (
     <ReviewSheet
-      open
+      open={open}
       candidates={CANDIDATES}
       categories={CATEGORIES}
       subcategories={SUBCATEGORIES}
       timeZone="America/New_York"
       onToggleToday={onToggleToday}
       onClose={onClose}
-    />,
+    />
   )
-  return { onToggleToday, onClose }
+  const { rerender } = render(sheet(true))
+  return {
+    onToggleToday,
+    onClose,
+    reopen: (open: boolean) => rerender(sheet(open)),
+  }
 }
 
-const press = (name: string) =>
+const settle = (ms = REVIEW_SETTLE_MS) => vi.setSystemTime(Date.now() + ms)
+
+/** Clicks once the settle window (chunk 74a) has passed. */
+const press = (name: string) => {
+  settle()
   fireEvent.click(screen.getByRole('button', { name }))
+}
+
+/** Clicks without moving the clock. */
+const tap = (name: string, detail = 1) =>
+  fireEvent.click(screen.getByRole('button', { name }), { detail })
+
+// Only `Date` is faked, so Radix's timers stay real.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-13T16:00:00Z'))
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('ReviewSheet', () => {
   it('shows one task at a time with its list and age', () => {
@@ -127,5 +151,71 @@ describe('ReviewSheet', () => {
     press('Close')
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(onClose).toHaveBeenCalledWith([])
+  })
+})
+
+describe('ReviewSheet — one click, one task (chunk 74a)', () => {
+  it('two quick clicks on Add to Today add one task', () => {
+    const { onToggleToday } = setup()
+    tap('Add to Today')
+    tap('Add to Today')
+    expect(onToggleToday).toHaveBeenCalledTimes(1)
+    expect(onToggleToday).toHaveBeenCalledWith('a', true)
+    expect(screen.getByText('2 of 3')).toBeInTheDocument()
+  })
+
+  it('a double-click on Delete marks one task', () => {
+    const { onClose } = setup()
+    tap('Delete')
+    tap('Delete', 2)
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledWith(['a'])
+  })
+
+  it('a double-click on Keep advances once', () => {
+    setup()
+    tap('Keep')
+    tap('Keep', 2)
+    expect(screen.getByText('2 of 3')).toBeInTheDocument()
+  })
+
+  it('a second click after the window acts on the next task', () => {
+    const { onToggleToday } = setup()
+    tap('Add to Today')
+    settle()
+    tap('Add to Today')
+    expect(onToggleToday).toHaveBeenCalledTimes(2)
+    expect(onToggleToday).toHaveBeenNthCalledWith(1, 'a', true)
+    expect(onToggleToday).toHaveBeenNthCalledWith(2, 'b', true)
+  })
+
+  it('a late second click of a double-click is still ignored', () => {
+    setup()
+    tap('Keep')
+    settle(REVIEW_SETTLE_MS * 2)
+    tap('Keep', 2)
+    expect(screen.getByText('2 of 3')).toBeInTheDocument()
+  })
+
+  it('Done waits out the window after the last card', () => {
+    const { onClose } = setup()
+    press('Keep')
+    press('Keep')
+    press('Keep')
+    tap('Done')
+    expect(onClose).not.toHaveBeenCalled()
+    settle()
+    tap('Done')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('a fresh open acts at once', () => {
+    const { reopen } = setup()
+    tap('Keep')
+    reopen(false)
+    reopen(true)
+    tap('Keep')
+    expect(screen.getByText('2 of 3')).toBeInTheDocument()
   })
 })

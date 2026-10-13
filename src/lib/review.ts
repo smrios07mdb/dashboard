@@ -12,6 +12,8 @@ import { ageDays } from '@/lib/taskAge'
 export const REVIEW_AGE_DAYS = 90
 export const REVIEW_EVERY_DAYS = 7
 export const REVIEW_KEY = 'hup:lastReview'
+/** After the review walk advances, its buttons ignore activations for this long (chunk 74a). */
+export const REVIEW_SETTLE_MS = 400
 
 const DAY_MS = 24 * 60 * 60 * 1000
 

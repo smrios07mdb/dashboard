@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   Dialog,
@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import type { Category, Subcategory, Task } from '@/db/types'
+import { REVIEW_SETTLE_MS } from '@/lib/review'
 import { taskAge } from '@/lib/taskAge'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +21,11 @@ import { cn } from '@/lib/utils'
  * collected: every close hands the ids to `onClose`, and the Dashboard runs
  * them through the chunk-72 Undo — while this modal is open sonner's Undo
  * toast cannot be clicked.
+ *
+ * The walk advances in place, so the same button sits under the pointer for
+ * the next task. After every advance the buttons ignore activations for
+ * `REVIEW_SETTLE_MS`, and the later clicks of a multi-click at any time
+ * (chunk 74a): one click acts on one task.
  */
 
 const BUTTON =
@@ -59,27 +65,42 @@ export default function ReviewSheet({
   onClose,
 }: ReviewSheetProps) {
   const [walk, setWalk] = useState<Walk>(() => startWalk(candidates))
+  const settleUntil = useRef<number>(0)
   // Re-snapshot on each open ("adjust state during render", prompts/README).
   const [prevOpen, setPrevOpen] = useState(open)
   if (open !== prevOpen) {
     setPrevOpen(open)
     if (open) setWalk(startWalk(candidates))
   }
+  // A fresh sheet acts on its first activation. In an effect, not the branch
+  // above: a ref cannot be written during render (react-hooks/refs).
+  useEffect(() => {
+    if (open) settleUntil.current = 0
+  }, [open])
 
   const task = walk.tasks[walk.index] as Task | undefined
 
-  const keep = () =>
+  /** True when this activation should act (chunk 74a). */
+  const ready = (e: React.MouseEvent) =>
+    e.detail <= 1 && Date.now() >= settleUntil.current
+
+  const keep = () => {
     setWalk((w) => ({ ...w, index: w.index + 1, kept: w.kept + 1 }))
+    settleUntil.current = Date.now() + REVIEW_SETTLE_MS
+  }
   const addToToday = (id: string) => {
     onToggleToday(id, true)
     setWalk((w) => ({ ...w, index: w.index + 1, added: w.added + 1 }))
+    settleUntil.current = Date.now() + REVIEW_SETTLE_MS
   }
-  const markDelete = (id: string) =>
+  const markDelete = (id: string) => {
     setWalk((w) => ({
       ...w,
       index: w.index + 1,
       deleteIds: [...w.deleteIds, id],
     }))
+    settleUntil.current = Date.now() + REVIEW_SETTLE_MS
+  }
 
   let where = ''
   if (task) {
@@ -117,19 +138,29 @@ export default function ReviewSheet({
             </p>
             <p className="m-0 text-[13px] text-ink-3">{where}</p>
             <div className="flex flex-wrap gap-2 pt-1">
-              <button type="button" onClick={keep} className={BUTTON}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  if (ready(e)) keep()
+                }}
+                className={BUTTON}
+              >
                 Keep
               </button>
               <button
                 type="button"
-                onClick={() => addToToday(task.id)}
+                onClick={(e) => {
+                  if (ready(e)) addToToday(task.id)
+                }}
                 className={BUTTON}
               >
                 Add to Today
               </button>
               <button
                 type="button"
-                onClick={() => markDelete(task.id)}
+                onClick={(e) => {
+                  if (ready(e)) markDelete(task.id)
+                }}
                 className={cn(BUTTON, 'text-destructive')}
               >
                 Delete
@@ -146,7 +177,9 @@ export default function ReviewSheet({
               <button
                 type="button"
                 autoFocus
-                onClick={() => onClose(walk.deleteIds)}
+                onClick={(e) => {
+                  if (ready(e)) onClose(walk.deleteIds)
+                }}
                 className={BUTTON}
               >
                 Done
