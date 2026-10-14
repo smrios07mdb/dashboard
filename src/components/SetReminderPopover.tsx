@@ -55,6 +55,8 @@ export type SetReminderPopoverProps = {
   trigger?: React.ReactNode
   onSave: (isoTimestamp: string) => void | Promise<void>
   onClear: () => void | Promise<void>
+  /** Passed to the content: where focus goes on close (TaskRow, chunk 77a). */
+  onCloseAutoFocus?: (e: Event) => void
 }
 
 /** ISO → "YYYY-MM-DDTHH:mm" wall time in `tz` (the datetime-local format). */
@@ -81,6 +83,7 @@ export default function SetReminderPopover({
   trigger,
   onSave,
   onClear,
+  onCloseAutoFocus,
 }: SetReminderPopoverProps) {
   const [value, setValue] = useState<string>('')
   // `settings.timezone` for this open; null until `loadUserTimezone` resolves.
@@ -138,7 +141,11 @@ export default function SetReminderPopover({
           <span aria-hidden className="-ml-3 w-0" />
         </PopoverAnchor>
       )}
-      <PopoverContent className="w-72 space-y-3" align="end">
+      <PopoverContent
+        className="w-72 space-y-3"
+        align="end"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         <div className="label">Reminder</div>
         {showZone && (
           <div className="text-[11px] text-ink-3">Times in {tz}</div>

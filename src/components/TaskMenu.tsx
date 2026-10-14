@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Bell,
   CalendarCheck,
@@ -80,6 +80,9 @@ export default function TaskMenu({
 }: TaskMenuProps) {
   const isTouch = useIsTouchDevice()
   const [blockTimeOpen, setBlockTimeOpen] = useState(false)
+  // Set by the three picker items (chunk 77a): the menu then keeps focus off
+  // ⋯ as it closes, so the non-modal picker it just opened stays open.
+  const handingOff = useRef(false)
 
   return (
     <>
@@ -97,14 +100,27 @@ export default function TaskMenu({
             <MoreHorizontal className="size-3.5" aria-hidden />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent
+          align="end"
+          onCloseAutoFocus={(e) => {
+            if (handingOff.current) {
+              e.preventDefault()
+              handingOff.current = false
+            }
+          }}
+        >
           <MoveToPicker
             categories={categories}
             subcategories={subcategories}
             currentSubcategoryId={task.subcategoryId}
             onSelect={(id) => void onMoveToSubcategoryId(id)}
           />
-          <DropdownMenuItem onSelect={() => onOpenPriority()}>
+          <DropdownMenuItem
+            onSelect={() => {
+              handingOff.current = true
+              onOpenPriority()
+            }}
+          >
             <ListFilter className="size-3.5" aria-hidden />
             Set priority…
             {task.priority !== null && (
@@ -113,11 +129,21 @@ export default function TaskMenu({
               </span>
             )}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onOpenDue()}>
+          <DropdownMenuItem
+            onSelect={() => {
+              handingOff.current = true
+              onOpenDue()
+            }}
+          >
             <CalendarCheck className="size-3.5" aria-hidden />
             {task.dueAt ? 'Edit due date' : 'Set due date…'}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onOpenReminder()}>
+          <DropdownMenuItem
+            onSelect={() => {
+              handingOff.current = true
+              onOpenReminder()
+            }}
+          >
             <Bell className="size-3.5" aria-hidden />
             {task.remindAt ? 'Edit reminder' : 'Set reminder…'}
           </DropdownMenuItem>

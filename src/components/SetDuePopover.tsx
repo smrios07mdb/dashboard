@@ -39,6 +39,8 @@ export type SetDuePopoverProps = {
   trigger?: React.ReactNode
   onSave: (isoTimestamp: string) => void | Promise<void>
   onClear: () => void | Promise<void>
+  /** Passed to the content: where focus goes on close (TaskRow, chunk 77a). */
+  onCloseAutoFocus?: (e: Event) => void
 }
 
 /** ISO → "YYYY-MM-DD", its calendar day in `tz` (the date-input format). */
@@ -65,6 +67,7 @@ export default function SetDuePopover({
   trigger,
   onSave,
   onClear,
+  onCloseAutoFocus,
 }: SetDuePopoverProps) {
   const [value, setValue] = useState<string>('')
   // `settings.timezone` for this open; null until `loadUserTimezone` resolves.
@@ -120,7 +123,11 @@ export default function SetDuePopover({
           <span aria-hidden className="-ml-3 w-0" />
         </PopoverAnchor>
       )}
-      <PopoverContent className="w-64 space-y-3" align="end">
+      <PopoverContent
+        className="w-64 space-y-3"
+        align="end"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         <div className="label">Due date</div>
         {showZone && (
           <div className="text-[11px] text-ink-3">Dates in {tz}</div>

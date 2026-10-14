@@ -317,6 +317,7 @@ export default function TaskRow({
     attributes,
     listeners,
     setNodeRef,
+    node,
     transform,
     isDragging,
   } = useDraggable({
@@ -324,6 +325,26 @@ export default function TaskRow({
     data: { taskId: task.id, currentSubcategoryId: task.subcategoryId },
     disabled: !canDrag,
   })
+
+  // Where focus goes when a picker closes (chunk 77a): its own chip if the
+  // row shows one now, else ⋯ — but only when focus was lost with the
+  // picker; a click on another control keeps focus there. The priority chip
+  // is `data-row-nav="priority"`, the when chip `data-when-kind="due"` or
+  // `"reminder"`; no key is shared, so one selector finds each. `node` is
+  // dnd-kit's ref to this row, set whether or not drag is enabled.
+  const refocusAfter = (e: Event, chip: 'priority' | 'due' | 'reminder') => {
+    e.preventDefault()
+    requestAnimationFrame(() => {
+      const active = document.activeElement
+      if (active && active !== document.body) return
+      // First match in document order: the chip, which precedes ⋯.
+      node.current
+        ?.querySelector<HTMLElement>(
+          `[data-row-nav=${chip}],[data-when-kind=${chip}],[data-row-nav=menu]`,
+        )
+        ?.focus()
+    })
+  }
 
   // Grid template columns differ by selection mode + drag handle.
   // Built inline because Tailwind's JIT only sees static class names
@@ -361,6 +382,7 @@ export default function TaskRow({
   const whenChip = when && (
     <button
       {...nav('when')}
+      data-when-kind={whenKind}
       type="button"
       aria-label={
         whenKind === 'due'
@@ -456,6 +478,7 @@ export default function TaskRow({
           open={priorityOpen}
           onOpenChange={setPriorityOpen}
           priority={task.priority}
+          onCloseAutoFocus={(e) => refocusAfter(e, 'priority')}
           trigger={
             chipPriority !== null ? (
               <PriorityChip
@@ -476,6 +499,7 @@ export default function TaskRow({
           open={dueOpen}
           onOpenChange={setDueOpen}
           dueAt={task.dueAt}
+          onCloseAutoFocus={(e) => refocusAfter(e, 'due')}
           trigger={whenKind === 'due' ? whenChip : undefined}
           onSave={(iso) => onSetDue(task.id, iso)}
           onClear={() => onSetDue(task.id, null)}
@@ -486,6 +510,7 @@ export default function TaskRow({
           open={reminderOpen}
           onOpenChange={setReminderOpen}
           remindAt={task.remindAt}
+          onCloseAutoFocus={(e) => refocusAfter(e, 'reminder')}
           trigger={whenKind === 'reminder' ? whenChip : undefined}
           onSave={(iso) => onSetReminder(task.id, iso)}
           onClear={() => onSetReminder(task.id, null)}

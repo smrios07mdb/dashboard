@@ -1,5 +1,12 @@
 import { DndContext } from '@dnd-kit/core'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -121,6 +128,9 @@ function twoRows() {
 const chips = () =>
   screen.queryAllByRole('button', { name: /— edit (due date|reminder)$/ })
 
+/** Lets Radix's close + the row's refocus frame land (chunk 77a). */
+const settle = () => act(() => new Promise((r) => setTimeout(r, 300)))
+
 async function menuItem(name: RegExp) {
   fireEvent.keyDown(
     screen.getByRole('button', { name: 'Actions for "Atlas launch"' }),
@@ -218,6 +228,7 @@ describe('TaskRow — quiet row (chunk 71)', () => {
     const closed = grid.style.gridTemplateColumns
 
     fireEvent.click(await menuItem(/Edit reminder/))
+    await settle()
     const dialog = await screen.findByRole('dialog')
     expect(
       within(dialog).getByLabelText('Reminder date and time'),
@@ -232,6 +243,7 @@ describe('TaskRow — quiet row (chunk 71)', () => {
   it('(6) ⋯ → Set reminder… / Set due date… open their pickers on a row with no chip', async () => {
     row()
     fireEvent.click(await menuItem(/Set reminder…/))
+    await settle()
     expect(
       await screen.findByLabelText('Reminder date and time'),
     ).toBeInTheDocument()
@@ -586,5 +598,176 @@ describe('TaskRow — one tab stop per row (chunk 77)', () => {
   it('(13) the row is a group named by its title', () => {
     row()
     expect(group()).toContainElement(complete())
+  })
+})
+
+describe('TaskRow — pickers opened from ⋯ (chunk 77a)', () => {
+  // Real timers throughout: the file's beforeEach fakes `Date` only, but
+  // these cases wait on Radix's close and the row's refocus frame.
+  const menuButton = () =>
+    screen.getByRole('button', { name: 'Actions for "Atlas launch"' })
+  const dueChip = () =>
+    screen.getByRole('button', { name: 'Due Sunday, October 11 — edit due date' })
+
+  async function openFromMenu(name: RegExp) {
+    fireEvent.keyDown(menuButton(), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('menuitem', { name }))
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  }
+
+  it('(1) Set priority… stays open and holds focus', async () => {
+    vi.useRealTimers()
+    row()
+    await openFromMenu(/Set priority…/)
+    await settle()
+    expect(screen.getByText('Priority')).toBeInTheDocument()
+    const dialogs = screen.getAllByRole('dialog')
+    expect(dialogs).toHaveLength(1)
+    expect(dialogs[0]).toContainElement(document.activeElement as HTMLElement)
+  })
+
+  it('(2) Set due date… stays open', async () => {
+    vi.useRealTimers()
+    row()
+    await openFromMenu(/Set due date…/)
+    await settle()
+    expect(screen.getByLabelText('Due date')).toBeInTheDocument()
+  })
+
+  it('(3) Set reminder… stays open', async () => {
+    vi.useRealTimers()
+    row()
+    await openFromMenu(/Set reminder…/)
+    await settle()
+    expect(screen.getByLabelText('Reminder date and time')).toBeInTheDocument()
+  })
+
+  it('(4) Set priority… stays open on a row with a chip too', async () => {
+    vi.useRealTimers()
+    row({ priority: 2 })
+    await openFromMenu(/Set priority…/)
+    await settle()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+    expect(screen.getByText('Priority')).toBeInTheDocument()
+  })
+
+  it('(5) picking moves focus to the new chip', async () => {
+    vi.useRealTimers()
+    const onSetPriority = vi.fn()
+    const { rerender } = row({}, { onSetPriority })
+    await openFromMenu(/Set priority…/)
+    fireEvent.click(screen.getByRole('button', { name: /Soon/ }))
+    await waitFor(() => expect(onSetPriority).toHaveBeenCalledWith('t1', 2))
+    rerender(
+      <MemoryRouter>
+        <NotesContext.Provider
+          value={{ notes: [], report: () => undefined, openTaskNotes: vi.fn() }}
+        >
+          <DndContext>
+            <TaskRow
+              task={{ ...BASE, priority: 2 }}
+              categories={[]}
+              subcategories={[]}
+              onComplete={vi.fn()}
+              onEditTitle={vi.fn()}
+              onEditMinutes={vi.fn()}
+              onDelete={vi.fn()}
+              onMoveToSubcategory={vi.fn()}
+              onSetReminder={vi.fn()}
+              onSetDue={vi.fn()}
+              onSetPriority={onSetPriority}
+              onToggleToday={vi.fn()}
+              timeZone="America/New_York"
+            />
+          </DndContext>
+        </NotesContext.Provider>
+      </MemoryRouter>,
+    )
+    await settle()
+    expect(
+      screen.getByRole('button', { name: 'Priority 2 — change priority' }),
+    ).toHaveFocus()
+  })
+
+  it('(6) Escape from a menu-opened picker returns focus to ⋯', async () => {
+    vi.useRealTimers()
+    row()
+    await openFromMenu(/Set reminder…/)
+    await settle()
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    await settle()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(menuButton()).toHaveFocus()
+    expect(menuButton().tabIndex).toBe(0)
+  })
+
+  it('(7) Escape from a chip-opened picker returns focus to the chip', async () => {
+    vi.useRealTimers()
+    row({ dueAt: TWO_DAYS_LATE })
+    fireEvent.click(dueChip())
+    await settle()
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    await settle()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(dueChip()).toHaveFocus()
+  })
+
+  it('(8) a click elsewhere keeps focus where it landed', async () => {
+    vi.useRealTimers()
+    const user = userEvent.setup()
+    row({ dueAt: TWO_DAYS_LATE })
+    fireEvent.click(dueChip())
+    await screen.findByRole('dialog')
+    const sun = screen.getByRole('button', { name: 'Add "Atlas launch" to Today' })
+    await user.click(sun)
+    await settle()
+    expect(sun).toHaveFocus()
+  })
+
+  it('(9) a plain menu close still returns focus to ⋯', async () => {
+    vi.useRealTimers()
+    row()
+    fireEvent.keyDown(menuButton(), { key: 'Enter' })
+    const menu = await screen.findByRole('menu')
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    await settle()
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(menuButton()).toHaveFocus()
+  })
+
+  it('(10) Block time and Add a note still open their sheets', async () => {
+    vi.useRealTimers()
+    const openTaskNotes = vi.fn()
+    render(
+      <MemoryRouter>
+        <NotesContext.Provider
+          value={{ notes: [], report: () => undefined, openTaskNotes }}
+        >
+          <DndContext>
+            <TaskRow
+              task={BASE}
+              categories={[]}
+              subcategories={[]}
+              onComplete={vi.fn()}
+              onEditTitle={vi.fn()}
+              onEditMinutes={vi.fn()}
+              onDelete={vi.fn()}
+              onMoveToSubcategory={vi.fn()}
+              onSetReminder={vi.fn()}
+              onSetDue={vi.fn()}
+              onSetPriority={vi.fn()}
+              timeZone="America/New_York"
+            />
+          </DndContext>
+        </NotesContext.Provider>
+      </MemoryRouter>,
+    )
+    await openFromMenu(/Block time/)
+    await settle()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    await settle()
+    await openFromMenu(/Add a note/)
+    expect(openTaskNotes).toHaveBeenCalledWith('t1')
   })
 })

@@ -41,6 +41,8 @@ export type PriorityPickerProps = {
    */
   trigger?: React.ReactNode
   onPick: (priority: PriorityValue | null) => void | Promise<void>
+  /** Passed to the content: where focus goes on close (TaskRow, chunk 77a). */
+  onCloseAutoFocus?: (e: Event) => void
 }
 
 export default function PriorityPicker({
@@ -49,6 +51,7 @@ export default function PriorityPicker({
   priority,
   trigger,
   onPick,
+  onCloseAutoFocus,
 }: PriorityPickerProps) {
   async function pick(value: PriorityValue | null) {
     await onPick(value)
@@ -67,7 +70,11 @@ export default function PriorityPicker({
           <span aria-hidden className="-ml-3 w-0" />
         </PopoverAnchor>
       )}
-      <PopoverContent className="w-56 p-1" align="end">
+      <PopoverContent
+        className="w-56 p-1"
+        align="end"
+        onCloseAutoFocus={onCloseAutoFocus}
+      >
         <div className="label px-2.5 pb-1 pt-1.5">Priority</div>
         {OPTIONS.map((opt) => (
           <button
