@@ -41,8 +41,6 @@ type SheetState = {
   taskId: string
   noteId: string | null
   open: boolean
-  /** The sheet's `onCloseAutoFocus`, from the opener (chunk 77c). */
-  refocus?: (e: Event) => void
 }
 
 export default function NotesProvider({ children }: { children: ReactNode }) {
@@ -103,18 +101,14 @@ export default function NotesProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const openTaskNotes = useCallback<NotesContextValue['openTaskNotes']>(
-    (taskId, noteId, refocus) => {
-      setSheet((prev) => ({
-        key: (prev?.key ?? 0) + 1,
-        taskId,
-        noteId: noteId ?? null,
-        open: true,
-        refocus,
-      }))
-    },
-    [],
-  )
+  const openTaskNotes = useCallback((taskId: string, noteId?: string) => {
+    setSheet((prev) => ({
+      key: (prev?.key ?? 0) + 1,
+      taskId,
+      noteId: noteId ?? null,
+      open: true,
+    }))
+  }, [])
 
   const closeSheet = useCallback(() => {
     setSheet((prev) => (prev ? { ...prev, open: false } : prev))
@@ -137,7 +131,6 @@ export default function NotesProvider({ children }: { children: ReactNode }) {
             noteId={sheet.noteId}
             open={sheet.open}
             onClose={closeSheet}
-            onCloseAutoFocus={sheet.refocus}
           />
         </Suspense>
       )}

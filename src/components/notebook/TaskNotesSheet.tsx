@@ -56,8 +56,6 @@ type TaskNotesSheetProps = {
   noteId: string | null
   open: boolean
   onClose: () => void
-  /** Passed to the sheet's content (chunk 77c). */
-  onCloseAutoFocus?: (e: Event) => void
 }
 
 const EMPTY_CTX: NoteContext = { categories: [], subcategories: [], tasks: [] }
@@ -68,7 +66,6 @@ export default function TaskNotesSheet({
   noteId,
   open,
   onClose,
-  onCloseAutoFocus,
 }: TaskNotesSheetProps) {
   const navigate = useNavigate()
   const touch = useIsTouchDevice()
@@ -209,7 +206,6 @@ export default function TaskNotesSheet({
         onOpenAutoFocus={(e) => {
           if (shownIsDraft) e.preventDefault()
         }}
-        onCloseAutoFocus={onCloseAutoFocus}
         className={cn(
           'flex flex-col gap-0 bg-surface p-0',
           touch

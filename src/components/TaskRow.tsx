@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { Bell, GripVertical } from 'lucide-react'
@@ -276,10 +276,10 @@ export default function TaskRow({
   const nav = (key: RowNavKey): RowNavProps => ({
     'data-row-nav': key,
     tabIndex: activeNav === key ? 0 : -1,
-    // Urgent, not a transition (chunk 77c): a deferred update left the old
-    // stop at tabIndex 0, so a fast Home → Tab stayed in the row. Since 77a
-    // a picker hand-off no longer returns focus to ⋯ while its menu closes.
-    onFocus: () => setNavKey(key),
+    // A transition, not an urgent update: focus returning to ⋯ as its menu
+    // closes must not force-flush that close alongside a picker the menu
+    // item just opened (⋯ → Set reminder… / Set priority… / Set due date…).
+    onFocus: () => startTransition(() => setNavKey(key)),
   })
 
   // Completion celebration (chunk 27). The "+XP" floater color and the
@@ -332,10 +332,7 @@ export default function TaskRow({
   // is `data-row-nav="priority"`, the when chip `data-when-kind="due"` or
   // `"reminder"`; no key is shared, so one selector finds each. `node` is
   // dnd-kit's ref to this row, set whether or not drag is enabled.
-  const refocusAfter = (
-    e: Event,
-    chip: 'priority' | 'due' | 'reminder' | 'menu',
-  ) => {
+  const refocusAfter = (e: Event, chip: 'priority' | 'due' | 'reminder') => {
     e.preventDefault()
     requestAnimationFrame(() => {
       const active = document.activeElement
@@ -348,9 +345,6 @@ export default function TaskRow({
         ?.focus()
     })
   }
-  // The Block time and notes sheets, opened from ⋯, hand focus back to it
-  // (chunk 77c).
-  const toMenu = (e: Event) => refocusAfter(e, 'menu')
 
   // Grid template columns differ by selection mode + drag handle.
   // Built inline because Tailwind's JIT only sees static class names
@@ -571,8 +565,7 @@ export default function TaskRow({
         onOpenPriority={() => setPriorityOpen(true)}
         onOpenDue={() => setDueOpen(true)}
         notes={notes}
-        onOpenNotes={() => openTaskNotes(task.id, undefined, toMenu)}
-        onSheetClose={toMenu}
+        onOpenNotes={() => openTaskNotes(task.id)}
         onDelete={() => onDelete(task.id)}
       />
     </div>

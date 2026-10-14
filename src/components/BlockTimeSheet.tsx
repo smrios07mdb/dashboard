@@ -61,15 +61,12 @@ export type BlockTimeSheetProps = {
   task: Task
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Passed to the sheet's content (chunk 77c). */
-  onCloseAutoFocus?: (e: Event) => void
 }
 
 export default function BlockTimeSheet({
   task,
   open,
   onOpenChange,
-  onCloseAutoFocus,
 }: BlockTimeSheetProps) {
   const navigate = useNavigate()
   const isTouch = useIsTouchDevice()
@@ -203,7 +200,6 @@ export default function BlockTimeSheet({
         side={isTouch ? 'bottom' : 'right'}
         className="flex w-full flex-col gap-5 overflow-y-auto sm:max-w-md data-[side=bottom]:max-h-[85vh] data-[side=bottom]:rounded-t-xl"
         data-side={isTouch ? 'bottom' : 'right'}
-        onCloseAutoFocus={onCloseAutoFocus}
       >
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
