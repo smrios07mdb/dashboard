@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { startTransition, useEffect, useRef, useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { Bell, GripVertical } from 'lucide-react'
@@ -58,6 +58,14 @@ import { dueLabel, reminderLabel, type WhenTone } from '@/lib/whenLabel'
  * Validation is silent: empty title / out-of-range minutes show a
  * visible invalid border and an aria-invalid flag. Enter is a no-op
  * on invalid input, Escape reverts. No toasts on rejection.
+ *
+ * Chunk 77 — the row is one tab stop (UX audit #16), a `role="group"` named
+ * by the title. Its controls carry `data-row-nav` and a roving tabindex: the
+ * completion checkbox by default, else the control last focused in the row.
+ * ← / → / Home / End move between them without wrapping. The grip leaves the
+ * tab order (no KeyboardSensor anywhere; keyboard moves use ⋯ → Move to).
+ * Keys are never stopped (chunk 76a), so global shortcuts still reach
+ * `window`. Enter / Escape in an inline edit return focus to its button.
  */
 
 // The Checkbox's centred transparent ::before, minus its size — extends a
@@ -73,6 +81,51 @@ const WHEN_TONE: Record<WhenTone, string> = {
 }
 
 const MAX_MINUTES = 24 * 60
+
+type RowNavKey =
+  | 'select'
+  | 'complete'
+  | 'title'
+  | 'priority'
+  | 'when'
+  | 'minutes'
+  | 'today'
+  | 'menu'
+
+type RowNavProps = {
+  'data-row-nav': RowNavKey
+  tabIndex: number
+  onFocus: () => void
+}
+
+const ROW_NAV_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'Home', 'End'])
+
+/** ← / → / Home / End between the row's `data-row-nav` controls; no wrap. */
+function onRowKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+  if (e.defaultPrevented || !ROW_NAV_KEYS.has(e.key)) return
+  if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+  const target = e.target as HTMLElement
+  // React bubbles through portals: a key inside a picker's content reaches
+  // here, and the inline inputs keep their arrows for the caret.
+  if (!e.currentTarget.contains(target) || !target.hasAttribute('data-row-nav'))
+    return
+  const items = Array.from(
+    e.currentTarget.querySelectorAll<HTMLElement>('[data-row-nav]'),
+  )
+  const i = items.indexOf(target)
+  const next =
+    e.key === 'Home'
+      ? 0
+      : e.key === 'End'
+        ? items.length - 1
+        : e.key === 'ArrowRight'
+          ? Math.min(i + 1, items.length - 1)
+          : Math.max(i - 1, 0)
+  if (next === i) return
+  e.preventDefault()
+  // No stopPropagation (chunk 76a): the key still bubbles to `window`.
+  items[next].focus()
+}
 
 function isValidMinutesString(s: string): boolean {
   if (!/^\d+$/.test(s.trim())) return false
@@ -206,6 +259,29 @@ export default function TaskRow({
   const chipPriority = completed ? null : task.priority
   const prioritySlot = chipPriority !== null || priorityOpen
 
+  // Roving tabindex (chunk 77). The remembered control falls back to the
+  // completion checkbox when it leaves the row; never written back here.
+  const [navKey, setNavKey] = useState<RowNavKey>('complete')
+  const present: RowNavKey[] = [
+    ...(selectable ? (['select'] as const) : []),
+    'complete',
+    'title',
+    ...(chipPriority !== null ? (['priority'] as const) : []),
+    ...(when ? (['when'] as const) : []),
+    'minutes',
+    ...(onToggleToday ? (['today'] as const) : []),
+    'menu',
+  ]
+  const activeNav = present.includes(navKey) ? navKey : 'complete'
+  const nav = (key: RowNavKey): RowNavProps => ({
+    'data-row-nav': key,
+    tabIndex: activeNav === key ? 0 : -1,
+    // A transition, not an urgent update: focus returning to ⋯ as its menu
+    // closes must not force-flush that close alongside a picker the menu
+    // item just opened (⋯ → Set reminder… / Set priority… / Set due date…).
+    onFocus: () => startTransition(() => setNavKey(key)),
+  })
+
   // Completion celebration (chunk 27). The "+XP" floater color and the
   // row-flush tint both use the subcategory hue; default to Work when none.
   const flush = hue ?? 'var(--work)'
@@ -284,6 +360,7 @@ export default function TaskRow({
 
   const whenChip = when && (
     <button
+      {...nav('when')}
       type="button"
       aria-label={
         whenKind === 'due'
@@ -307,6 +384,9 @@ export default function TaskRow({
   return (
     <div
       ref={setNodeRef}
+      role="group"
+      aria-label={task.title}
+      onKeyDown={onRowKeyDown}
       style={style}
       className={cn(
         'relative grid items-center gap-3 border-t border-line px-3 py-2 transition-[background-color,opacity] hover:bg-bg-alt/60',
@@ -329,6 +409,7 @@ export default function TaskRow({
       )}
       {selectable && (
         <Checkbox
+          {...nav('select')}
           checked={selected}
           aria-label={selected ? 'Deselect task' : 'Select task'}
           onCheckedChange={() => onToggleSelected?.(task.id)}
@@ -338,6 +419,7 @@ export default function TaskRow({
         />
       )}
       <Checkbox
+        {...nav('complete')}
         checked={completed}
         aria-label={completed ? 'Mark task incomplete' : 'Mark task complete'}
         onCheckedChange={(next) => {
@@ -351,6 +433,9 @@ export default function TaskRow({
           aria-label={`Drag to move "${task.title}"`}
           {...attributes}
           {...listeners}
+          // After the spread: dnd-kit's tabIndex 0 would make it a tab stop
+          // that no KeyboardSensor serves (chunk 77).
+          tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
           // 14px column and visual; the ::before widens the target to 24px.
           className={cn(
@@ -363,6 +448,7 @@ export default function TaskRow({
       )}
       <TitleField
         task={task}
+        navProps={nav('title')}
         onCommit={(title) => onEditTitle(task.id, title)}
       />
       {prioritySlot && (
@@ -373,6 +459,7 @@ export default function TaskRow({
           trigger={
             chipPriority !== null ? (
               <PriorityChip
+                {...nav('priority')}
                 priority={chipPriority}
                 // Radix's trigger toggle merges in via Slot; this stops
                 // the click from reaching row-level handlers.
@@ -415,10 +502,12 @@ export default function TaskRow({
       )}
       <MinutesField
         task={task}
+        navProps={nav('minutes')}
         onCommit={(minutes) => onEditMinutes(task.id, minutes)}
       />
       {onToggleToday && (
         <button
+          {...nav('today')}
           type="button"
           aria-label={
             inToday
@@ -441,6 +530,7 @@ export default function TaskRow({
       )}
       <TaskMenu
         task={task}
+        triggerProps={nav('menu')}
         categories={categories}
         subcategories={subcategories}
         onMoveToSubcategoryId={(targetId) =>
@@ -461,17 +551,26 @@ export default function TaskRow({
 
 function TitleField({
   task,
+  navProps,
   onCommit,
 }: {
   task: Task
+  navProps: RowNavProps
   onCommit: (title: string) => void | Promise<void>
 }) {
   const [draft, setDraft] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  // Set by Enter / Escape (not blur) so leaving edit returns focus.
+  const refocus = useRef(false)
   const editing = draft !== null
 
   useEffect(() => {
     if (editing) inputRef.current?.select()
+    else if (refocus.current) {
+      refocus.current = false
+      buttonRef.current?.focus()
+    }
   }, [editing])
 
   const completed = !!task.completedAt
@@ -495,6 +594,8 @@ function TitleField({
   if (!editing) {
     return (
       <button
+        {...navProps}
+        ref={buttonRef}
         type="button"
         onClick={() => setDraft(task.title)}
         className={cn(
@@ -521,9 +622,13 @@ function TitleField({
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault()
-          if (!invalid) commit()
+          if (!invalid) {
+            refocus.current = true
+            commit()
+          }
         } else if (e.key === 'Escape') {
           e.preventDefault()
+          refocus.current = true
           setDraft(null)
         }
       }}
@@ -542,17 +647,26 @@ function TitleField({
 
 function MinutesField({
   task,
+  navProps,
   onCommit,
 }: {
   task: Task
+  navProps: RowNavProps
   onCommit: (minutes: number) => void | Promise<void>
 }) {
   const [draft, setDraft] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  // Set by Enter / Escape (not blur) so leaving edit returns focus.
+  const refocus = useRef(false)
   const editing = draft !== null
 
   useEffect(() => {
     if (editing) inputRef.current?.select()
+    else if (refocus.current) {
+      refocus.current = false
+      buttonRef.current?.focus()
+    }
   }, [editing])
 
   const invalid = editing && !isValidMinutesString(draft ?? '')
@@ -575,6 +689,8 @@ function MinutesField({
   if (!editing) {
     return (
       <button
+        {...navProps}
+        ref={buttonRef}
         type="button"
         onClick={() => setDraft(String(task.estimateMinutes))}
         aria-label="Edit minutes"
@@ -600,9 +716,13 @@ function MinutesField({
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
           e.preventDefault()
-          if (!invalid) commit()
+          if (!invalid) {
+            refocus.current = true
+            commit()
+          }
         } else if (e.key === 'Escape') {
           e.preventDefault()
+          refocus.current = true
           setDraft(null)
         }
       }}

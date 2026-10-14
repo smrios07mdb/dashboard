@@ -57,6 +57,12 @@ export type TaskMenuProps = {
   notes: Note[]
   onOpenNotes: () => void
   onDelete: () => void | Promise<void>
+  /** TaskRow's roving-tabindex props for the ⋯ trigger (chunk 77). */
+  triggerProps?: {
+    'data-row-nav'?: string
+    tabIndex?: number
+    onFocus?: React.FocusEventHandler<HTMLButtonElement>
+  }
 }
 
 export default function TaskMenu({
@@ -70,6 +76,7 @@ export default function TaskMenu({
   notes,
   onOpenNotes,
   onDelete,
+  triggerProps,
 }: TaskMenuProps) {
   const isTouch = useIsTouchDevice()
   const [blockTimeOpen, setBlockTimeOpen] = useState(false)
@@ -79,6 +86,7 @@ export default function TaskMenu({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
+            {...triggerProps}
             type="button"
             aria-label={`Actions for "${task.title}"`}
             className={cn(

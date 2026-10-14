@@ -1,5 +1,6 @@
 import { DndContext } from '@dnd-kit/core'
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -81,6 +82,35 @@ function row(over: Partial<Task> = {}, props: Partial<TaskRowProps> = {}) {
             timeZone="America/New_York"
             {...props}
           />
+        </DndContext>
+      </NotesContext.Provider>
+    </MemoryRouter>,
+  )
+}
+
+function twoRows() {
+  const props = {
+    categories: [],
+    subcategories: [],
+    onComplete: vi.fn(),
+    onEditTitle: vi.fn(),
+    onEditMinutes: vi.fn(),
+    onDelete: vi.fn(),
+    onMoveToSubcategory: vi.fn(),
+    onSetReminder: vi.fn(),
+    onSetDue: vi.fn(),
+    onSetPriority: vi.fn(),
+    onToggleToday: vi.fn(),
+    timeZone: 'America/New_York',
+  }
+  return render(
+    <MemoryRouter>
+      <NotesContext.Provider
+        value={{ notes: [], report: () => undefined, openTaskNotes: vi.fn() }}
+      >
+        <DndContext>
+          <TaskRow task={BASE} {...props} />
+          <TaskRow task={{ ...BASE, id: 't2', title: 'Beacon review' }} {...props} />
         </DndContext>
       </NotesContext.Provider>
     </MemoryRouter>,
@@ -330,5 +360,231 @@ describe('TaskRow — age (chunk 74)', () => {
     ny.unmount()
     row({ createdAt }, { timeZone: 'UTC' })
     expect(screen.getByText('Added Sep 15 · 4 weeks ago')).toBeInTheDocument()
+  })
+})
+
+// Chunk 77: one tab stop per row; ← / → / Home / End between its controls.
+describe('TaskRow — one tab stop per row (chunk 77)', () => {
+  const group = (name = 'Atlas launch') => screen.getByRole('group', { name })
+  const stops = (el: HTMLElement) =>
+    [...el.querySelectorAll('*')].filter((n) => (n as HTMLElement).tabIndex >= 0)
+  const complete = (name = 'Atlas launch') =>
+    within(group(name)).getByRole('checkbox', { name: 'Mark task complete' })
+  const btn = (name: string | RegExp, rowName = 'Atlas launch') =>
+    within(group(rowName)).getByRole('button', { name })
+
+  it('(1) a row has exactly one tab stop: the completion checkbox', () => {
+    const plain = row()
+    expect(stops(group())).toEqual([complete()])
+    expect(btn('Drag to move "Atlas launch"').tabIndex).toBe(-1)
+    plain.unmount()
+
+    row({ priority: 2, dueAt: TWO_DAYS_LATE })
+    expect(stops(group())).toEqual([complete()])
+  })
+
+  it('(2) Tab moves from row to row', async () => {
+    const user = userEvent.setup()
+    twoRows()
+    await user.tab()
+    expect(complete()).toHaveFocus()
+    await user.tab()
+    expect(complete('Beacon review')).toHaveFocus()
+  })
+
+  it('(3) the arrows walk the row, Home / End jump, nothing wraps', async () => {
+    const user = userEvent.setup()
+    row({ priority: 2, dueAt: TWO_DAYS_LATE })
+    complete().focus()
+    const order = [
+      btn('Atlas launch'),
+      btn('Priority 2 — change priority'),
+      btn('Due Sunday, October 11 — edit due date'),
+      btn('Edit minutes'),
+      btn('Add "Atlas launch" to Today'),
+      btn('Actions for "Atlas launch"'),
+    ]
+    for (const el of order) {
+      await user.keyboard('{ArrowRight}')
+      expect(el).toHaveFocus()
+    }
+    const menu = order[order.length - 1]
+    await user.keyboard('{ArrowRight}')
+    expect(menu).toHaveFocus()
+    await user.keyboard('{Home}')
+    expect(complete()).toHaveFocus()
+    await user.keyboard('{End}')
+    expect(menu).toHaveFocus()
+    await user.keyboard('{ArrowLeft}')
+    expect(btn('Add "Atlas launch" to Today')).toHaveFocus()
+    complete().focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(complete()).toHaveFocus()
+  })
+
+  it('(4) the row remembers its last control', async () => {
+    const user = userEvent.setup()
+    twoRows()
+    complete().focus()
+    for (let i = 0; i < 2; i++) await user.keyboard('{ArrowRight}')
+    const minutes = btn('Edit minutes')
+    expect(minutes).toHaveFocus()
+    expect(minutes.tabIndex).toBe(0)
+    expect(complete().tabIndex).toBe(-1)
+    await user.tab()
+    expect(complete('Beacon review')).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(minutes).toHaveFocus()
+  })
+
+  it('(5) a click moves the tab stop', async () => {
+    const user = userEvent.setup()
+    row()
+    const sun = btn('Add "Atlas launch" to Today')
+    await user.click(sun)
+    expect(sun.tabIndex).toBe(0)
+    expect(complete().tabIndex).toBe(-1)
+  })
+
+  it('(6) a selectable row: the stop is completion; ← and Home reach Select task', async () => {
+    const user = userEvent.setup()
+    row({}, { selectable: true, dragEnabled: false })
+    const select = within(group()).getByRole('checkbox', { name: 'Select task' })
+    expect(stops(group())).toEqual([complete()])
+    complete().focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(select).toHaveFocus()
+    btn('Actions for "Atlas launch"').focus()
+    await user.keyboard('{Home}')
+    expect(select).toHaveFocus()
+  })
+
+  it('(7) arrows inside the inline inputs stay in the input', async () => {
+    const user = userEvent.setup()
+    row()
+    await user.click(screen.getByRole('button', { name: 'Atlas launch' }))
+    const title = screen.getByRole('textbox', { name: 'Task title' })
+    await user.keyboard('{ArrowRight}{Home}')
+    expect(document.activeElement).toBe(title)
+    await user.keyboard('{Escape}')
+
+    await user.click(screen.getByRole('button', { name: 'Edit minutes' }))
+    const minutes = screen.getByLabelText('Estimate minutes')
+    await user.keyboard('{ArrowRight}{Home}')
+    expect(document.activeElement).toBe(minutes)
+  })
+
+  it('(8) Enter / Escape return focus to the button; blur does not', async () => {
+    const user = userEvent.setup()
+    row()
+    for (const key of ['{Enter}', '{Escape}']) {
+      await user.click(btn('Atlas launch'))
+      await user.keyboard('x' + key)
+      expect(document.activeElement).toBe(btn('Atlas launch'))
+    }
+    for (const key of ['{Enter}', '{Escape}']) {
+      await user.click(btn('Edit minutes'))
+      await user.keyboard('5' + key)
+      expect(document.activeElement).toBe(btn('Edit minutes'))
+    }
+
+    await user.click(btn('Atlas launch'))
+    fireEvent.blur(screen.getByRole('textbox', { name: 'Task title' }))
+    expect(document.activeElement).not.toBe(btn('Atlas launch'))
+    await user.click(btn('Edit minutes'))
+    fireEvent.blur(screen.getByLabelText('Estimate minutes'))
+    expect(document.activeElement).not.toBe(btn('Edit minutes'))
+  })
+
+  it('(9) the stop falls back to completion when its control leaves', async () => {
+    const user = userEvent.setup()
+    const r = row({ priority: 2 })
+    complete().focus()
+    await user.keyboard('{ArrowRight}{ArrowRight}')
+    expect(btn('Priority 2 — change priority')).toHaveFocus()
+
+    r.rerender(
+      <MemoryRouter>
+        <NotesContext.Provider
+          value={{ notes: [], report: () => undefined, openTaskNotes: vi.fn() }}
+        >
+          <DndContext>
+            <TaskRow
+              task={{ ...BASE, priority: null }}
+              categories={[]}
+              subcategories={[]}
+              onComplete={vi.fn()}
+              onEditTitle={vi.fn()}
+              onEditMinutes={vi.fn()}
+              onDelete={vi.fn()}
+              onMoveToSubcategory={vi.fn()}
+              onSetReminder={vi.fn()}
+              onSetDue={vi.fn()}
+              onSetPriority={vi.fn()}
+              onToggleToday={vi.fn()}
+              timeZone="America/New_York"
+            />
+          </DndContext>
+        </NotesContext.Provider>
+      </MemoryRouter>,
+    )
+    expect(complete().tabIndex).toBe(0)
+    expect(
+      [...group().querySelectorAll<HTMLElement>('[data-row-nav]')].filter(
+        (el) => el.tabIndex === 0,
+      ),
+    ).toEqual([complete()])
+  })
+
+  it('(10) row keys still bubble to window (chunk 76a)', () => {
+    row()
+    const seen: string[] = []
+    const listener = (e: KeyboardEvent) =>
+      seen.push(`${e.metaKey ? 'meta+' : ''}${e.key}`)
+    window.addEventListener('keydown', listener)
+    try {
+      const box = screen.getByRole('checkbox', { name: 'Mark task complete' })
+      box.focus()
+      box.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+      )
+      const title = screen.getByRole('button', { name: 'Atlas launch' })
+      title.focus()
+      title.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }),
+      )
+      title.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }))
+    } finally {
+      window.removeEventListener('keydown', listener)
+    }
+    expect(seen).toEqual(['ArrowRight', 'meta+k', 'n'])
+  })
+
+  it('(11) modified arrows do nothing', () => {
+    row()
+    const box = screen.getByRole('checkbox', { name: 'Mark task complete' })
+    box.focus()
+    for (const mod of ['metaKey', 'ctrlKey', 'altKey', 'shiftKey']) {
+      fireEvent.keyDown(box, { key: 'ArrowRight', [mod]: true })
+      expect(box).toHaveFocus()
+    }
+  })
+
+  it('(12) keys inside a portaled picker do nothing to the row', async () => {
+    const user = userEvent.setup()
+    row({ dueAt: TWO_DAYS_LATE })
+    fireEvent.click(screen.getByRole('button', { name: 'Due Sunday, October 11 — edit due date' }))
+    const dialog = await screen.findByRole('dialog')
+    const input = within(dialog).getByLabelText('Due date')
+    input.focus()
+    await user.keyboard('{ArrowRight}')
+    expect(input).toHaveFocus()
+    await user.keyboard('{End}')
+    expect(input).toHaveFocus()
+  })
+
+  it('(13) the row is a group named by its title', () => {
+    row()
+    expect(group()).toContainElement(complete())
   })
 })
