@@ -62,4 +62,54 @@ describe('HorizonControl', () => {
     expect(onDoubleClick).not.toHaveBeenCalled()
     expect(onKeyDown).not.toHaveBeenCalled()
   })
+
+  /* Chunk 76a: only the keys the control handles are stopped. */
+
+  it('16: shortcut keys on a segment reach a parent', () => {
+    const spy = vi.fn()
+    render(
+      <div onKeyDown={spy}>
+        <HorizonControl value="all" onChange={vi.fn()} />
+      </div>,
+    )
+    const seg = screen.getByRole('radio', { name: 'All' })
+    fireEvent.keyDown(seg, { key: 'N' })
+    fireEvent.keyDown(seg, { key: '/' })
+    fireEvent.keyDown(seg, { key: 'k', metaKey: true })
+    fireEvent.keyDown(seg, { key: 'k', ctrlKey: true })
+    expect(spy.mock.calls.map(([e]) => e.key)).toEqual(['N', '/', 'k', 'k'])
+  })
+
+  it('17: a window keydown listener sees ⌘K from a focused segment', () => {
+    setup('all')
+    const seg = screen.getByRole('radio', { name: 'All' })
+    seg.focus()
+    const seen: string[] = []
+    const listener = (e: KeyboardEvent) => {
+      if (e.metaKey) seen.push(e.key)
+    }
+    window.addEventListener('keydown', listener)
+    try {
+      seg.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }),
+      )
+      expect(seen).toEqual(['k'])
+    } finally {
+      window.removeEventListener('keydown', listener)
+    }
+  })
+
+  it('18: Enter, Space, ArrowRight and Home do not reach a parent', () => {
+    const spy = vi.fn()
+    render(
+      <div onKeyDown={spy}>
+        <HorizonControl value="all" onChange={vi.fn()} />
+      </div>,
+    )
+    const seg = screen.getByRole('radio', { name: 'All' })
+    for (const key of ['Enter', ' ', 'ArrowRight', 'Home']) {
+      fireEvent.keyDown(seg, { key })
+    }
+    expect(spy).not.toHaveBeenCalled()
+  })
 })

@@ -13,6 +13,24 @@ import { cn } from '@/lib/utils'
  * to the first/last. Chrome matches TaskSortControl's pill.
  */
 
+/*
+ * The only keys kept from bubbling (chunk 76a). Enter/Space activate the
+ * segment natively and must not reach the Dashboard column header's drill;
+ * arrows/Home/End are consumed here. Everything else, letters, `/`, Tab,
+ * Escape and any modified key, bubbles so window shortcuts (⌘K, N, /) work
+ * while a segment has focus.
+ */
+const STOPPED_KEYS = new Set([
+  'Enter',
+  ' ',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'ArrowDown',
+  'Home',
+  'End',
+])
+
 export type HorizonControlProps = {
   value: HorizonFilter
   onChange: (f: HorizonFilter) => void
@@ -38,9 +56,14 @@ export default function HorizonControl({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
-    // The Dashboard column header drills on Enter/Space; Space/Enter here
-    // activate the segment natively and must not reach it.
-    e.stopPropagation()
+    if (
+      STOPPED_KEYS.has(e.key) &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey
+    ) {
+      e.stopPropagation()
+    }
     let next: number | null = null
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = current + 1
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = current - 1
