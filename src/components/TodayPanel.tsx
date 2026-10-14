@@ -55,6 +55,12 @@ export type TodayPanelProps = {
   mobile?: boolean
   /** Today's busy times, shown after the date in the title row (chunk 74). */
   busy?: React.ReactNode
+  /**
+   * Routines in Today (chunk 78), at the bottom of the panel body. Rendered in
+   * the stacked and rail layouts only; the Dashboard places it itself for
+   * banner and off.
+   */
+  routines?: React.ReactNode
 }
 
 function todayDateLabel(timeZone: string): string {
@@ -400,6 +406,7 @@ export default function TodayPanel({
   variant,
   mobile = false,
   busy,
+  routines,
 }: TodayPanelProps) {
   // Let a just-completed task linger ~1s so the strike-through reads before the
   // row drops. (Hooks run before the `off` early-return so hook order is stable.)
@@ -781,6 +788,7 @@ export default function TodayPanel({
     >
       {header}
       {bodyEl}
+      {!banner && routines}
     </div>
   )
 }

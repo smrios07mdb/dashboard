@@ -25,8 +25,6 @@ import {
 } from 'lucide-react'
 
 import DeleteConfirm from '@/components/DeleteConfirm'
-import RoutineDotGrid from '@/components/RoutineDotGrid'
-import StreakBadge from '@/components/StreakBadge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -37,13 +35,16 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { RoutineItem, RoutineLog } from '@/db/types'
-import { calcStreak } from '@/lib/streak'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { cn } from '@/lib/utils'
 import { MoreHorizontal } from 'lucide-react'
 
 /**
- * One routine panel (Morning or Night).
+ * One routine checklist (Morning or Night), shown inside Today (chunk 78).
+ *
+ * Compact since chunk 78: no card chrome, no streak badge and no 14-day grid
+ * (both retired with the Routines tab; ARCH §11). `TodayRoutines` stacks the
+ * two checklists inside its own block.
  *
  * Two modes governed by the local `editing` state:
  *   - Check-off (default): list of today's non-archived items as
@@ -59,9 +60,8 @@ import { MoreHorizontal } from 'lucide-react'
  * `routine` values, not a continuum). Within the panel, items are
  * wrapped in a single vertical-strategy `SortableContext`.
  *
- * The streak text comes from `calcStreak` with explicit
- * `todayKey` + `timezone` args so the component never reaches into
- * `clock` itself (pre-flight #6). The 14-day grid is the same story.
+ * `todayKey` is passed in, so the component never reaches into `clock`
+ * itself (pre-flight #6).
  */
 
 export type RoutinePanelProps = {
@@ -69,7 +69,6 @@ export type RoutinePanelProps = {
   items: RoutineItem[]
   logs: RoutineLog[]
   todayKey: string
-  timezone: string
   onToggle: (itemId: string, completed: boolean) => void | Promise<void>
   onCreate: (label: string) => Promise<boolean>
   onRename: (id: string, label: string) => void | Promise<void>
@@ -83,7 +82,6 @@ export default function RoutinePanel({
   items,
   logs,
   todayKey,
-  timezone,
   onToggle,
   onCreate,
   onRename,
@@ -100,11 +98,6 @@ export default function RoutinePanel({
         .filter((i) => i.routine === routine && !i.archivedAt)
         .sort((a, b) => a.sortOrder - b.sortOrder),
     [items, routine],
-  )
-
-  const streak = useMemo(
-    () => calcStreak(routine, items, logs, todayKey, timezone),
-    [routine, items, logs, todayKey, timezone],
   )
 
   const completedToday = useMemo(() => {
@@ -138,8 +131,7 @@ export default function RoutinePanel({
 
   const Icon = routine === 'morning' ? Sun : MoonStar
   // Routine accent — gold (Morning) / amethyst (Night). `accentSoft` is the
-  // 15%-tinted fill used by the icon badge and the "all done" banner; the
-  // streak chip derives its own soft fill from the same jewel.
+  // 15%-tinted fill used by the icon badge and the "all done" banner.
   const accent =
     routine === 'morning' ? 'var(--jewel-gold)' : 'var(--jewel-amethyst)'
   const accentSoft = `color-mix(in srgb, ${accent} 15%, transparent)`
@@ -148,22 +140,18 @@ export default function RoutinePanel({
     routine === 'morning' ? 'var(--jewel-gold-ink)' : 'var(--jewel-amethyst-ink)'
 
   return (
-    <section className="rounded-md border border-line bg-surface p-[22px] shadow-md">
-      <header className="mb-[18px] flex flex-wrap items-center gap-3">
+    <section>
+      <header className="mb-1.5 flex flex-wrap items-center gap-2">
         <span
           aria-hidden
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full"
+          className="inline-flex h-6 w-6 items-center justify-center rounded-full"
           style={{ background: accentSoft, color: accent }}
         >
-          <Icon className="size-4" />
+          <Icon className="size-3.5" />
         </span>
-        <h2
-          className="m-0 font-display text-[22px] font-medium text-ink"
-          style={{ letterSpacing: '-0.01em' }}
-        >
+        <h3 className="m-0 font-display text-[15px] font-medium text-ink">
           {routine === 'morning' ? 'Morning' : 'Night'}
-        </h2>
-        <StreakBadge streak={streak} tone={routine} />
+        </h3>
         <span className="ml-auto" />
         <Button
           size="sm"
@@ -207,31 +195,20 @@ export default function RoutinePanel({
           ))
         )}
         {live.length === 0 && (
-          <div className="py-6 text-center text-[13px] italic text-ink-3">
+          <div className="py-3 text-center text-[13px] italic text-ink-3">
             No items yet. {editing ? '' : 'Click "Edit list" to add some.'}
           </div>
         )}
         {editing && <AddItemRow routine={routine} onCreate={onCreate} />}
         {!editing && allDoneToday && (
           <div
-            className="mt-4 flex items-center gap-2 rounded px-3.5 py-2.5 text-[13px] font-medium"
+            className="mt-2 flex items-center gap-2 rounded px-3 py-2 text-[13px] font-medium"
             style={{ background: accentSoft, color: accentInk }}
           >
             <Check className="size-3.5" aria-hidden />
             All done for today.
           </div>
         )}
-      </div>
-
-      <div className="mt-6 border-t border-line pt-4">
-        <div className="label mb-3">Last 14 days</div>
-        <RoutineDotGrid
-          routine={routine}
-          items={items}
-          logs={logs}
-          todayKey={todayKey}
-          timezone={timezone}
-        />
       </div>
     </section>
   )

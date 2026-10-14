@@ -1,43 +1,37 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 
-import RoutinePanel from '@/components/RoutinePanel'
 import { repo } from '@/db/repo'
 import type { RoutineItem, RoutineLog } from '@/db/types'
-import { useSession } from '@/lib/auth'
-import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
+import { today as clockToday } from '@/lib/clock'
 import { useUIStore } from '@/state/uiStore'
 
 /**
- * Routines screen — Morning + Night.
+ * Routine checklists' data and handlers (chunk 78), moved as-is out of the
+ * retired Routines screen so the checklist can live inside Today
+ * (`TodayRoutines`).
  *
- * Side-by-side at ≥768 px (Tailwind `md:`), stacked below. Per ARCH §11,
- * streak math reads `settings.timezone`; we load settings here, fall
- * back to the schema default if it isn't yet hydrated.
+ * Reads `settings.timezone` first (schema default until settings hydrate), so
+ * today's key matches the user's setting, then the routine items and today's
+ * logs only: no streak or dot grid needs history any more (ARCH §11). One
+ * `routineItems.list()` feeds both checklists; each panel filters by
+ * `routine` itself.
  *
- * Logs fetched cover the past 60 days to satisfy the streak lookback
- * window declared in `src/lib/streak.ts`. The 14-day dot grid trivially
- * fits inside that range. We pull `routineItems.list()` (not
- * `listByRoutine`) so a single fetch feeds both panels — the panels
- * each filter by `routine` themselves.
- *
- * Subscribes to `uiStore.dashboardRefreshKey` so cross-tab realtime
- * echoes and the Force-resync button propagate refetches uniformly
- * (chunk-7 precedent — same store key the Dashboard / drill-down
- * screens use).
+ * Subscribes to `uiStore.dashboardRefreshKey` so cross-tab realtime echoes
+ * and the Force-resync button refetch it like the other screens (chunk-7
+ * precedent).
  */
 
 const SAVE_ERROR = 'Could not save — retry'
-const STREAK_LOOKBACK_DAYS = 60
 
-type ViewData = {
+type RoutinesData = {
   items: RoutineItem[]
   logs: RoutineLog[]
   timezone: string
 }
 
-function useRoutinesData(userId: string | null) {
-  const [data, setData] = useState<ViewData>({
+export function useRoutines(userId: string | null) {
+  const [data, setData] = useState<RoutinesData>({
     items: [],
     logs: [],
     timezone: 'America/New_York',
@@ -54,17 +48,12 @@ function useRoutinesData(userId: string | null) {
         if (!cancelled) setLoading(false)
         return
       }
-      // Bootstrap timezone first so the today-key the load uses matches
-      // the user's setting. If settings aren't loaded yet we use the
-      // schema default; the next refresh (after settings hydrate) will
-      // correct it.
       const settings = await repo.settings.get(userId)
       const tz = settings?.timezone ?? 'America/New_York'
       const todayKey = clockToday(tz)
-      const from = dateKeyDaysAgo(todayKey, STREAK_LOOKBACK_DAYS - 1)
       const [items, logs] = await Promise.all([
         repo.routineItems.list(),
-        repo.routineLogs.listByRange(from, todayKey),
+        repo.routineLogs.listByRange(todayKey, todayKey),
       ])
       if (cancelled) return
       setData({ items, logs, timezone: tz })
@@ -78,14 +67,6 @@ function useRoutinesData(userId: string | null) {
       cancelled = true
     }
   }, [userId, dashboardRefreshKey])
-
-  return { data, setData, loading }
-}
-
-export default function Routines() {
-  const { user } = useSession()
-  const userId = user?.id ?? null
-  const { data, setData, loading } = useRoutinesData(userId)
 
   const todayKey = useMemo(() => clockToday(data.timezone), [data.timezone])
 
@@ -241,15 +222,6 @@ export default function Routines() {
     [setData],
   )
 
-  const onReorderMorning = useCallback(
-    (orderedIds: string[]) => void reorderByIds('morning', orderedIds),
-    [reorderByIds],
-  )
-  const onReorderNight = useCallback(
-    (orderedIds: string[]) => void reorderByIds('night', orderedIds),
-    [reorderByIds],
-  )
-
   const onMove = useCallback(
     (routine: 'morning' | 'night', id: string, direction: 'up' | 'down') => {
       const siblings = data.items
@@ -269,49 +241,16 @@ export default function Routines() {
     [data.items, reorderByIds],
   )
 
-  if (loading) {
-    return <div className="text-[13px] text-ink-3">Loading…</div>
+  return {
+    items: data.items,
+    logs: data.logs,
+    todayKey,
+    loading,
+    onToggle,
+    onCreate,
+    onRename,
+    onArchive,
+    reorderByIds,
+    onMove,
   }
-
-  return (
-    <div>
-      <header className="mb-[22px] flex flex-wrap items-baseline gap-[14px]">
-        <h1
-          className="m-0 font-display text-[40px] font-medium text-ink"
-          style={{ letterSpacing: '-0.02em' }}
-        >
-          Routines
-        </h1>
-        <span className="label">Daily rituals · streaks</span>
-      </header>
-      <div className="grid gap-[22px] md:grid-cols-2">
-        <RoutinePanel
-          routine="morning"
-          items={data.items}
-          logs={data.logs}
-          todayKey={todayKey}
-          timezone={data.timezone}
-          onToggle={onToggle}
-          onCreate={(label) => onCreate('morning', label)}
-          onRename={onRename}
-          onArchive={onArchive}
-          onReorder={onReorderMorning}
-          onMove={(id, dir) => onMove('morning', id, dir)}
-        />
-        <RoutinePanel
-          routine="night"
-          items={data.items}
-          logs={data.logs}
-          todayKey={todayKey}
-          timezone={data.timezone}
-          onToggle={onToggle}
-          onCreate={(label) => onCreate('night', label)}
-          onRename={onRename}
-          onArchive={onArchive}
-          onReorder={onReorderNight}
-          onMove={(id, dir) => onMove('night', id, dir)}
-        />
-      </div>
-    </div>
-  )
 }

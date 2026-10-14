@@ -12,8 +12,8 @@ import type { Category, Subcategory, Task } from '@/db/types'
  * `liveSubIds` filter Dashboard.tsx builds) so the ring, bars, and counts
  * stay consistent with the visible columns. See chunk-26 note E.
  *
- * The hero's streak is NOT computed here — it uses the canonical routines
- * streak in `src/lib/streak.ts` (ARCH §11), computed by the Dashboard. This
+ * The hero's streak is NOT computed here — it is the task streak in
+ * `src/lib/taskStreak.ts` (ARCH §11, chunk 78), computed by the Dashboard. This
  * module owns only the task-derived figures (XP, level, completion ratio).
  */
 

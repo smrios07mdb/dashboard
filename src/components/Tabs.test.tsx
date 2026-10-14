@@ -26,22 +26,23 @@ function renderAt(path: string) {
 }
 
 describe('Tabs — primary nav (Chunk 24)', () => {
-  it('renders all six routes across the top + bottom navs', () => {
+  it('renders all five routes across the top + bottom navs', () => {
     renderAt('/')
-    // 6 top + 6 bottom = 12 tab buttons (Planner chunk 36, Notebook chunk 58)
-    expect(screen.getAllByRole('button')).toHaveLength(12)
+    // 5 top + 5 bottom = 10 tab buttons (Planner chunk 36, Notebook chunk 58,
+    // Routines folded into Today chunk 78)
+    expect(screen.getAllByRole('button')).toHaveLength(10)
     // Dashboard reads "Dashboard" on top, "Tasks" in the bottom bar
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
     expect(screen.getByText('Tasks')).toBeInTheDocument()
     // The shared labels appear once per nav
     expect(screen.getAllByText('Planner')).toHaveLength(2)
-    expect(screen.getAllByText('Routines')).toHaveLength(2)
+    expect(screen.queryByText('Routines')).not.toBeInTheDocument()
     expect(screen.getAllByText('Insights')).toHaveLength(2)
     expect(screen.getAllByText('Notebook')).toHaveLength(2)
     expect(screen.getAllByText('Settings')).toHaveLength(2)
   })
 
-  it('orders both navs Dashboard · Planner · Routines · Insights · Notebook · Settings', () => {
+  it('orders both navs Dashboard · Planner · Insights · Notebook · Settings', () => {
     renderAt('/')
     const [top, bottom] = screen.getAllByRole('navigation', { name: 'Primary' })
     const labels = (nav: HTMLElement) =>
@@ -49,7 +50,6 @@ describe('Tabs — primary nav (Chunk 24)', () => {
     expect(labels(top)).toEqual([
       'Dashboard',
       'Planner',
-      'Routines',
       'Insights',
       'Notebook',
       'Settings',
@@ -57,7 +57,6 @@ describe('Tabs — primary nav (Chunk 24)', () => {
     expect(labels(bottom)).toEqual([
       'Tasks',
       'Planner',
-      'Routines',
       'Insights',
       'Notebook',
       'Settings',
@@ -77,7 +76,7 @@ describe('Tabs — primary nav (Chunk 24)', () => {
     const navs = screen.getAllByRole('navigation', { name: 'Primary' })
     expect(navs).toHaveLength(1)
     expect(navs[0]).not.toHaveClass('fixed')
-    expect(navs[0].querySelectorAll('button')).toHaveLength(6)
+    expect(navs[0].querySelectorAll('button')).toHaveLength(5)
     expect(
       screen.getByRole('button', { current: 'page' }),
     ).toHaveTextContent('Notebook')
@@ -107,10 +106,10 @@ describe('Tabs — primary nav (Chunk 24)', () => {
   })
 
   it('marks the matching tab active on a top-level route', () => {
-    renderAt('/routines')
+    renderAt('/insights')
     const current = screen.getAllByRole('button', { current: 'page' })
     expect(current).toHaveLength(2)
-    current.forEach((b) => expect(b).toHaveTextContent(/routines/i))
+    current.forEach((b) => expect(b).toHaveTextContent(/insights/i))
   })
 
   it('marks NO tab active on the drill-down routes', () => {

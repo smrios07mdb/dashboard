@@ -66,8 +66,8 @@ vi.mock('@/db/repo', () => ({
       delete: tasksDelete,
       bulkDelete: tasksBulkDelete,
     },
-    // The hero's streak is the canonical routines streak — it loads routine
-    // items + logs + settings (timezone), mirroring Routines.tsx's sourcing.
+    // Chunk 78: the hero's streak is the task streak, so the load no longer
+    // reads routines. Kept as spies to assert exactly that.
     routineLogs: { listByRange: routineLogsList },
     routineItems: { list: routineItemsList },
     settings: { get: settingsGet },
@@ -77,6 +77,12 @@ vi.mock('@/db/repo', () => ({
       set: () => Promise.resolve(undefined),
     },
   },
+}))
+
+// Chunk 78: routines in Today load through their own hook (TodayRoutines.test);
+// a marker here keeps this file about the Dashboard's own load.
+vi.mock('@/components/TodayRoutines', () => ({
+  default: () => <div data-testid="today-routines" />,
 }))
 
 // Chunk 63: record what each DndContext is given, render the real one.
@@ -98,7 +104,11 @@ vi.mock('@dnd-kit/core', async (importOriginal) => {
 
 import Dashboard from './Dashboard'
 import { useSyncStore } from '@/db/syncStore'
-import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
+import {
+  dateKeyDaysAgo,
+  startOfDayIso,
+  today as clockToday,
+} from '@/lib/clock'
 import { REVIEW_KEY } from '@/lib/review'
 import { taskDragCollision } from '@/lib/taskDragCollision'
 import { useTodayListStore } from '@/state/todayList'
@@ -176,32 +186,6 @@ const DAY_MS = 24 * 60 * 60 * 1000
 /** An ISO instant `n` days before now (chunk 74: task age, last review). */
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS).toISOString()
 
-function mkItem(
-  id: string,
-  routine: 'morning' | 'night',
-  opts: { createdAt?: string; archivedAt?: string | null } = {},
-) {
-  return {
-    id,
-    userId: 'u1',
-    routine,
-    label: id,
-    sortOrder: 0,
-    archivedAt: opts.archivedAt ?? null,
-    // Created well before any test date so the item is "required" every day.
-    createdAt: opts.createdAt ?? '2020-01-01T00:00:00.000Z',
-  }
-}
-
-function mkLog(
-  id: string,
-  routineItemId: string,
-  dateKey: string,
-  completed = true,
-) {
-  return { id, userId: 'u1', routineItemId, dateKey, completed }
-}
-
 describe('Dashboard', () => {
   beforeEach(() => {
     categoriesList.mockReset()
@@ -245,9 +229,10 @@ describe('Dashboard', () => {
       expect(categoriesList).toHaveBeenCalledTimes(1)
       expect(subcategoriesList).toHaveBeenCalledTimes(1)
       expect(tasksList).toHaveBeenCalledTimes(1)
-      expect(routineLogsList).toHaveBeenCalledTimes(1)
-      expect(routineItemsList).toHaveBeenCalledTimes(1)
     })
+    // Chunk 78: no routine reads on load.
+    expect(routineLogsList).not.toHaveBeenCalled()
+    expect(routineItemsList).not.toHaveBeenCalled()
 
     // Tick lastSyncAt three times the way the repo's markSyncedNow would.
     for (let i = 0; i < 3; i++) {
@@ -264,8 +249,8 @@ describe('Dashboard', () => {
     expect(categoriesList).toHaveBeenCalledTimes(1)
     expect(subcategoriesList).toHaveBeenCalledTimes(1)
     expect(tasksList).toHaveBeenCalledTimes(1)
-    expect(routineLogsList).toHaveBeenCalledTimes(1)
-    expect(routineItemsList).toHaveBeenCalledTimes(1)
+    expect(routineLogsList).not.toHaveBeenCalled()
+    expect(routineItemsList).not.toHaveBeenCalled()
   })
 
   it('archived subcategories do not render and their tasks do not contribute to totals', async () => {
@@ -557,36 +542,59 @@ describe('Dashboard', () => {
     expect(queryByText('Recovered')).toBeNull()
   })
 
-  it('shows the canonical routines streak (max of morning and night) in the hero chip', async () => {
+  it('the hero chip shows the task streak (chunk 78)', async () => {
     // No session user in tests → the loader falls back to the default tz, so
-    // build the log dateKeys against that same tz for a deterministic streak.
+    // place the completions at noon of today and yesterday in that zone.
     const tz = 'America/New_York'
     const tk = clockToday(tz)
+    const noon = (key: string) =>
+      new Date(Date.parse(startOfDayIso(key, tz)) + 12 * 3600_000).toISOString()
 
     categoriesList.mockResolvedValue([
       mkCat('cat-work', 'Work'),
       mkCat('cat-personal', 'Personal'),
     ])
     subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
-    tasksList.mockResolvedValue([mkTask('Open task', 'sw1')])
-    routineItemsList.mockResolvedValue([
-      mkItem('m', 'morning'),
-      mkItem('n', 'night'),
-    ])
-    // Morning done today only (morning streak 1); night done yesterday only
-    // (night streak 1) → max = 1. The retired loose "≥1 completed log/day"
-    // calc would have counted both days as 2 — so asserting 1 pins the strict
-    // routines source, not the old loose one.
-    routineLogsList.mockResolvedValue([
-      mkLog('l1', 'm', tk),
-      mkLog('l2', 'n', dateKeyDaysAgo(tk, 1)),
+    tasksList.mockResolvedValue([
+      mkTask('Open task', 'sw1'),
+      mkTask('Done today', 'sw1', { completedAt: noon(tk) }),
+      mkTask('Done yesterday', 'sw1', {
+        completedAt: noon(dateKeyDaysAgo(tk, 1)),
+      }),
     ])
 
     const { findByTitle } = renderDashboard()
 
-    const chip = await findByTitle('Check-in streak')
+    const chip = await findByTitle('Task streak')
+    expect(chip).toHaveTextContent('2')
+    expect(chip).toHaveAttribute('aria-label', '2-day task streak')
+  })
+
+  it('completing a task updates the streak without a refetch (chunk 78)', async () => {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([mkTask('Alpha', 'sw1'), mkTask('Beta', 'sw1')])
+    tasksMarkComplete.mockImplementation((id: string, completed: boolean) =>
+      Promise.resolve(
+        mkTask(id, 'sw1', {
+          completedAt: completed ? new Date().toISOString() : null,
+        }),
+      ),
+    )
+
+    renderDashboard()
+    await screen.findAllByText('Alpha')
+    expect(screen.queryByTitle('Task streak')).toBeNull()
+
+    // Either open task will do: one completion today makes a 1-day streak.
+    fireEvent.click(screen.getAllByLabelText('Mark task complete')[0])
+
+    const chip = await screen.findByTitle('Task streak')
     expect(chip).toHaveTextContent('1')
-    expect(chip).not.toHaveTextContent('2')
+    expect(tasksList).toHaveBeenCalledTimes(1)
   })
 
   it('renders chevrons on every category and subcategory header', async () => {

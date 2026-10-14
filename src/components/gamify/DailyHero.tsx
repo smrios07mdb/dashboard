@@ -15,8 +15,8 @@ import ProgressRing from './ProgressRing'
  *
  * Ported from `hupomnemata_handoff/app/src/gamify.jsx` (DailyHero) and wired
  * onto real data: every figure derives from the passed live-subcategory-
- * filtered tasks / subcategories / categories, the streak is the canonical
- * routines streak computed by the Dashboard (max of morning/night, ARCH §11),
+ * filtered tasks / subcategories / categories, the streak is the task streak
+ * computed by the Dashboard (`lib/taskStreak`, ARCH §11; chunk 78),
  * the minutes input binds to `uiStore.availableMinutes`, and the spark pill
  * opens the existing `WhatsNextSheet` via its `trigger` prop.
  *
@@ -38,7 +38,7 @@ type DailyHeroProps = {
   /** Live (non-archived) subcategories. */
   subcategories: Subcategory[]
   categories: Category[]
-  /** Best current routine streak (max of morning/night), computed upstream. */
+  /** Task streak: consecutive days with a completed task (chunk 78), computed upstream. */
   streak: number
   /** Today's plan: rows done and rows planned (chunk 70). */
   today: { done: number; total: number }
@@ -115,7 +115,8 @@ export default function DailyHero({
       {/* streak chip — gold literals (no token for this hue; chunk-26 step 2) */}
       {showStreak && (
         <span
-          title="Check-in streak"
+          title="Task streak"
+          aria-label={`${streak}-day task streak`}
           style={{
             display: 'inline-flex',
             alignItems: 'center',

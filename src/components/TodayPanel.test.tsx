@@ -200,6 +200,25 @@ describe('TodayPanel suggestions', () => {
     },
   )
 
+  it.each([
+    ['stacked', true],
+    ['rail', true],
+    ['banner', false],
+  ] as const)('renders the routines slot in %s: %s (chunk 78)', (variant, shown) => {
+    const { container } = setup({
+      variant,
+      routines: <div data-testid="routines-slot" />,
+    })
+    const slot = screen.queryByTestId('routines-slot')
+    if (shown) {
+      // Inside the panel, after its body.
+      expect(container.firstElementChild).toContainElement(slot)
+      expect(container.firstElementChild!.lastElementChild).toBe(slot)
+    } else {
+      expect(slot).toBeNull()
+    }
+  })
+
   it('suggests in rail, not in banner; off renders nothing', () => {
     const rail = setup({ variant: 'rail' })
     expect(suggested()).toEqual(['Work 1', 'Home 1', 'Work 2'])

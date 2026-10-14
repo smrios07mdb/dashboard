@@ -20,10 +20,11 @@ import ReconnectBanner from '@/components/ReconnectBanner'
 import RecoveredTasks from '@/components/RecoveredTasks'
 import ReviewPrompt from '@/components/ReviewPrompt'
 import TodayPanel from '@/components/TodayPanel'
+import TodayRoutines from '@/components/TodayRoutines'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task, TodayMark } from '@/db/types'
 import { useSession } from '@/lib/auth'
-import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
+import { today as clockToday } from '@/lib/clock'
 import { selectDashboardState } from '@/lib/dashboardState'
 import {
   loadHorizonFilter,
@@ -36,13 +37,13 @@ import {
   reviewCandidates,
   storeLastReview,
 } from '@/lib/review'
-import { calcStreak } from '@/lib/streak'
 import { resolveToday } from '@/lib/today'
 import {
   loadTaskSortKey,
   storeTaskSortKey,
   type TaskSortKey,
 } from '@/lib/taskSort'
+import { taskStreak } from '@/lib/taskStreak'
 import { deleteTasksWithUndo, offerCompleteUndo } from '@/lib/taskUndo'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useTodayListStore } from '@/state/todayList'
@@ -74,13 +75,6 @@ const SAVE_ERROR = 'Could not save — retry'
 // The review walk (chunk 74) loads on first open, like the chunk-73 dialogs.
 const ReviewSheet = lazy(() => import('@/components/ReviewSheet'))
 
-/**
- * How far back the hero's routine-log read reaches. Mirrors the
- * `STREAK_LOOKBACK_DAYS` window in `src/lib/streak.ts` so the hero's streak
- * inputs match the Routines screen exactly (ARCH §11).
- */
-const STREAK_LOOKBACK_DAYS = 60
-
 type DashboardData = {
   categories: Category[]
   subcategories: Subcategory[]
@@ -93,15 +87,11 @@ function useDashboardData(userId: string | null) {
     subcategories: [],
     tasks: [],
   })
-  // The hero's "best current routine streak" — the larger of the morning and
-  // night streaks. Computed at load since it depends only on routine
-  // items/logs (not task CRUD), so it survives optimistic task mutations.
-  const [streak, setStreak] = useState(0)
   // The user's Today marks (chunk 64) — `null` until the first load completes,
   // which is how `useTodayPlan` tells "no marks" from "not loaded yet".
   const [todayMarks, setTodayMarks] = useState<TodayMark[] | null>(null)
-  // The Settings time zone Today's day frame runs in (chunk 66) — the same
-  // value the streak uses, resolved in `load`. The default matches `tz`'s.
+  // The Settings time zone Today's day frame and the task streak run in
+  // (chunks 66, 78), resolved in `load`. The default matches `tz`'s.
   const [timeZone, setTimeZone] = useState('America/New_York')
   const [loading, setLoading] = useState(true)
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
@@ -109,34 +99,18 @@ function useDashboardData(userId: string | null) {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      // Source the streak inputs identically to Routines.tsx so the two
-      // screens never disagree: resolve the timezone from settings first
-      // (default if not yet hydrated), then load a 60-day routine-log window
-      // plus the routine items. `today(tz)` flows through the clock module so
-      // the DEV `__clockOverride` smoke hook still pins it.
+      // Resolve the timezone from settings first (default if not yet
+      // hydrated).
       const settings = userId ? await repo.settings.get(userId) : null
       const tz = settings?.timezone ?? 'America/New_York'
-      const todayKey = clockToday(tz)
-      const fromKey = dateKeyDaysAgo(todayKey, STREAK_LOOKBACK_DAYS - 1)
-      const [categories, subcategories, tasks, logs, items, marks] =
-        await Promise.all([
-          repo.categories.list(),
-          repo.subcategories.list(),
-          repo.tasks.list(),
-          repo.routineLogs.listByRange(fromKey, todayKey),
-          repo.routineItems.list(),
-          repo.todayMarks.list(),
-        ])
+      const [categories, subcategories, tasks, marks] = await Promise.all([
+        repo.categories.list(),
+        repo.subcategories.list(),
+        repo.tasks.list(),
+        repo.todayMarks.list(),
+      ])
       if (cancelled) return
-      // The canonical routines streak is per-routine; the hero shows the
-      // stronger of the two — always equal to the larger number on the
-      // Routines screen, so the hero can never contradict it.
-      const heroStreak = Math.max(
-        calcStreak('morning', items, logs, todayKey, tz),
-        calcStreak('night', items, logs, todayKey, tz),
-      )
       setData({ categories, subcategories, tasks })
-      setStreak(heroStreak)
       setTodayMarks(marks)
       setTimeZone(tz)
       setLoading(false)
@@ -150,14 +124,21 @@ function useDashboardData(userId: string | null) {
     }
   }, [dashboardRefreshKey, userId])
 
-  return { data, setData, loading, streak, todayMarks, timeZone }
+  return { data, setData, loading, todayMarks, timeZone }
 }
 
 export default function Dashboard() {
   const { user } = useSession()
   const userId = user?.id ?? null
-  const { data, setData, loading, streak, todayMarks, timeZone } =
+  const { data, setData, loading, todayMarks, timeZone } =
     useDashboardData(userId)
+  // The hero's task streak (chunk 78, ARCH §11): every task held, in any
+  // subcategory. Derived in render, so completing a task (or Undo) moves the
+  // chip without a refetch. `clockToday` keeps the DEV `__clockOverride`.
+  const streak = useMemo(
+    () => taskStreak(data.tasks, clockToday(timeZone), timeZone),
+    [data.tasks, timeZone],
+  )
   const navigate = useNavigate()
   // Today's busy times (chunk 74): fetched once here, rendered as the Today
   // header's line, the standalone strip, or the reconnect banner.
@@ -875,7 +856,15 @@ export default function Dashboard() {
             onCompleteTask={onCompleteTask}
             mobile={isTouch}
             busy={busyInline}
+            routines={<TodayRoutines />}
           />
+        </div>
+      )}
+      {/* Routines in Today (chunk 78): banner and off have no panel body to
+          hold them, so they sit on their own where the panel ends (or would). */}
+      {(todayVariant === 'banner' || todayVariant === 'off') && (
+        <div className="mb-6 sm:mb-8">
+          <TodayRoutines standalone />
         </div>
       )}
       {todayVariant === 'rail' ? (
@@ -889,6 +878,7 @@ export default function Dashboard() {
             onCompleteTask={onCompleteTask}
             mobile={isTouch}
             busy={busyInline}
+            routines={<TodayRoutines />}
           />
           {columns}
         </div>

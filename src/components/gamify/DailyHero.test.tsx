@@ -146,7 +146,7 @@ describe('DailyHero today ring and chips (chunk 70)', () => {
 
   it('keeps the streak and level chips when nothing is planned', () => {
     renderHero([WORK, PERSONAL], { today: { done: 0, total: 0 }, streak: 2 })
-    const chip = screen.getByTitle('Check-in streak')
+    const chip = screen.getByTitle('Task streak')
     expect(chip).toHaveTextContent('2')
     // TASKS has completions, so there is XP and the level chip shows too.
     expect(screen.getByText('LVL')).toBeInTheDocument()
@@ -175,10 +175,14 @@ describe('DailyHero today ring and chips (chunk 70)', () => {
 
   it('hides the streak chip at zero and shows it otherwise', () => {
     renderHero([WORK, PERSONAL], { streak: 0 })
-    expect(screen.queryByTitle('Check-in streak')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Task streak')).not.toBeInTheDocument()
     cleanup()
     renderHero([WORK, PERSONAL], { streak: 2 })
-    expect(screen.getByTitle('Check-in streak')).toHaveTextContent('2')
+    expect(screen.getByTitle('Task streak')).toHaveTextContent('2')
+    expect(screen.getByTitle('Task streak')).toHaveAttribute(
+      'aria-label',
+      '2-day task streak',
+    )
   })
 
   it('hides the level chip until there is XP', () => {

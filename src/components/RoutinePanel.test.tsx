@@ -2,6 +2,11 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const { touch } = vi.hoisted(() => ({ touch: { value: false } }))
+vi.mock('@/lib/useIsTouchDevice', () => ({
+  useIsTouchDevice: () => touch.value,
+}))
+
 import RoutinePanel, { type RoutinePanelProps } from './RoutinePanel'
 import type { RoutineItem, RoutineLog } from '@/db/types'
 
@@ -31,8 +36,6 @@ function mkItem(
     label,
     sortOrder,
     archivedAt: null,
-    // Created long ago so calcStreak treats it as "required"; irrelevant to
-    // these wiring assertions but keeps fixtures realistic.
     createdAt: '2020-01-01T00:00:00.000Z',
   }
 }
@@ -60,7 +63,6 @@ function renderPanel(overrides: Partial<RoutinePanelProps> = {}) {
     items,
     logs,
     todayKey: TODAY,
-    timezone: 'America/New_York',
     onToggle,
     onCreate,
     onRename,
@@ -77,6 +79,32 @@ function renderPanel(overrides: Partial<RoutinePanelProps> = {}) {
 describe('RoutinePanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    touch.value = false
+  })
+
+  it('is the compact checklist: no streak badge, no 14-day grid (chunk 78)', () => {
+    // A full history of done days: the old panel would show a streak here.
+    const logs: RoutineLog[] = ['2026-06-03', '2026-06-04', TODAY].flatMap(
+      (dateKey) =>
+        ['m1', 'm2'].map((id) => ({
+          id: `${id}-${dateKey}`,
+          userId: 'u1',
+          routineItemId: id,
+          dateKey,
+          completed: true,
+        })),
+    )
+    renderPanel({ logs })
+    expect(screen.getByRole('heading', { name: 'Morning' })).toBeInTheDocument()
+    expect(screen.queryByText('Last 14 days')).not.toBeInTheDocument()
+    expect(screen.queryByText('Start today')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/day streak/i)).not.toBeInTheDocument()
+    // The card chrome is gone too.
+    expect(screen.getByRole('heading', { name: 'Morning' }).closest('section')).not.toHaveClass(
+      'border',
+      'shadow-md',
+    )
+    expect(screen.getByText('All done for today.')).toBeInTheDocument()
   })
 
   it('only renders items for its own routine', () => {
@@ -161,5 +189,20 @@ describe('RoutinePanel', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Remove' }))
 
     expect(onArchive).toHaveBeenCalledWith('m1')
+  })
+
+  it('(f) on touch, Move down reorders through onMove (chunk 78)', async () => {
+    touch.value = true
+    const user = userEvent.setup()
+    const { onMove } = renderPanel()
+
+    await user.click(screen.getByRole('button', { name: /edit list/i }))
+    expect(
+      screen.queryByRole('button', { name: /drag to reorder/i }),
+    ).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Actions for Make the bed' }))
+    await user.click(await screen.findByRole('menuitem', { name: /move down/i }))
+
+    expect(onMove).toHaveBeenCalledWith('m1', 'down')
   })
 })

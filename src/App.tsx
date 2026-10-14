@@ -11,7 +11,6 @@ import UpdatePrompt from '@/components/UpdatePrompt'
 import AuthCallback from '@/screens/AuthCallback'
 import CategoryView from '@/screens/CategoryView'
 import Dashboard from '@/screens/Dashboard'
-import Routines from '@/screens/Routines'
 import Settings from '@/screens/Settings'
 import SubcategoryView from '@/screens/SubcategoryView'
 // Side-effect import: registers window online/offline → syncStore.
@@ -87,7 +86,6 @@ export default function App() {
               </Suspense>
             }
           />
-          <Route path="routines" element={<Routines />} />
           <Route
             path="insights"
             element={
