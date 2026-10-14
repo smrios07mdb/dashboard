@@ -93,7 +93,7 @@ describe('taskUndo — deferred delete (chunk 72)', () => {
     m.deleteTasksWithUndo({ tasks: [mkTask('a')] })
 
     expect(m.isPendingDelete('a')).toBe(true)
-    expect(JSON.parse(stored()!)).toEqual([{ id: 'a', at: NOW.getTime() }])
+    expect(JSON.parse(stored()!)).toEqual([{ id: 'a', at: NOW.getTime(), uid: 'u1' }])
     expect(toast).toHaveBeenCalledTimes(1)
     expect(toast.mock.calls[0][0]).toBe('Task deleted')
     expect(toastOpts().duration).toBe(6000)
@@ -248,7 +248,7 @@ describe('taskUndo — deferred delete (chunk 72)', () => {
     expect(m.isPendingDelete('b')).toBe(true)
     expect(bulkDelete).not.toHaveBeenCalled()
 
-    m.resumePendingDeletes()
+    m.resumePendingDeletes('u1')
     expect(bulkDelete).toHaveBeenCalledTimes(1)
     expect(bulkDelete).toHaveBeenLastCalledWith(['a'])
 
@@ -260,7 +260,7 @@ describe('taskUndo — deferred delete (chunk 72)', () => {
 
     // No Undo for leftovers, and a second resume schedules nothing new.
     expect(toast).not.toHaveBeenCalled()
-    m.resumePendingDeletes()
+    m.resumePendingDeletes('u1')
     await vi.advanceTimersByTimeAsync(10000)
     expect(bulkDelete).toHaveBeenCalledTimes(2)
     expect(stored()).toBeNull()
@@ -289,7 +289,7 @@ describe('taskUndo — park on sign-out (chunk 82)', () => {
 
     expect(bulkDelete).not.toHaveBeenCalled()
     expect(m.isPendingDelete('a')).toBe(true)
-    expect(JSON.parse(stored()!)).toEqual([{ id: 'a', at: NOW.getTime() }])
+    expect(JSON.parse(stored()!)).toEqual([{ id: 'a', at: NOW.getTime(), uid: 'u1' }])
   })
 
   it('(14) parked ids commit on the next resume', async () => {
@@ -298,7 +298,7 @@ describe('taskUndo — park on sign-out (chunk 82)', () => {
     m.parkPendingDeletes()
     await vi.advanceTimersByTimeAsync(UNDO_PAST)
 
-    m.resumePendingDeletes()
+    m.resumePendingDeletes('u1')
     expect(bulkDelete).toHaveBeenCalledTimes(1)
     expect(bulkDelete).toHaveBeenCalledWith(['a'])
     await vi.advanceTimersByTimeAsync(0)
@@ -313,7 +313,7 @@ describe('taskUndo — park on sign-out (chunk 82)', () => {
 
     void m.flushPendingDeletes()
     expect(m.parkPendingDeletes()).toBe(0)
-    m.resumePendingDeletes()
+    m.resumePendingDeletes('u1')
     await vi.advanceTimersByTimeAsync(10000)
     expect(bulkDelete).toHaveBeenCalledTimes(1)
 
@@ -385,3 +385,75 @@ describe('taskUndo — complete (chunk 72)', () => {
     expect(onRestored).not.toHaveBeenCalled()
   })
 })
+
+// Chunk 83: a parked delete belongs to the user who made it. Another user's
+// sign-in neither commits it (RLS would match nothing and the delete would be
+// lost) nor clears it; it is dropped once it is 7 days old.
+describe('taskUndo — parked deletes are per user (chunk 83)', () => {
+  const DAY = 86_400_000
+
+  // Not a regression guard from base: base commits for whoever signs in.
+  it('(17) the same user commits a parked delete at the next sign-in', async () => {
+    const m = await load()
+    m.deleteTasksWithUndo({ tasks: [mkTask('a')] })
+    m.parkPendingDeletes()
+    await vi.advanceTimersByTimeAsync(UNDO_PAST)
+
+    m.resumePendingDeletes('u1')
+    expect(bulkDelete).toHaveBeenCalledTimes(1)
+    expect(bulkDelete).toHaveBeenCalledWith(['a'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(stored()).toBeNull()
+  })
+
+  it('(18) another user neither commits nor clears it', async () => {
+    const m = await load()
+    m.deleteTasksWithUndo({ tasks: [mkTask('a')] })
+    m.parkPendingDeletes()
+    await vi.advanceTimersByTimeAsync(UNDO_PAST)
+
+    m.resumePendingDeletes('u2')
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(bulkDelete).not.toHaveBeenCalled()
+    expect(m.isPendingDelete('a')).toBe(true)
+    expect(JSON.parse(stored()!).map((e: { id: string }) => e.id)).toEqual(['a'])
+
+    // Their own delete still commits, and the parked entry survives it.
+    m.deleteTasksWithUndo({ tasks: [{ ...mkTask('b'), userId: 'u2' }] })
+    await vi.advanceTimersByTimeAsync(UNDO_PAST)
+    expect(bulkDelete).toHaveBeenCalledTimes(1)
+    expect(bulkDelete).toHaveBeenCalledWith(['b'])
+    expect(JSON.parse(stored()!).map((e: { id: string }) => e.id)).toEqual(['a'])
+
+    // A page hide under the other user does not commit it either.
+    await m.flushPendingDeletes()
+    expect(bulkDelete).toHaveBeenCalledTimes(1)
+
+    // Back as the owner: it commits.
+    m.resumePendingDeletes('u1')
+    expect(bulkDelete).toHaveBeenCalledTimes(2)
+    expect(bulkDelete).toHaveBeenLastCalledWith(['a'])
+  })
+
+  it('(19) another user\'s entries are dropped after 7 days', async () => {
+    const now = NOW.getTime()
+    localStorage.setItem(
+      KEY,
+      JSON.stringify([
+        { id: 'old', at: now - 7 * DAY - 1, uid: 'u1' },
+        { id: 'young', at: now - 6 * DAY, uid: 'u1' },
+      ]),
+    )
+    const m = await load()
+    m.resumePendingDeletes('u2')
+    await vi.advanceTimersByTimeAsync(10000)
+
+    expect(bulkDelete).not.toHaveBeenCalled()
+    expect(m.isPendingDelete('old')).toBe(false)
+    expect(m.isPendingDelete('young')).toBe(true)
+    expect(JSON.parse(stored()!)).toEqual([
+      { id: 'young', at: now - 6 * DAY, uid: 'u1' },
+    ])
+  })
+})
+

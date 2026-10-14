@@ -19,6 +19,12 @@
  * they stay pending and stored until `resumePendingDeletes` commits them at
  * the next signed-in start.
  *
+ * Each entry carries its task's `userId` (chunk 83). RLS turns another user's
+ * delete into a silent no-op, so `resumePendingDeletes(userId)` commits only
+ * that user's entries (and pre-83 entries, which have none); the rest stay
+ * parked for their owner and are dropped once 7 days old. `flushPendingDeletes`
+ * commits only ids this session has scheduled, never another user's.
+ *
  * Complete is written at once by the screen; `offerCompleteUndo` only offers
  * to put the prior `completedAt` back.
  */
@@ -33,6 +39,10 @@ export const UNDO_MS = 6000
 const STORAGE_KEY = 'hup:pendingTaskDeletes'
 const SAVE_ERROR = 'Could not save — retry'
 
+const PARK_MS = 7 * 86_400_000
+
+type Entry = { at: number; uid?: string }
+
 type Batch = {
   ids: string[]
   timer: ReturnType<typeof setTimeout>
@@ -40,7 +50,7 @@ type Batch = {
 }
 
 /** Every id inside its window, including ones whose commit is in flight. */
-const pending = new Map<string, { at: number }>()
+const pending = new Map<string, Entry>()
 /** Batches whose timer has not fired — the only ones Undo can still cancel. */
 const waiting = new Set<Batch>()
 /** Ids some waiting batch owns. Leftovers seeded from storage own none. */
@@ -48,14 +58,14 @@ const scheduled = new Set<string>()
 /** Ids whose `bulkDelete` has been issued and has not settled. */
 const committing = new Set<string>()
 
-function readStored(): { id: string; at: number }[] {
+function readStored(): ({ id: string } & Entry)[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     return parsed.filter(
-      (e): e is { id: string; at: number } =>
+      (e): e is { id: string } & Entry =>
         typeof e?.id === 'string' && typeof e?.at === 'number',
     )
   } catch {
@@ -71,7 +81,7 @@ function persist() {
     }
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify(Array.from(pending, ([id, { at }]) => ({ id, at }))),
+      JSON.stringify(Array.from(pending, ([id, e]) => ({ id, ...e }))),
     )
   } catch {
     // Storage unavailable (private mode, quota): the in-memory map still
@@ -80,7 +90,7 @@ function persist() {
 }
 
 // Seed at module load so list reads filter leftovers before anything else runs.
-for (const e of readStored()) pending.set(e.id, { at: e.at })
+for (const { id, at, uid } of readStored()) pending.set(id, { at, uid })
 
 function drop(ids: string[]) {
   for (const id of ids) {
@@ -132,9 +142,9 @@ export function deleteTasksWithUndo(opts: {
 
   const at = Date.now()
   const ids = tasks.map((t) => t.id)
-  for (const id of ids) {
-    pending.set(id, { at })
-    scheduled.add(id)
+  for (const t of tasks) {
+    pending.set(t.id, { at, uid: t.userId })
+    scheduled.add(t.id)
   }
   persist()
 
@@ -227,17 +237,17 @@ function stopWaiting() {
 }
 
 /**
- * Commit everything now. Fire-and-forget on `pagehide`: the ids stay pending
- * and in storage until the write resolves, so a request the unload cuts short
+ * Commit everything this session scheduled, now. Fire-and-forget on
+ * `pagehide`: the ids stay pending and in storage until the write resolves, so
+ * a request the unload cuts short
  * is picked up by `resumePendingDeletes` on the next start. Awaited on
  * sign-out (`signOutUser`, chunk 81), so the delete runs while RLS still
  * matches the rows.
  */
 export function flushPendingDeletes(): Promise<void> {
   stopWaiting()
-  const ids = Array.from(pending.keys()).filter((id) => !committing.has(id))
-  for (const id of ids) scheduled.add(id)
-  return commit(ids)
+  // Only ids this session scheduled: another user's parked entries are not.
+  return commit([...scheduled].filter((id) => !committing.has(id)))
 }
 
 /**
@@ -261,13 +271,20 @@ export function parkPendingDeletes(): number {
   return parked
 }
 
-/** Commit leftovers from storage (startup). No toast; Undo is not offered. */
-export function resumePendingDeletes(): void {
+/**
+ * Commit `userId`'s leftovers from storage (startup). No toast; Undo is not
+ * offered. Another user's entries stay parked, or are dropped at 7 days.
+ */
+export function resumePendingDeletes(userId: string): void {
   const now = Date.now()
   const overdue: string[] = []
-  for (const [id, { at }] of pending) {
+  for (const [id, { at, uid }] of pending) {
     // Skip ids this session already owns — they still have a live Undo.
     if (scheduled.has(id) || committing.has(id)) continue
+    if (uid && uid !== userId) {
+      if (now - at > PARK_MS) pending.delete(id)
+      continue
+    }
     scheduled.add(id)
     const wait = Math.min(UNDO_MS, at + UNDO_MS - now)
     if (wait <= 0) {
@@ -283,5 +300,6 @@ export function resumePendingDeletes(): void {
     }
     waiting.add(batch)
   }
+  persist()
   void commit(overdue)
 }

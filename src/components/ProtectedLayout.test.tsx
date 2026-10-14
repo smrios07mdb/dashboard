@@ -39,6 +39,7 @@ vi.mock('./AccountMenu', () => ({ default: () => null }))
 vi.mock('./InstallHint', () => ({ default: () => null }))
 vi.mock('./SyncIndicator', () => ({ default: () => null }))
 
+import { resumePendingDeletes } from '@/lib/taskUndo'
 import { useUIStore } from '@/state/uiStore'
 
 import ProtectedLayout from './ProtectedLayout'
@@ -160,5 +161,17 @@ describe('ProtectedLayout — landmarks (chunk 75)', () => {
     expect(main).toHaveAttribute('id', 'main')
     expect(main).toHaveFocus()
     expect(window.location.hash).toBe('')
+  })
+})
+
+// Chunk 83: parked deletes commit only for the user who made them.
+describe('ProtectedLayout — pending deletes (chunk 83)', () => {
+  it('resumes pending deletes for the signed-in user', () => {
+    vi.clearAllMocks()
+    repo.categories.list.mockResolvedValue([])
+    repo.subcategories.list.mockResolvedValue([])
+    repo.tasks.listIncomplete.mockResolvedValue([])
+    renderAt('/')
+    expect(resumePendingDeletes).toHaveBeenCalledWith('user-1')
   })
 })

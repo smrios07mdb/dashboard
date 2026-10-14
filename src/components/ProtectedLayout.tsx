@@ -53,7 +53,7 @@ export default function ProtectedLayout() {
 
   useEffect(() => {
     if (!userId) return
-    resumePendingDeletes()
+    resumePendingDeletes(userId)
     window.addEventListener('pagehide', flushPendingDeletes)
     return () => window.removeEventListener('pagehide', flushPendingDeletes)
   }, [userId])
