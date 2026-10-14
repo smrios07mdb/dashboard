@@ -61,6 +61,15 @@ docs). Two ways to avoid it, in order of preference:
 Either way, "the deploy workflow must run green" is only satisfied by a run
 that actually exists — check `gh run list` after any push carrying code.
 
+### Gate environment: placeholder `.env.local` (chunk 77)
+
+A clean-clone gate needs a `.env.local`. Supabase values may be placeholders,
+but `VITE_CALDAV_PROXY_URL` must be the real host,
+`https://dashboard-caldav-proxy.vercel.app`.
+`src/lib/plannerCalendarMirror.counts.test.ts` strips that host from request
+URLs before counting, so a dummy host fails 3 of its cases (observed in the
+chunk-77 gate). That is a harness fault, not a chunk failure.
+
 ## Routine doc edits
 `PROGRESS.md` updates, decision log entries, and README additions are handled by Claude Code directly, in the same pass as the chunk's code work — committed with the chunk or as an immediate follow-up. (Until 2026-07-30 these were Cowork's lane; that handoff is retired.)
 
