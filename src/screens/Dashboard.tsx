@@ -26,6 +26,11 @@ import { useSession } from '@/lib/auth'
 import { dateKeyDaysAgo, today as clockToday } from '@/lib/clock'
 import { selectDashboardState } from '@/lib/dashboardState'
 import {
+  loadHorizonFilter,
+  storeHorizonFilter,
+  type HorizonFilter,
+} from '@/lib/horizon'
+import {
   isReviewDue,
   loadLastReview,
   reviewCandidates,
@@ -176,6 +181,13 @@ export default function Dashboard() {
   const onChangeSortKey = useCallback((key: TaskSortKey) => {
     setSortKey(key)
     storeTaskSortKey(key)
+  }, [])
+
+  // Global horizon filter (chunk 76) — same shape as the sort preference.
+  const [horizon, setHorizon] = useState<HorizonFilter>(loadHorizonFilter)
+  const onChangeHorizon = useCallback((f: HorizonFilter) => {
+    setHorizon(f)
+    storeHorizonFilter(f)
   }, [])
 
   const subsByCat = useMemo(() => {
@@ -785,6 +797,8 @@ export default function Dashboard() {
             onSetTaskPriority={onSetTaskPriority}
             sortKey={sortKey}
             onChangeSortKey={onChangeSortKey}
+            horizon={horizon}
+            onChangeHorizon={onChangeHorizon}
             onCreateSubcategory={onCreateSubcategory}
             onRenameSubcategory={onRenameSubcategory}
             onDeleteSubcategory={onDeleteSubcategory}

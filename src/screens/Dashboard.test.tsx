@@ -670,6 +670,32 @@ describe('Dashboard', () => {
     expect(chevronCount).toBeGreaterThanOrEqual(8)
   })
 
+  it('mounts the horizon control on each column and Near writes hupo.taskHorizon (chunk 76)', async () => {
+    localStorage.removeItem('hupo.taskHorizon')
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([mkSub('sw1', 'cat-work')])
+    tasksList.mockResolvedValue([mkTask('t-p2', 'sw1', { priority: 2 })])
+
+    renderDashboard()
+    await screen.findAllByText('t-p2')
+
+    const groups = screen.getAllByRole('radiogroup', { name: 'Horizon' })
+    expect(groups).toHaveLength(2)
+    fireEvent.click(within(groups[0]).getByRole('radio', { name: 'Near' }))
+    expect(localStorage.getItem('hupo.taskHorizon')).toBe('near')
+    // One preference: both columns follow.
+    for (const g of screen.getAllByRole('radiogroup', { name: 'Horizon' })) {
+      expect(within(g).getByRole('radio', { name: 'Near' })).toHaveAttribute(
+        'aria-checked',
+        'true',
+      )
+    }
+    localStorage.removeItem('hupo.taskHorizon')
+  })
+
   it('threads the chunk-33 sort + priority wiring through CategoryColumn (chunk-41 merge regression)', async () => {
     // Guards the auto-merge loss found in chunk 41: adopting main's refactored
     // `columns` block silently dropped `onSetTaskPriority` / `sortKey` /

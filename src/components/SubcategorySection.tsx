@@ -7,7 +7,9 @@ import SubcategoryHeader from '@/components/SubcategoryHeader'
 import TaskRow from '@/components/TaskRow'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { subColor } from '@/lib/gamify'
+import { filterByHorizon, type HorizonFilter } from '@/lib/horizon'
 import { compareTasks, type TaskSortKey } from '@/lib/taskSort'
+import { browserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
 
 /*
@@ -69,6 +71,11 @@ export type SubcategorySectionProps = {
    * only — the collapsed completed bucket keeps its existing order.
    */
   sortKey: TaskSortKey
+  /**
+   * Global horizon filter (chunk 76). Narrows the open set only — the
+   * completed bucket and lingering just-completed rows are never hidden.
+   */
+  horizon: HorizonFilter
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,
@@ -107,6 +114,7 @@ export default function SubcategorySection({
   onSetTaskDue,
   onSetTaskPriority,
   sortKey,
+  horizon,
   onRenameSubcategory,
   onDeleteSubcategory,
   onMergeSubcategory,
@@ -122,9 +130,16 @@ export default function SubcategorySection({
     subcategory.id,
     tasks.map((t) => t.id),
   ).length
-  const incomplete = tasks.filter((t) => !t.completedAt)
+  const openNow = tasks.filter((t) => !t.completedAt)
   const completed = tasks.filter((t) => !!t.completedAt)
-  const minutes = incomplete.reduce((sum, t) => sum + t.estimateMinutes, 0)
+  // Chunk 76: the header counts what the horizon filter leaves on screen.
+  const shownOpen = filterByHorizon(
+    openNow,
+    horizon,
+    timeZone ?? browserTimezone(),
+  )
+  const shown = new Set(shownOpen.map((t) => t.id))
+  const minutes = shownOpen.reduce((sum, t) => sum + t.estimateMinutes, 0)
 
   // Just-completed "linger": when a task flips to done, hold its id in a Set
   // for ~1.1s so it stays in the visible list and its rowFlush + "+XP"
@@ -195,9 +210,11 @@ export default function SubcategorySection({
   // Chunk 33: the open set renders in the global sort order. Lingering
   // just-completed rows keep their task data, so the comparator holds
   // them in place for the celebration instead of jumping them around.
+  // Chunk 76: the open set is narrowed to the horizon; lingerers stay
+  // visible whatever the filter.
   const visibleIncomplete = tasks
     .filter(
-      (t) => !t.completedAt || linger.has(t.id) || justCompletedIds.has(t.id),
+      (t) => shown.has(t.id) || linger.has(t.id) || justCompletedIds.has(t.id),
     )
     .sort(compareTasks(sortKey))
   const bucketCompleted = completed.filter(
@@ -208,7 +225,7 @@ export default function SubcategorySection({
     <section className="border-t border-line first:border-t-0">
       <SubcategoryHeader
         subcategory={subcategory}
-        incompleteCount={incomplete.length}
+        incompleteCount={shownOpen.length}
         incompleteMinutes={minutes}
         taskCount={tasks.length}
         noteCount={noteCount}
@@ -228,6 +245,10 @@ export default function SubcategorySection({
         {tasks.length === 0 ? (
           <div className="border-t border-line px-4 py-3 text-[12px] italic text-ink-3">
             No tasks here.
+          </div>
+        ) : visibleIncomplete.length === 0 && openNow.length > 0 ? (
+          <div className="border-t border-line px-4 py-3 text-[12px] italic text-ink-3">
+            {horizon === 'near' ? 'Nothing near term.' : 'Nothing long term.'}
           </div>
         ) : visibleIncomplete.length === 0 && completed.length > 0 && !showCompleted ? (
           <div className="border-t border-line px-4 py-3 text-[12px] italic text-ink-3">

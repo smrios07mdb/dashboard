@@ -242,3 +242,45 @@ describe('SubcategoryView (chunk 31 re-skin)', () => {
     ])
   })
 })
+
+describe('SubcategoryView horizon (chunk 76)', () => {
+  beforeEach(() => {
+    localStorage.removeItem('hupo.taskHorizon')
+    categoriesList.mockResolvedValue([
+      { id: 'cat-work', name: 'Work', userId: 'u1' },
+    ])
+    subcategoriesList.mockResolvedValue([
+      {
+        id: 'sub-1',
+        name: 'Inbox',
+        categoryId: 'cat-work',
+        sortOrder: 0,
+        userId: 'u1',
+        archivedAt: null,
+      },
+    ])
+    tasksList.mockResolvedValue([
+      mkTask('Urgent', { priority: 1 }),
+      mkTask('Someday', { priority: 3 }),
+      mkTask('Finished', { completedAt: '2026-01-02T00:00:00.000Z' }),
+    ])
+  })
+
+  it('Long hides a P1 row, keeps an undated P3 row, and the header follows; Show done still works', async () => {
+    renderSub()
+    await screen.findByRole('heading', { name: /^inbox$/i })
+    expect(screen.getByText(/^2 open/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Long' }))
+
+    expect(screen.queryByText('Urgent')).not.toBeInTheDocument()
+    expect(screen.getByText('Someday')).toBeInTheDocument()
+    expect(screen.getByText(/^1 open/)).toBeInTheDocument()
+    expect(localStorage.getItem('hupo.taskHorizon')).toBe('long')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show 1 done' }))
+    expect(screen.getByText('Finished')).toBeInTheDocument()
+    expect(screen.queryByText('Urgent')).not.toBeInTheDocument()
+    localStorage.removeItem('hupo.taskHorizon')
+  })
+})

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import AddTaskInline from '@/components/AddTaskInline'
 import Breadcrumbs from '@/components/Breadcrumbs'
+import HorizonControl from '@/components/HorizonControl'
 import { MoveToPickerContent } from '@/components/MoveToPicker'
 import ListNotesSection from '@/components/notebook/ListNotesSection'
 import TaskRow from '@/components/TaskRow'
@@ -19,6 +20,12 @@ import {
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
+import {
+  filterByHorizon,
+  loadHorizonFilter,
+  storeHorizonFilter,
+  type HorizonFilter,
+} from '@/lib/horizon'
 import {
   compareTasks,
   loadTaskSortKey,
@@ -130,6 +137,14 @@ export default function SubcategoryView() {
     setSortKey(key)
     storeTaskSortKey(key)
   }, [])
+
+  // Global horizon filter (chunk 76) — shared with Dashboard and
+  // CategoryView via localStorage.
+  const [horizon, setHorizon] = useState<HorizonFilter>(loadHorizonFilter)
+  const onChangeHorizon = useCallback((f: HorizonFilter) => {
+    setHorizon(f)
+    storeHorizonFilter(f)
+  }, [])
   const [searchParams, setSearchParams] = useSearchParams()
   const highlightId = searchParams.get('task')
   const highlightRef = useRef<HTMLDivElement | null>(null)
@@ -157,11 +172,22 @@ export default function SubcategoryView() {
     [allTasks],
   )
 
-  const visibleTasks = showCompleted ? allTasks : incomplete
+  // Chunk 76: the horizon narrows the open rows only; completed rows still
+  // show under "Show N done". Select-all and the bulk toolbar act on
+  // `visibleTasks`, so they only ever touch what is on screen.
+  const visibleIncomplete = useMemo(
+    () => filterByHorizon(incomplete, horizon, timeZone),
+    [incomplete, horizon, timeZone],
+  )
+  const visibleTasks = useMemo(
+    () =>
+      showCompleted ? [...visibleIncomplete, ...completed] : visibleIncomplete,
+    [showCompleted, visibleIncomplete, completed],
+  )
   // Rendered order respects the global sort; selection still operates on the
   // unsorted `visibleTasks` set (order is irrelevant to which ids are chosen).
   const sortedTasks = [...visibleTasks].sort(compareTasks(sortKey))
-  const openMinutes = incomplete.reduce(
+  const openMinutes = visibleIncomplete.reduce(
     (sum, t) => sum + t.estimateMinutes,
     0,
   )
@@ -510,9 +536,10 @@ export default function SubcategoryView() {
           {subcategory.name}
         </h1>
         <span className="label">
-          {incomplete.length} open · {formatMinutes(openMinutes)}
+          {visibleIncomplete.length} open · {formatMinutes(openMinutes)}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <HorizonControl value={horizon} onChange={onChangeHorizon} />
           {completed.length > 0 && (
             <button
               type="button"
@@ -553,7 +580,11 @@ export default function SubcategoryView() {
           <div className="px-4 py-8 text-center text-[13px] italic text-ink-3">
             {allTasks.length === 0
               ? 'No tasks here yet. Add one below.'
-              : `All done. ${completed.length} completed.`}
+              : incomplete.length > 0
+                ? horizon === 'near'
+                  ? 'Nothing near term.'
+                  : 'Nothing long term.'
+                : `All done. ${completed.length} completed.`}
           </div>
         ) : (
           <>

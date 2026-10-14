@@ -1,9 +1,10 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SubcategorySection from './SubcategorySection'
 import type { Category, Subcategory, Task } from '@/db/types'
+import type { HorizonFilter } from '@/lib/horizon'
 
 /*
  * Regression guard for the Chunk 27 completion cheer (rowFlush + "+XP" floater
@@ -72,6 +73,7 @@ const baseProps = (tasks: Task[]) => ({
   onSetTaskDue: vi.fn(),
   onSetTaskPriority: vi.fn(),
   sortKey: 'priority' as const,
+  horizon: 'all' as HorizonFilter,
   onRenameSubcategory: vi.fn(),
   onDeleteSubcategory: vi.fn(),
   onMergeSubcategory: vi.fn(),
@@ -131,5 +133,62 @@ describe('SubcategorySection completion cheer', () => {
       screen.getByRole('button', { name: /1 completed/i }),
     ).toBeInTheDocument()
     expect(screen.queryByText('Submit report')).toBeNull()
+  })
+})
+
+describe('SubcategorySection horizon filter (chunk 76)', () => {
+  const inDays = (n: number) =>
+    new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString()
+  const t = (id: string, extra: Partial<Task> = {}): Task => ({
+    ...task(id),
+    ...extra,
+  })
+  const renderWith = (tasks: Task[], horizon: HorizonFilter) =>
+    render(<SubcategorySection {...baseProps(tasks)} horizon={horizon} />, {
+      wrapper: MemoryRouter,
+    })
+
+  it('shows only near rows under near, and the header count matches', () => {
+    renderWith(
+      [
+        t('Soon one', { priority: 2 }),
+        t('Dated one', { dueAt: inDays(3) }),
+        t('Someday one', { priority: 3 }),
+      ],
+      'near',
+    )
+    expect(screen.getByText('Soon one')).toBeInTheDocument()
+    expect(screen.getByText('Dated one')).toBeInTheDocument()
+    expect(screen.queryByText('Someday one')).toBeNull()
+    // SubcategoryHeader renders the open count and the open minutes.
+    expect(screen.getByText('2')).toBeInTheDocument()
+    expect(screen.getByText('1h')).toBeInTheDocument()
+  })
+
+  it('says "Nothing near term." when every open row is long, and the completed expander still works', () => {
+    renderWith(
+      [t('Someday one', { priority: 3 }), t('Done one', { completedAt: DONE_AT })],
+      'near',
+    )
+    expect(screen.getByText('Nothing near term.')).toBeInTheDocument()
+    expect(screen.queryByText('Someday one')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '1 completed' }))
+    expect(screen.getByText('Done one')).toBeInTheDocument()
+  })
+
+  it('says "Nothing long term." when every open row is near', () => {
+    renderWith([t('Urgent one', { priority: 1 })], 'long')
+    expect(screen.getByText('Nothing long term.')).toBeInTheDocument()
+    expect(screen.queryByText('Urgent one')).toBeNull()
+  })
+
+  it('filters nothing under all', () => {
+    renderWith(
+      [t('Soon one', { priority: 2 }), t('Someday one', { priority: 3 })],
+      'all',
+    )
+    expect(screen.getByText('Soon one')).toBeInTheDocument()
+    expect(screen.getByText('Someday one')).toBeInTheDocument()
+    expect(screen.queryByText(/^Nothing (near|long) term\.$/)).toBeNull()
   })
 })

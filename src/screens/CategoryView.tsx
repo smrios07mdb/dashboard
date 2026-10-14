@@ -18,11 +18,18 @@ import { toast } from 'sonner'
 
 import AddSubcategoryInline from '@/components/AddSubcategoryInline'
 import Breadcrumbs from '@/components/Breadcrumbs'
+import HorizonControl from '@/components/HorizonControl'
 import SubcategorySection from '@/components/SubcategorySection'
 import TaskSortControl from '@/components/TaskSortControl'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
+import {
+  filterByHorizon,
+  loadHorizonFilter,
+  storeHorizonFilter,
+  type HorizonFilter,
+} from '@/lib/horizon'
 import { isTaskDragId, taskDragCollision } from '@/lib/taskDragCollision'
 import {
   loadTaskSortKey,
@@ -137,6 +144,14 @@ export default function CategoryView() {
     storeTaskSortKey(key)
   }, [])
 
+  // Global horizon filter (chunk 76) — shared with Dashboard and
+  // SubcategoryView via localStorage.
+  const [horizon, setHorizon] = useState<HorizonFilter>(loadHorizonFilter)
+  const onChangeHorizon = useCallback((f: HorizonFilter) => {
+    setHorizon(f)
+    storeHorizonFilter(f)
+  }, [])
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
@@ -179,8 +194,10 @@ export default function CategoryView() {
       ),
     [data.tasks, liveSubIds],
   )
-  const openCount = allTasks.length
-  const openMinutes = allTasks.reduce((s, t) => s + t.estimateMinutes, 0)
+  // Chunk 76: the header counts follow the horizon filter.
+  const shownOpen = filterByHorizon(allTasks, horizon, timeZone)
+  const openCount = shownOpen.length
+  const openMinutes = shownOpen.reduce((s, t) => s + t.estimateMinutes, 0)
 
   // ---------- task mutation helpers ----------
 
@@ -598,12 +615,12 @@ export default function CategoryView() {
         <span className="label">
           {openCount} open · {formatMinutes(openMinutes)}
         </span>
-        {/* Chunk 33: list sort — same global preference as the Dashboard. */}
-        <TaskSortControl
-          value={sortKey}
-          onChange={onChangeSortKey}
-          className="ml-auto"
-        />
+        {/* Chunk 76: horizon, then chunk 33's list sort — same global
+            preferences as the Dashboard. */}
+        <div className="ml-auto flex items-center gap-2">
+          <HorizonControl value={horizon} onChange={onChangeHorizon} />
+          <TaskSortControl value={sortKey} onChange={onChangeSortKey} />
+        </div>
       </header>
       <div className="overflow-hidden rounded-md border border-line bg-surface">
         {subcategories.length === 0 ? (
@@ -644,6 +661,7 @@ export default function CategoryView() {
                   onSetTaskDue={onSetTaskDue}
                   onSetTaskPriority={onSetTaskPriority}
                   sortKey={sortKey}
+                  horizon={horizon}
                   onRenameSubcategory={onRenameSubcategory}
                   onDeleteSubcategory={onDeleteSubcategory}
                   onMergeSubcategory={onMergeSubcategory}
@@ -706,6 +724,7 @@ type SortableSubSectionProps = {
     priority: 1 | 2 | 3 | null,
   ) => void | Promise<void>
   sortKey: TaskSortKey
+  horizon: HorizonFilter
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,

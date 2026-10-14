@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 
 import CategoryColumn, { type CategoryColumnProps } from './CategoryColumn'
 
@@ -31,6 +32,9 @@ function renderColumn(overrides: Partial<CategoryColumnProps> = {}) {
     onSetTaskPriority: vi.fn(),
     sortKey: 'priority',
     onChangeSortKey: vi.fn(),
+    // Chunk 76: required prop.
+    horizon: 'all',
+    onChangeHorizon: vi.fn(),
     onCreateSubcategory: vi.fn(),
     onRenameSubcategory: vi.fn(),
     onDeleteSubcategory: vi.fn(),
@@ -39,7 +43,8 @@ function renderColumn(overrides: Partial<CategoryColumnProps> = {}) {
     onMoveSubcategory: vi.fn(),
     ...overrides,
   } as CategoryColumnProps
-  render(<CategoryColumn {...props} />)
+  // TaskMenu → BlockTimeSheet calls useNavigate() once rows render.
+  render(<CategoryColumn {...props} />, { wrapper: MemoryRouter })
   const name = screen.getByRole('heading', { level: 2, name: props.category.name })
   const header = name.closest('header') as HTMLElement
   return { onDrillDown, name, header }
@@ -116,5 +121,62 @@ describe('CategoryColumn "N open" pill (chunk 75)', () => {
     expect(screen.getByText('0 open').getAttribute('style')).toContain(
       `background: ${background}`,
     )
+  })
+})
+
+describe('CategoryColumn horizon (chunk 76)', () => {
+  const sub = {
+    id: 's1',
+    name: 'Inbox',
+    categoryId: 'cat-work',
+    sortOrder: 0,
+    userId: 'u1',
+    archivedAt: null,
+  }
+  const task = (id: string, priority: 1 | 2 | 3 | null) => ({
+    id,
+    userId: 'u1',
+    subcategoryId: 's1',
+    title: id,
+    estimateMinutes: 30,
+    dueAt: null,
+    remindAt: null,
+    notified: false,
+    priority,
+    completedAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  })
+  const tasksBySub = { s1: [task('Soon', 2), task('Someday', 3)] }
+
+  it('the pill counts near rows only under near', () => {
+    renderColumn({
+      subcategories: [sub],
+      allSubcategories: [sub],
+      tasksBySub,
+      horizon: 'near',
+    })
+    expect(screen.getByText('1 open')).toBeInTheDocument()
+  })
+
+  it('the pill counts every open row under all', () => {
+    renderColumn({
+      subcategories: [sub],
+      allSubcategories: [sub],
+      tasksBySub,
+      horizon: 'all',
+    })
+    expect(screen.getByText('2 open')).toBeInTheDocument()
+  })
+
+  it('mounts the horizon control on line two, before sort, without drilling', () => {
+    const { onDrillDown } = renderColumn()
+    const group = screen.getByRole('radiogroup', { name: 'Horizon' })
+    const sort = screen.getByRole('button', { name: /^Sort tasks/ })
+    expect(group.nextElementSibling).toBe(sort)
+    fireEvent.click(screen.getByRole('radio', { name: 'Near' }))
+    fireEvent.doubleClick(screen.getByRole('radio', { name: 'Near' }))
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'All' }), { key: 'Enter' })
+    expect(onDrillDown).not.toHaveBeenCalled()
   })
 })

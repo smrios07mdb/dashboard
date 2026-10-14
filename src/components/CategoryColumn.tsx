@@ -14,13 +14,16 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 
 import AddSubcategoryInline from '@/components/AddSubcategoryInline'
+import HorizonControl from '@/components/HorizonControl'
 import SubcategorySection from '@/components/SubcategorySection'
 import TaskSortControl from '@/components/TaskSortControl'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { catColor, catInk, fmtMin } from '@/lib/cat'
+import { filterByHorizon, type HorizonFilter } from '@/lib/horizon'
 import { isTaskDragId, taskDragCollision } from '@/lib/taskDragCollision'
 import type { TaskSortKey } from '@/lib/taskSort'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
+import { browserTimezone } from '@/lib/userTimezone'
 
 /*
  * One category column on the dashboard ("Work" or "Personal").
@@ -75,6 +78,9 @@ export type CategoryColumnProps = {
   /** Global sort preference (chunk 33) — one control per column, shared state. */
   sortKey: TaskSortKey
   onChangeSortKey: (key: TaskSortKey) => void
+  /** Global horizon filter (chunk 76) — one control per column, shared state. */
+  horizon: HorizonFilter
+  onChangeHorizon: (f: HorizonFilter) => void
   onCreateSubcategory: (input: {
     categoryId: string
     name: string
@@ -121,6 +127,8 @@ export default function CategoryColumn({
   onSetTaskPriority,
   sortKey,
   onChangeSortKey,
+  horizon,
+  onChangeHorizon,
   onCreateSubcategory,
   onRenameSubcategory,
   onDeleteSubcategory,
@@ -134,7 +142,12 @@ export default function CategoryColumn({
   const isTouch = useIsTouchDevice()
 
   const allTasks = subcategories.flatMap((s) => tasksBySub[s.id] ?? [])
-  const open = allTasks.filter((t) => !t.completedAt)
+  // Chunk 76: the pill and the total follow the horizon filter.
+  const open = filterByHorizon(
+    allTasks.filter((t) => !t.completedAt),
+    horizon,
+    timeZone ?? browserTimezone(),
+  )
   const total = open.reduce((sum, t) => sum + t.estimateMinutes, 0)
   const accent = catColor(category.name)
 
@@ -246,6 +259,8 @@ export default function CategoryColumn({
             {fmtMin(total)}
           </span>
           {/* Chunk 33: list sort — global preference, one control per column. */}
+          {/* Chunk 76: near/long horizon — global preference, beside sort. */}
+          <HorizonControl value={horizon} onChange={onChangeHorizon} />
           <TaskSortControl value={sortKey} onChange={onChangeSortKey} />
           <button
             type="button"
@@ -308,6 +323,7 @@ export default function CategoryColumn({
                   onSetTaskDue={onSetTaskDue}
                   onSetTaskPriority={onSetTaskPriority}
                   sortKey={sortKey}
+                  horizon={horizon}
                   onRenameSubcategory={onRenameSubcategory}
                   onDeleteSubcategory={onDeleteSubcategory}
                   onMergeSubcategory={onMergeSubcategory}
@@ -366,6 +382,7 @@ type SortableSubSectionProps = {
     priority: 1 | 2 | 3 | null,
   ) => void | Promise<void>
   sortKey: TaskSortKey
+  horizon: HorizonFilter
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,

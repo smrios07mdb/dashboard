@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -154,5 +154,19 @@ describe('CategoryView (chunk 31 re-skin)', () => {
     for (const recorded of dndCollisionProps) {
       expect(recorded).toBe(taskDragCollision)
     }
+  })
+
+  it('mounts the horizon control and Near writes hupo.taskHorizon (chunk 76)', async () => {
+    localStorage.removeItem('hupo.taskHorizon')
+    renderCategory()
+    await screen.findByRole('heading', { name: /^work$/i })
+    expect(
+      screen.getByRole('radiogroup', { name: 'Horizon' }),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('radio', { name: 'Near' }))
+    expect(localStorage.getItem('hupo.taskHorizon')).toBe('near')
+    // t1 has no priority and no dates: long term, so the header drops to 0.
+    expect(screen.getByText(/^0 open/)).toBeInTheDocument()
+    localStorage.removeItem('hupo.taskHorizon')
   })
 })
