@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-import { BookOpen, Calendar, Filter, Tag, User } from '@/components/icons'
+import { BookOpen, Calendar, ChartColumn, ListChecks } from '@/components/icons'
 import { BottomTabs, TopTabs, type NavItem } from '@/components/ui/nav-tabs'
 import { isNoteEditorPath } from '@/lib/notes'
 
@@ -9,14 +9,14 @@ import { isNoteEditorPath } from '@/lib/notes'
  * Primary navigation — composes the Chunk-23 `TopTabs` / `BottomTabs` primitives
  * wired to react-router (the primitives are presentational).
  *
- * Active id derives from the pathname: exact `/` for Dashboard (replicating the
+ * Active id derives from the pathname: exact `/` for Tasks (replicating the
  * old `NavLink end`), own-path for the others. Drill-down routes
- * (`/category/:id`, `/subcategory/:id`) are NOT in the tab set → no active tab
- * (`value=''`). The primitives stamp `aria-current="page"` on the active item.
+ * (`/category/:id`, `/subcategory/:id`) and `/settings` (chunk 79: reached
+ * from the account menu) are NOT in the tab set → no active tab (`value=''`). The primitives stamp `aria-current="page"` on the active item.
  *
  * Responsive (ARCHITECTURE §13): `TopTabs` at >=sm (`hidden sm:flex`), fixed
  * `BottomTabs` below 640px (`sm:hidden`) — exactly one in the a11y tree per
- * breakpoint. Bottom-bar dashboard label is "Tasks" per design/src/app.jsx.
+ * breakpoint. The `/` tab reads "Tasks" in both navs (chunk 79).
  *
  * The bottom bar is not rendered on `/notebook/:noteId` (chunk 58): on a phone
  * that route is the full-screen note editor, and the keyboard needs the room.
@@ -32,14 +32,13 @@ type Tab = {
 }
 
 const TABS: readonly Tab[] = [
-  { to: '/', label: 'Dashboard', mobileLabel: 'Tasks', icon: <Tag size={20} /> },
+  { to: '/', label: 'Tasks', mobileLabel: 'Tasks', icon: <ListChecks size={20} /> },
   { to: '/planner', label: 'Planner', mobileLabel: 'Planner', icon: <Calendar size={20} /> },
-  { to: '/insights', label: 'Insights', mobileLabel: 'Insights', icon: <Filter size={20} /> },
+  { to: '/insights', label: 'Insights', mobileLabel: 'Insights', icon: <ChartColumn size={20} /> },
   { to: '/notebook', label: 'Notebook', mobileLabel: 'Notebook', icon: <BookOpen size={20} /> },
-  { to: '/settings', label: 'Settings', mobileLabel: 'Settings', icon: <User size={20} /> },
 ]
 
-/** Exact `/` for Dashboard; own-path for the rest; `''` on drill-down routes. */
+/** Exact `/` for Tasks; own-path for the rest; `''` on drill-down routes and `/settings`. */
 function activeId(pathname: string): string {
   if (pathname === '/') return '/'
   const match = TABS.find((t) => t.to !== '/' && pathname.startsWith(t.to))

@@ -26,41 +26,50 @@ function renderAt(path: string) {
 }
 
 describe('Tabs — primary nav (Chunk 24)', () => {
-  it('renders all five routes across the top + bottom navs', () => {
+  it('renders four routes across the top + bottom navs (chunk 79)', () => {
     renderAt('/')
-    // 5 top + 5 bottom = 10 tab buttons (Planner chunk 36, Notebook chunk 58,
-    // Routines folded into Today chunk 78)
-    expect(screen.getAllByRole('button')).toHaveLength(10)
-    // Dashboard reads "Dashboard" on top, "Tasks" in the bottom bar
-    expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    expect(screen.getByText('Tasks')).toBeInTheDocument()
+    // 4 top + 4 bottom = 8 tab buttons (Planner chunk 36, Notebook chunk 58,
+    // Routines folded into Today chunk 78, Settings to the account menu
+    // chunk 79)
+    expect(screen.getAllByRole('button')).toHaveLength(8)
+    // Chunk 79: the first tab reads "Tasks" in both navs
+    expect(screen.getAllByText('Tasks')).toHaveLength(2)
+    expect(screen.queryByText('Dashboard')).not.toBeInTheDocument()
     // The shared labels appear once per nav
     expect(screen.getAllByText('Planner')).toHaveLength(2)
     expect(screen.queryByText('Routines')).not.toBeInTheDocument()
     expect(screen.getAllByText('Insights')).toHaveLength(2)
     expect(screen.getAllByText('Notebook')).toHaveLength(2)
-    expect(screen.getAllByText('Settings')).toHaveLength(2)
+    expect(screen.queryByText('Settings')).not.toBeInTheDocument()
   })
 
-  it('orders both navs Dashboard · Planner · Insights · Notebook · Settings', () => {
+  it('orders both navs Tasks · Planner · Insights · Notebook', () => {
     renderAt('/')
     const [top, bottom] = screen.getAllByRole('navigation', { name: 'Primary' })
     const labels = (nav: HTMLElement) =>
       Array.from(nav.querySelectorAll('button')).map((b) => b.textContent)
-    expect(labels(top)).toEqual([
-      'Dashboard',
-      'Planner',
-      'Insights',
-      'Notebook',
-      'Settings',
-    ])
-    expect(labels(bottom)).toEqual([
-      'Tasks',
-      'Planner',
-      'Insights',
-      'Notebook',
-      'Settings',
-    ])
+    expect(labels(top)).toEqual(['Tasks', 'Planner', 'Insights', 'Notebook'])
+    expect(labels(bottom)).toEqual(['Tasks', 'Planner', 'Insights', 'Notebook'])
+  })
+
+  it('gives the bottom tabs the list-checks / calendar / chart-column / book-open icons', () => {
+    renderAt('/')
+    const bottom = screen.getAllByRole('navigation', { name: 'Primary' })[1]
+    const icons = Array.from(bottom.querySelectorAll('button')).map(
+      (b) => b.querySelector('svg')?.getAttribute('class') ?? '',
+    )
+    expect(icons).toHaveLength(4)
+    ;[
+      'lucide-list-checks',
+      'lucide-calendar',
+      'lucide-chart-column',
+      'lucide-book-open',
+    ].forEach((cls, i) => expect(icons[i].split(' ')).toContain(cls))
+  })
+
+  it('marks NO tab active on /settings (it lives in the account menu)', () => {
+    renderAt('/settings')
+    expect(screen.queryAllByRole('button', { current: 'page' })).toHaveLength(0)
   })
 
   it('marks Notebook active on the list and on a note', () => {
@@ -76,7 +85,7 @@ describe('Tabs — primary nav (Chunk 24)', () => {
     const navs = screen.getAllByRole('navigation', { name: 'Primary' })
     expect(navs).toHaveLength(1)
     expect(navs[0]).not.toHaveClass('fixed')
-    expect(navs[0].querySelectorAll('button')).toHaveLength(5)
+    expect(navs[0].querySelectorAll('button')).toHaveLength(4)
     expect(
       screen.getByRole('button', { current: 'page' }),
     ).toHaveTextContent('Notebook')
@@ -96,13 +105,10 @@ describe('Tabs — primary nav (Chunk 24)', () => {
     expect(screen.getAllByRole('navigation', { name: 'Primary' })).toHaveLength(2)
   })
 
-  it('marks Dashboard active only on an exact `/` (both navs)', () => {
+  it('marks Tasks active only on an exact `/` (both navs)', () => {
     renderAt('/')
     const current = screen.getAllByRole('button', { current: 'page' })
-    expect(current).toHaveLength(2)
-    const labels = current.map((b) => b.textContent)
-    expect(labels).toContain('Dashboard')
-    expect(labels).toContain('Tasks')
+    expect(current.map((b) => b.textContent)).toEqual(['Tasks', 'Tasks'])
   })
 
   it('marks the matching tab active on a top-level route', () => {

@@ -137,9 +137,11 @@ export function SettingsSection({
 }
 
 /**
- * Two-column row: title/hint on the left, control on the right, hairline
- * divider below. `align="center"` vertically centres the columns (used for
- * single-control rows like Email / Status).
+ * Two-column row from `sm` up: title/hint on the left, control on the right,
+ * hairline divider below. Below `sm` (chunk 79) it stacks: title and hint
+ * above the control, so the control gets the full phone width.
+ * `align="center"` vertically centres the columns (used for single-control
+ * rows like Email / Status).
  */
 export function SettingsRow({
   title,
@@ -154,10 +156,9 @@ export function SettingsRow({
 }) {
   return (
     <div
-      className={`grid gap-7 border-b border-line py-5 ${
+      className={`grid gap-2 border-b border-line py-5 sm:grid-cols-[minmax(180px,220px)_minmax(0,1fr)] sm:gap-7 ${
         align === 'center' ? 'items-center' : 'items-start'
       }`}
-      style={{ gridTemplateColumns: 'minmax(180px, 220px) 1fr' }}
     >
       <div>
         <div className="text-[14px] font-medium text-ink">{title}</div>
@@ -167,7 +168,7 @@ export function SettingsRow({
           </div>
         )}
       </div>
-      <div>{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   )
 }
@@ -323,8 +324,10 @@ function AccountSection() {
   return (
     <SettingsSection kicker="01" title="Account">
       <SettingsRow title="Email" align="center">
-        <div className="flex items-center gap-3">
-          <span className="num text-[14px] text-ink">{email}</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="num min-w-0 break-all text-[14px] text-ink">
+            {email}
+          </span>
           <Button
             type="button"
             variant="outline"
@@ -364,7 +367,7 @@ function DisplaySection() {
   const shown = margins ? clampMargins(margins) : defaultMargins()
 
   return (
-    <SettingsSection kicker="Display" title="Display">
+    <SettingsSection kicker="02" title="Display">
       <SettingsRow
         title="Today list"
         hint="How the Today plan appears on your dashboard: a full-width card (stacked), a side rail, a compact banner, or hidden."
@@ -503,7 +506,7 @@ function AiKeySection() {
   const showInput = !hasKey || replacing
 
   return (
-    <SettingsSection kicker="03" title="AI assist">
+    <SettingsSection kicker="04" title="AI assist">
       <SettingsRow
         title="Anthropic API key"
         hint="Encrypted and stored server-side; never sent back to this device. Calls go through the calendar proxy."
@@ -787,7 +790,7 @@ function CalendarSection() {
   const canWriteout = isConnected && caldavStatus === 'ok'
 
   return (
-    <SettingsSection kicker="02" title="Calendars">
+    <SettingsSection kicker="03" title="Calendars">
       <SettingsRow title="Status" align="center">
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge status={caldavStatus} testing={testing} />
@@ -1246,7 +1249,7 @@ function NotificationsSection() {
   }
 
   return (
-    <SettingsSection kicker="04" title="Notifications">
+    <SettingsSection kicker="05" title="Notifications">
       <SettingsRow
         title="Web push"
         hint="Reminders fire when a task comes due, even if the app isn't open."
@@ -1404,7 +1407,7 @@ function DataSection() {
   }
 
   return (
-    <SettingsSection kicker="05" title="Data">
+    <SettingsSection kicker="06" title="Data">
       <SettingsRow
         title="Export"
         hint="Pulls your data from the server as a single JSON file. The encrypted calendar password is never included."
@@ -1595,7 +1598,6 @@ function DataSection() {
 }
 
 export default function Settings() {
-  const { user } = useSession()
   const isDevSurface =
     import.meta.env.DEV ||
     (typeof window !== 'undefined' &&
@@ -1610,7 +1612,6 @@ export default function Settings() {
         >
           Settings
         </h1>
-        <span className="label">{user?.email}</span>
       </header>
 
       <SyncIssuesSection />

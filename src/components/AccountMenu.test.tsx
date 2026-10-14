@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 
 const { session } = vi.hoisted(() => ({
   session: { email: 'sm@example.com' as string | undefined },
@@ -39,11 +39,17 @@ beforeAll(() => {
   }
 })
 
+function LocationProbe() {
+  const { pathname } = useLocation()
+  return <div data-testid="pathname">{pathname}</div>
+}
+
 function renderMenu(email?: string) {
   session.email = email
   return render(
     <MemoryRouter>
       <AccountMenu />
+      <LocationProbe />
     </MemoryRouter>,
   )
 }
@@ -104,8 +110,9 @@ describe('AccountMenu — phone-width trigger (chunk 68)', () => {
   })
 
   it('renders nothing without an email', () => {
-    const { container } = renderMenu(undefined)
-    expect(container).toBeEmptyDOMElement()
+    renderMenu(undefined)
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByText('S')).toBeNull()
   })
 
   it('still opens to "Signed in as", the email and "Sign out"', async () => {
@@ -121,5 +128,25 @@ describe('AccountMenu — phone-width trigger (chunk 68)', () => {
     expect(
       screen.getByRole('menuitem', { name: 'Sign out' }),
     ).toBeInTheDocument()
+  })
+
+  // Chunk 79: Settings left the tab bar; the account menu is its home.
+  it('lists Settings between the email and "Sign out", and it opens /settings', async () => {
+    const user = userEvent.setup()
+    renderMenu('sm@example.com')
+    await user.click(
+      screen.getByRole('button', { name: 'Account: sm@example.com' }),
+    )
+
+    const menu = await screen.findByRole('menu')
+    const items = Array.from(
+      menu.querySelectorAll('[role="menuitem"]'),
+    ).map((el) => el.textContent?.trim())
+    expect(items).toEqual(['sm@example.com', 'Settings', 'Sign out'])
+    const settings = screen.getByRole('menuitem', { name: 'Settings' })
+    expect(settings.querySelector('svg')).toHaveClass('lucide-settings')
+
+    await user.click(settings)
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/settings')
   })
 })

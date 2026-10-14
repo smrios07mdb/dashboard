@@ -20,8 +20,19 @@ vi.mock('@/lib/auth', () => ({
 }))
 
 // The Developer section is lazy-loaded behind a dev gate; stub it so the
-// test doesn't pull in sample-data machinery.
-vi.mock('@/components/DeveloperSection', () => ({ default: () => null }))
+// test doesn't pull in sample-data machinery. Chunk 79's kicker case renders
+// the real section (`devSection.real`) with sample-data stubbed instead.
+const { devSection } = vi.hoisted(() => ({ devSection: { real: false } }))
+vi.mock('@/lib/sample-data', () => ({
+  loadSampleData: vi.fn(),
+  wipeMyData: vi.fn(),
+}))
+vi.mock('@/components/DeveloperSection', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/components/DeveloperSection')>()
+  const Real = actual.default
+  return { default: () => (devSection.real ? <Real /> : null) }
+})
 
 // Chunk 51: the write-target row's label test drives the Test-connection
 // flow, so discovery is stubbed; everything else in calendarApi stays real.
@@ -217,8 +228,48 @@ describe('Settings — re-skin (chunk 30)', () => {
     expect(
       await screen.findByRole('button', { name: /sign out/i }),
     ).toBeInTheDocument()
-    // Email shows in the header `.label` and again in the Account row.
-    expect(screen.getAllByText('sam@hupo.app').length).toBeGreaterThanOrEqual(2)
+    // Chunk 79: the Account row is the page's one copy of the email (the
+    // header `.label` under the h1 is gone).
+    expect(screen.getAllByText('sam@hupo.app')).toHaveLength(1)
+  })
+
+  // Chunk 79 (D6): main sections numbered in render order; Developer and
+  // About take word kickers, like Sync issues. vitest runs with DEV, so the
+  // Developer section renders.
+  it('numbers the section kickers 01–06, then Developer and About', async () => {
+    devSection.real = true
+    try {
+      const { container } = render(<Settings />)
+      await screen.findByRole('heading', { name: 'Developer' })
+      const kickers = Array.from(
+        container.querySelectorAll('section > header > .label'),
+      ).map((el) => el.textContent)
+      expect(kickers).toEqual([
+        '01',
+        '02',
+        '03',
+        '04',
+        '05',
+        '06',
+        'Developer',
+        'About',
+      ])
+    } finally {
+      devSection.real = false
+    }
+  })
+
+  // Chunk 79 (D5): rows stack below `sm` and keep today's two columns from
+  // `sm` up, as a Tailwind class instead of an inline grid template.
+  it('lays SettingsRow out with sm: grid classes, not an inline template', async () => {
+    render(<Settings />)
+    await screen.findByRole('button', { name: /sign out/i })
+    const row = screen.getByText('Email', { selector: 'div' }).parentElement!
+      .parentElement!
+    expect(row.style.gridTemplateColumns).toBe('')
+    expect(row.getAttribute('style') ?? '').not.toMatch(/grid-template-columns/)
+    expect(row.className).toMatch(/(^|\s)sm:grid-cols-\[/)
+    expect(row.lastElementChild).toHaveClass('min-w-0')
   })
 
   it('has no dark-mode / Appearance control (Decision A regression guard)', async () => {

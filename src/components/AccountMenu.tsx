@@ -1,4 +1,6 @@
-import { ChevronDown, LogOut } from 'lucide-react'
+// Direct lucide import (not `@/components/icons`) so the gear keeps the same
+// 2px stroke as LogOut and the chevron; `Settings` is lucide's gear glyph.
+import { ChevronDown, LogOut, Settings as Gear } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 
@@ -57,6 +59,14 @@ export default function AccountMenu() {
         </DropdownMenuLabel>
         <DropdownMenuItem disabled className="opacity-100">
           <span className="truncate text-[13px] text-foreground">{email}</span>
+        </DropdownMenuItem>
+        {/* Chunk 79: Settings left the tab bar; this is its entry point. */}
+        <DropdownMenuItem
+          onSelect={() => navigate('/settings')}
+          className="text-[13px] focus:bg-secondary focus:text-foreground"
+        >
+          <Gear className="size-4 text-muted-foreground" />
+          Settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

@@ -31,7 +31,7 @@ export default function About() {
   }, [])
 
   return (
-    <SettingsSection kicker="07" title="About">
+    <SettingsSection kicker="About" title="About">
       <SettingsRow title="Build" align="center">
         <span className="num text-[13px] text-ink-2">
           {version?.sha ?? '—'}

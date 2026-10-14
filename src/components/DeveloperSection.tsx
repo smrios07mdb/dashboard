@@ -85,7 +85,7 @@ export default function DeveloperSection() {
   }
 
   return (
-    <SettingsSection kicker="06" title="Developer">
+    <SettingsSection kicker="Developer" title="Developer">
       <p className="mb-1 text-[12px] leading-relaxed text-ink-3">
         Visible when <span className="mono">import.meta.env.DEV</span> is true,
         or when the URL carries <span className="mono">?dev=1</span>.
