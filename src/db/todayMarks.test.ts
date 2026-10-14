@@ -49,7 +49,7 @@ import {
 } from './mappers'
 import { drainOutbox } from './outbox'
 import { startRealtime, stopRealtime } from './realtime'
-import { repo } from './repo'
+import { repo, setOutboxUser } from './repo'
 import { useSyncStore } from './syncStore'
 import { TABLES } from './types'
 
@@ -267,7 +267,11 @@ describe('repo.todayMarks — online', () => {
 })
 
 describe('repo.todayMarks — offline', () => {
-  beforeEach(() => isOnlineMock.mockReturnValue(false))
+  beforeEach(() => {
+    isOnlineMock.mockReturnValue(false)
+    // Queued ops replay only for the user who queued them (chunk 84).
+    setOutboxUser('u-1')
+  })
 
   it('set applies to the cache and enqueues one insert outbox row', async () => {
     const out = await repo.todayMarks.set({

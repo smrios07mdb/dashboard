@@ -21,8 +21,9 @@
  *
  * Each entry carries its task's `userId` (chunk 83). RLS turns another user's
  * delete into a silent no-op, so `resumePendingDeletes(userId)` commits only
- * that user's entries (and pre-83 entries, which have none); the rest stay
- * parked for their owner and are dropped once 7 days old. `flushPendingDeletes`
+ * that user's entries; the rest stay parked for their owner and are dropped
+ * once 7 days old. Pre-83 entries carry no user and are dropped unread at
+ * load (chunk 84): their owner is unknown. `flushPendingDeletes`
  * commits only ids this session has scheduled, never another user's.
  *
  * Complete is written at once by the screen; `offerCompleteUndo` only offers
@@ -41,7 +42,7 @@ const SAVE_ERROR = 'Could not save — retry'
 
 const PARK_MS = 7 * 86_400_000
 
-type Entry = { at: number; uid?: string }
+type Entry = { at: number; uid: string }
 
 type Batch = {
   ids: string[]
@@ -90,7 +91,8 @@ function persist() {
 }
 
 // Seed at module load so list reads filter leftovers before anything else runs.
-for (const { id, at, uid } of readStored()) pending.set(id, { at, uid })
+// Entries without a user (pre-83) are left out, so the next write drops them.
+for (const { id, at, uid } of readStored()) if (uid) pending.set(id, { at, uid })
 
 function drop(ids: string[]) {
   for (const id of ids) {
@@ -281,7 +283,7 @@ export function resumePendingDeletes(userId: string): void {
   for (const [id, { at, uid }] of pending) {
     // Skip ids this session already owns — they still have a live Undo.
     if (scheduled.has(id) || committing.has(id)) continue
-    if (uid && uid !== userId) {
+    if (uid !== userId) {
       if (now - at > PARK_MS) pending.delete(id)
       continue
     }

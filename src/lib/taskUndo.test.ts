@@ -239,8 +239,8 @@ describe('taskUndo — deferred delete (chunk 72)', () => {
     localStorage.setItem(
       KEY,
       JSON.stringify([
-        { id: 'a', at: now - 10_000 },
-        { id: 'b', at: now - 2_000 },
+        { id: 'a', at: now - 10_000, uid: 'u1' },
+        { id: 'b', at: now - 2_000, uid: 'u1' },
       ]),
     )
     const m = await load()
@@ -454,6 +454,24 @@ describe('taskUndo — parked deletes are per user (chunk 83)', () => {
     expect(JSON.parse(stored()!)).toEqual([
       { id: 'young', at: now - 6 * DAY, uid: 'u1' },
     ])
+  })
+  it('(20) pre-83 entries with no user are dropped at load, never committed (chunk 84)', async () => {
+    const now = NOW.getTime()
+    localStorage.setItem(
+      KEY,
+      JSON.stringify([
+        { id: 'legacy', at: now - 10_000 },
+        { id: 'mine', at: now - 10_000, uid: 'u1' },
+      ]),
+    )
+    const m = await load()
+    expect(m.isPendingDelete('legacy')).toBe(false)
+
+    m.resumePendingDeletes('u1')
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(bulkDelete).toHaveBeenCalledTimes(1)
+    expect(bulkDelete).toHaveBeenCalledWith(['mine'])
+    expect(stored()).toBeNull()
   })
 })
 

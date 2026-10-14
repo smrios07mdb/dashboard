@@ -27,7 +27,7 @@ import {
   retryAllFailed,
   retryOutboxRow,
 } from './outbox'
-import { repo } from './repo'
+import { repo, setOutboxUser } from './repo'
 import { useSyncStore } from './syncStore'
 import type { OutboxRow } from './types'
 
@@ -86,9 +86,12 @@ function aTaskRow(overrides: Partial<TaskRow> = {}): TaskRow {
   }
 }
 
-/** Insert an outbox row directly, returning its generated id. */
+/**
+ * Insert an outbox row directly, returning its generated id. Rows are queued
+ * by the signed-in test user `u-1` unless they say otherwise (chunk 84).
+ */
 async function enqueue(row: Omit<OutboxRow, 'id'>): Promise<number> {
-  return (await db.outbox.add(row as OutboxRow)) as number
+  return (await db.outbox.add({ uid: 'u-1', ...row } as OutboxRow)) as number
 }
 
 async function clearDb() {
@@ -112,6 +115,7 @@ beforeEach(async () => {
   isOnlineMock.mockReturnValue(true)
   chainCalls.length = 0
   useSyncStore.setState({ state: 'synced', lastSyncAt: null })
+  setOutboxUser('u-1')
   await clearDb()
 })
 

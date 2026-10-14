@@ -16,13 +16,6 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { wipeLocalCache } from '@/db/localCache'
-import {
-  discardAllFailed,
-  discardOutboxRow,
-  getSyncIssues,
-  retryAllFailed,
-  retryOutboxRow,
-} from '@/db/outbox'
 import { repo } from '@/db/repo'
 import { useSyncStore } from '@/db/syncStore'
 import type {
@@ -190,7 +183,13 @@ function formatAge(iso: string): string {
  * the failed bucket with per-row Retry / Discard plus bulk actions. Retry resets
  * the row's attempts/backoff and re-runs the drain; Discard drops the change on
  * this device without touching Supabase.
+ *
+ * The outbox module is imported on demand (chunk 84), keeping the replay
+ * engine off the eager bundle.
  */
+const loadOutbox = () => import('@/db/outbox')
+const getSyncIssues = () => loadOutbox().then((m) => m.getSyncIssues())
+
 function SyncIssuesSection() {
   const state = useSyncStore((s) => s.state)
   const [rows, setRows] = useState<OutboxRow[]>([])
@@ -221,10 +220,12 @@ function SyncIssuesSection() {
 
   if (state !== 'sync_issues') return null
 
-  async function run(action: () => Promise<unknown>) {
+  async function run(
+    action: (m: Awaited<ReturnType<typeof loadOutbox>>) => Promise<unknown>,
+  ) {
     setBusy(true)
     try {
-      await action()
+      await action(await loadOutbox())
     } catch (e) {
       console.error('Sync issue action failed', e)
       toast.error(SAVE_ERROR)
@@ -263,7 +264,7 @@ function SyncIssuesSection() {
                 variant="secondary"
                 size="sm"
                 disabled={busy || r.id === undefined}
-                onClick={() => run(() => retryOutboxRow(r.id as number))}
+                onClick={() => run((m) => m.retryOutboxRow(r.id as number))}
               >
                 Retry
               </Button>
@@ -272,7 +273,7 @@ function SyncIssuesSection() {
                 variant="ghost"
                 size="sm"
                 disabled={busy || r.id === undefined}
-                onClick={() => run(() => discardOutboxRow(r.id as number))}
+                onClick={() => run((m) => m.discardOutboxRow(r.id as number))}
               >
                 Discard
               </Button>
@@ -286,7 +287,7 @@ function SyncIssuesSection() {
           type="button"
           size="sm"
           disabled={busy || rows.length === 0}
-          onClick={() => run(retryAllFailed)}
+          onClick={() => run((m) => m.retryAllFailed())}
         >
           Retry all
         </Button>
@@ -295,7 +296,7 @@ function SyncIssuesSection() {
           variant="outline"
           size="sm"
           disabled={busy || rows.length === 0}
-          onClick={() => run(discardAllFailed)}
+          onClick={() => run((m) => m.discardAllFailed())}
         >
           Discard all
         </Button>

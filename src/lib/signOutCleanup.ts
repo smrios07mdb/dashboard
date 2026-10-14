@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 
 import { db } from '@/db/dexie'
 import { wipeLocalCache } from '@/db/localCache'
+import { setOutboxUser } from '@/db/repo'
 import { clearVerified } from '@/lib/calendarApi'
 import { supabase } from '@/lib/supabase'
 import { flushPendingDeletes, parkPendingDeletes } from '@/lib/taskUndo'
@@ -45,9 +46,12 @@ export async function clearLocalDataOnSignOut(opts?: {
  * token expiry and sign-out on another tab / device. Returns an unsubscribe.
  * Pending task deletes are parked first, synchronously (chunk 82): their
  * timers would otherwise commit with no session and match nothing under RLS.
+ * Every event also records the signed-in user that offline writes are stamped
+ * with (chunk 84), so the outbox replays each op only for its own user.
  */
 export function installSignOutCleanup(): () => void {
-  const { data } = supabase.auth.onAuthStateChange((event) => {
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    setOutboxUser(session?.user.id)
     if (event !== 'SIGNED_OUT') return
     parkPendingDeletes()
     void clearLocalDataOnSignOut({

@@ -104,6 +104,18 @@ function markOffline() {
   syncStore.getState().setState('offline')
 }
 
+// The signed-in user each queued op is stamped with (chunk 84), kept current
+// by the app-wide auth listener in `installSignOutCleanup`.
+let outboxUid: string | undefined
+
+export function setOutboxUser(uid: string | undefined): void {
+  outboxUid = uid
+}
+
+export function outboxUser(): string | undefined {
+  return outboxUid
+}
+
 async function enqueueOutbox(
   op: OutboxOp,
   table: TableName,
@@ -117,6 +129,7 @@ async function enqueueOutbox(
     attempts: 0,
     lastError: null,
     lastAttemptAt: null,
+    uid: outboxUid,
   }
   await db.outbox.add(row)
 }

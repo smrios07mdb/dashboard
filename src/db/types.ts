@@ -209,6 +209,11 @@ export type OutboxRow = {
    * `null` (see `upgradeToV3` in dexie.ts).
    */
   lastAttemptAt: string | null
+  /**
+   * The user signed in when the op was queued (chunk 84). Only that user's
+   * session replays it; rows without one predate chunk 84 and are dropped.
+   */
+  uid?: string
 }
 
 export type SyncState = 'synced' | 'syncing' | 'offline' | 'sync_issues'

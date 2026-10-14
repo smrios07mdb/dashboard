@@ -45,7 +45,7 @@ import { wipeLocalCache } from './localCache'
 import { noteFromRow, noteToRow, type NoteRow } from './mappers'
 import { countOutboxFor, drainOutbox } from './outbox'
 import { startRealtime, stopRealtime } from './realtime'
-import { repo } from './repo'
+import { repo, setOutboxUser } from './repo'
 import { useSyncStore } from './syncStore'
 import { TABLES, type Note } from './types'
 
@@ -319,7 +319,11 @@ describe('repo.notes — online', () => {
 })
 
 describe('repo.notes — offline', () => {
-  beforeEach(() => isOnlineMock.mockReturnValue(false))
+  beforeEach(() => {
+    isOnlineMock.mockReturnValue(false)
+    // Queued ops replay only for the user who queued them (chunk 84).
+    setOutboxUser('u-1')
+  })
 
   it('each op applies to the cache and enqueues exactly one outbox row', async () => {
     const created = await repo.notes.create({

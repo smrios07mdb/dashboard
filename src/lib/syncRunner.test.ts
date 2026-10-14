@@ -17,6 +17,9 @@ vi.mock('@/lib/supabase', () => ({
 
 import { startSyncRunner } from './syncRunner'
 
+// The runner imports the replay engine on demand (chunk 84).
+const settled = () => vi.dynamicImportSettled()
+
 let authCb: ((event: string, session: unknown) => void) | undefined
 
 beforeEach(() => {
@@ -39,26 +42,32 @@ afterEach(() => {
 })
 
 describe('startSyncRunner', () => {
-  it('drains once on start (app-load trigger)', () => {
+  it('drains once on start (app-load trigger)', async () => {
     const runner = startSyncRunner()
+    await settled()
     expect(drainMock).toHaveBeenCalledTimes(1)
     runner.stop()
   })
 
-  it('drains on the window online event', () => {
+  it('drains on the window online event', async () => {
     const runner = startSyncRunner()
+    await settled()
     drainMock.mockClear()
     window.dispatchEvent(new Event('online'))
+    await settled()
     expect(drainMock).toHaveBeenCalledTimes(1)
     runner.stop()
   })
 
-  it('drains on a successful auth refresh, but ignores sign-out', () => {
+  it('drains on a successful auth refresh, but ignores sign-out', async () => {
     const runner = startSyncRunner()
+    await settled()
     drainMock.mockClear()
     authCb?.('TOKEN_REFRESHED', null)
+    await settled()
     expect(drainMock).toHaveBeenCalledTimes(1)
     authCb?.('SIGNED_OUT', null)
+    await settled()
     expect(drainMock).toHaveBeenCalledTimes(1) // unchanged
     runner.stop()
   })
@@ -66,6 +75,7 @@ describe('startSyncRunner', () => {
   it('the 60s safety net drains only when the outbox is non-empty', async () => {
     vi.useFakeTimers()
     const runner = startSyncRunner({ intervalMs: 1000 })
+    await settled()
     drainMock.mockClear()
 
     countMock.mockResolvedValue(0)
@@ -74,6 +84,7 @@ describe('startSyncRunner', () => {
 
     countMock.mockResolvedValue(2)
     await vi.advanceTimersByTimeAsync(1000)
+    await settled()
     expect(drainMock).toHaveBeenCalledTimes(1)
 
     runner.stop()
@@ -85,11 +96,13 @@ describe('startSyncRunner', () => {
     runner.stop()
     expect(unsubscribeMock).toHaveBeenCalledTimes(1)
 
+    await settled()
     drainMock.mockClear()
     countMock.mockResolvedValue(5)
     await vi.advanceTimersByTimeAsync(3000)
     window.dispatchEvent(new Event('online'))
     authCb?.('TOKEN_REFRESHED', null)
+    await settled()
 
     expect(drainMock).not.toHaveBeenCalled()
   })

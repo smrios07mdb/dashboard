@@ -14,7 +14,6 @@
  * sync) are independent; both are auth-scoped and cleared by their owners.
  */
 import { db } from '@/db/dexie'
-import { drainOutbox } from '@/db/outbox'
 import { supabase } from '@/lib/supabase'
 
 export type SyncRunner = { stop: () => void }
@@ -25,8 +24,9 @@ export function startSyncRunner(opts?: { intervalMs?: number }): SyncRunner {
   const intervalMs = opts?.intervalMs ?? DEFAULT_INTERVAL_MS
   let stopped = false
 
+  // The replay engine loads on first use, off the eager bundle (chunk 84).
   const trigger = () => {
-    if (!stopped) void drainOutbox()
+    if (!stopped) void import('@/db/outbox').then((m) => m.drainOutbox())
   }
 
   const onOnline = () => trigger()

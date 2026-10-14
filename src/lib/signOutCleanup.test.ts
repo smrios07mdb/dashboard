@@ -38,6 +38,7 @@ vi.mock('@/lib/taskUndo', () => ({
 }))
 
 import { db } from '@/db/dexie'
+import { outboxUser } from '@/db/repo'
 import {
   clearLocalDataOnSignOut,
   installSignOutCleanup,
@@ -222,6 +223,21 @@ describe('installSignOutCleanup', () => {
     handler('SIGNED_IN', { user: { id: 'u1' } })
     handler('TOKEN_REFRESHED', { user: { id: 'u1' } })
     expect(parkPendingDeletesMock).not.toHaveBeenCalled()
+  })
+
+  it('records the signed-in user for queued writes, and clears it on SIGNED_OUT (chunk 84)', () => {
+    installSignOutCleanup()
+    const handler = onAuthStateChangeMock.mock.calls[0][0] as (
+      event: string,
+      session: unknown,
+    ) => void
+
+    handler('INITIAL_SESSION', { user: { id: 'u-a' } })
+    expect(outboxUser()).toBe('u-a')
+    handler('SIGNED_IN', { user: { id: 'u-b' } })
+    expect(outboxUser()).toBe('u-b')
+    handler('SIGNED_OUT', null)
+    expect(outboxUser()).toBeUndefined()
   })
 
   it('returns an unsubscribe that tears down the listener', () => {

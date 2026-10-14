@@ -9,6 +9,14 @@
  * Idempotency: `drainOutbox()` holds a single module-level in-flight promise so
  * the four triggers (load / window.online / auth-refresh / 60s safety net in
  * syncRunner.ts) can never apply the same row twice concurrently.
+ *
+ * Per user (chunk 84): each row carries the user signed in when it was queued
+ * (`uid`). A drain replays only the current user's rows — RLS would turn
+ * another user's delete into a silent no-op and reject their insert. Other
+ * users' rows wait for them and are dropped once 7 days old; rows queued
+ * before chunk 84 have no `uid` and are dropped unreplayed. The sync state and
+ * the Sync issues list count only the current user's rows. This module loads
+ * lazily (syncRunner's dynamic import), off the eager bundle.
  */
 import { isOnline } from '@/lib/network'
 import { supabase } from '@/lib/supabase'
@@ -35,6 +43,7 @@ import {
   todayMarkFromRow,
   todayMarkToRow,
 } from './mappers'
+import { outboxUser } from './repo'
 import { syncStore } from './syncStore'
 import type { OutboxRow } from './types'
 
@@ -49,6 +58,9 @@ export type DrainResult = {
 
 /** A row is moved to the failed bucket once it has failed this many times. */
 export const MAX_ATTEMPTS = 5
+
+/** Another user's queued row is dropped once this old (chunk 84, as chunk 83). */
+const PARK_MS = 7 * 86_400_000
 
 // ---------- in-flight guard ----------
 
@@ -75,15 +87,28 @@ async function doDrain(): Promise<DrainResult> {
     return { processed: 0, failed: 0, remaining: await db.outbox.count() }
   }
 
+  // No user, nothing of anyone's to replay — and nothing to drop yet.
+  const uid = outboxUser()
+  if (!uid) return { processed: 0, failed: 0, remaining: 0 }
+
   // FIFO by createdAt, with the auto-increment id as a deterministic tiebreak
   // for rows enqueued in the same millisecond (e.g. a bulkDelete loop).
-  const rows = (await db.outbox.toArray()).sort(byCreatedAtThenId)
+  const all = (await db.outbox.toArray()).sort(byCreatedAtThenId)
+  const now = Date.now()
+  const rows: OutboxRow[] = []
+  for (const row of all) {
+    if (row.uid === uid) rows.push(row)
+    // No uid: queued before chunk 84, owner unknown. Another user's row waits
+    // for them, up to 7 days.
+    else if (!row.uid || now - Date.parse(row.createdAt) > PARK_MS) {
+      await db.outbox.delete(row.id as number)
+    }
+  }
 
   if (rows.length === 0) return finalize(0)
 
   syncStore.getState().setState('syncing')
 
-  const now = Date.now()
   let processed = 0
   for (const row of rows) {
     if (row.attempts >= MAX_ATTEMPTS) continue // failed bucket — skip
@@ -137,8 +162,14 @@ async function recordFailure(row: OutboxRow, e: unknown): Promise<void> {
 
 /** Read the post-drain outbox and set the end state per ARCH §6 / resolution 6. */
 async function finalize(processed: number): Promise<DrainResult> {
-  const { remaining, failed } = setStateFromOutbox(await db.outbox.toArray())
+  const { remaining, failed } = setStateFromOutbox(await myRows())
   return { processed, failed, remaining }
+}
+
+/** The current user's queued rows; another user's never reach the UI. */
+async function myRows(): Promise<OutboxRow[]> {
+  const uid = outboxUser()
+  return (await db.outbox.toArray()).filter((r) => uid && r.uid === uid)
 }
 
 /**
@@ -302,6 +333,9 @@ async function applyRow(row: OutboxRow): Promise<void> {
   }
 
   const rowData = spec.toRow(payload as never)
+  // A write that can insert names its owner explicitly: the user who queued
+  // it (chunk 84), never a column default.
+  if (row.op === 'insert' || spec.upsertOnConflict) rowData.user_id = row.uid
   let res: { data: unknown; error: unknown }
   if (spec.upsertOnConflict) {
     res = await supabase
@@ -340,12 +374,12 @@ const RETRY_RESET = { attempts: 0, lastError: null, lastAttemptAt: null }
 
 /** Rows in the failed bucket — surfaced in Settings → Sync issues. */
 export async function getSyncIssues(): Promise<OutboxRow[]> {
-  return db.outbox
-    .where('attempts')
-    .aboveOrEqual(MAX_ATTEMPTS)
-    .toArray()
-    .then((rows) => rows.sort(byCreatedAtThenId))
+  return (await myRows())
+    .filter(isFailed)
+    .sort(byCreatedAtThenId)
 }
+
+const isFailed = (r: OutboxRow) => r.attempts >= MAX_ATTEMPTS
 
 /** Drop a single queued mutation without applying it (user's decision). */
 export async function discardOutboxRow(id: number): Promise<void> {
@@ -355,7 +389,9 @@ export async function discardOutboxRow(id: number): Promise<void> {
 
 /** Drop every failed-bucket row; healthy queued rows are left alone. */
 export async function discardAllFailed(): Promise<void> {
-  await db.outbox.where('attempts').aboveOrEqual(MAX_ATTEMPTS).delete()
+  await db.outbox.bulkDelete(
+    (await myRows()).filter(isFailed).map((r) => r.id as number),
+  )
   await refreshSyncState()
 }
 
@@ -367,16 +403,15 @@ export async function retryOutboxRow(id: number): Promise<DrainResult> {
 
 /** Reset every failed row's backoff/attempts and re-run the drain. */
 export async function retryAllFailed(): Promise<DrainResult> {
-  await db.outbox
-    .where('attempts')
-    .aboveOrEqual(MAX_ATTEMPTS)
-    .modify(RETRY_RESET)
+  for (const r of (await myRows()).filter(isFailed)) {
+    await db.outbox.update(r.id as number, RETRY_RESET)
+  }
   return drainOutbox()
 }
 
 /** Recompute the sync state from the current outbox (used after discards). */
 async function refreshSyncState(): Promise<void> {
-  setStateFromOutbox(await db.outbox.toArray())
+  setStateFromOutbox(await myRows())
 }
 
 /**
