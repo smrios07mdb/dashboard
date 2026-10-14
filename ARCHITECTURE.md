@@ -11,7 +11,7 @@ Single-user installable PWA. Runs on iPhone, iPad, and Mac (Safari + installable
 - Unified dashboard of work + personal tasks, with drill-down into category and subcategory views
 - User-defined subcategories within Work and Personal (CRUD + merge + reorder)
 - Task CRUD, inline edit, time estimates, totals at every level
-- Daily morning + night routine checklists with streaks and 14-day history
+- Morning and night routine checklists inside Today (optional, collapsible)
 - AI triage ("What's next?" given available time)
 - Apple Calendar integration: read busy ranges, propose time blocks, create events
 - Web Push notifications for task reminders (iOS 16.4+ installed PWA)
@@ -364,13 +364,15 @@ The proxy returns `{ ok: true, data }` with Anthropic's Messages JSON **unmodifi
 
 ---
 
-## 11. Streak calculation rule
+## 11. Streak calculation rule (tasks)
 
-A routine has a streak of N when every routine_item that **existed at start-of-day** (00:00 in `settings.timezone`) was completed for N consecutive days ending yesterday — or today if all checked.
+A day counts toward the streak when at least one task's `completedAt` falls on that day in `settings.timezone`.
 
-Items created on day X are **not required** for day X's streak credit.
+The streak is the run of counting days back from today — or from yesterday while today has none yet, so it survives until the day ends. The first day with no completion ends it.
 
-Items archived on day X are **not required** for day X's streak credit; archival takes effect from the day of archival forward. Equivalently, an item is required for day X iff it was created before X began and was not archived before X ended.
+It reads every task the Dashboard holds, in any subcategory, archived or not; deleted tasks are gone and don't count. It is derived in render (`lib/taskStreak`), so completing a task and Undo move the hero chip at once, with no refetch.
+
+The routines streak and the 14-day grid were retired in chunk 78; `routine_items` / `routine_logs` and their sync, export and import are unchanged.
 
 ---
 
@@ -413,18 +415,19 @@ Insights reports estimates, not tracked time (chunk 70): the headline cards lead
 
 **Dashboard Today panel (chunk 41 merge, built on `main`):**
 - The dashboard mounts a Today panel in one of three variants — `stacked`/`banner` full-width above the columns, `rail` beside them — or `off` (renders nothing), chosen in Settings → Display ("Today list layout"). The variant preference (`localStorage['hup:todayList']`, Zustand) is a per-device display setting: no schema, no sync. Today membership itself is a `Set<taskId>` seeded from `autoTodayIds` — P1 tasks, tasks due today or overdue by `dueAt`, and `remindAt` due/overdue — days in the Settings time zone (chunk 66) — and toggled via the sun button on panel + dashboard rows; the manual pins and removals are **synced through `today_marks`** (chunk 64 — see §4 "Today marks"), one upserted row per toggle, so a plan made on one device shows on the others. They hold for the Settings-zone day they were made on and stop applying at day rollover; the auto-derived portion re-derives on every seed/reconcile, and nothing is applied until both tasks and marks have loaded. `hup:todayPlan`, the per-device localStorage entry that held the deltas from chunk 43, is read once on the first loaded render, moved onto marks (a server mark already there for today wins) and removed; nothing writes it any more. Category/Subcategory drill-downs deliberately omit the sun toggle. A due date is a calendar day set from ⋯ → Set due date…, stored as 00:00 of that day in `settings.timezone`; it never turns Overdue during its own day (chunk 66). While the plan holds fewer than three tasks (done ones count), the stacked and rail layouts suggest open tasks to pin: priority, then soonest due date, then oldest, taking turns between categories (`lib/todaySuggest`, chunk 67). Add writes an ordinary pin; Skip is session-local and writes nothing.
+- Routines in Today (chunk 78): the routine checklists sit at the bottom of the Today panel in `stacked` and `rail`, and in their own card below where the panel would be in `banner` and `off`; the block is collapsed by default, with the open state per viewer in `localStorage['hup:todayRoutinesOpen']`, and `/routines` falls to the catch-all redirect.
 
 **Week Planner (chunks 36–38):**
 - `/planner` (lazy-loaded, second primary tab): desktop 7-column week grid + unscheduled tray; mobile day strip + single-day timeline. Busy overlays (chunk 36), scheduled blocks with native pointer drag / move / resize / Schedule sheet / done / unschedule (chunk 37), Fill-my-week proposals and carryover (chunk 38), opt-in Apple Calendar mirror of every block write — fire-and-forget after the Supabase write, never awaited by the optimistic handlers, with a per-week reconcile (chunk 39).
 - Chunk 38 mechanics: `Fill my week` (desktop header only, disabled on a past week / weekend / with no P1–P2 tray task) proposes the earliest open 09–18 weekday slot for every P1/P2 tray task, packed sequentially around busy + scheduled + earlier proposals; proposals render as dashed previews plus dimmed `→ DAY HH:MM` tray cards until `Place all` / `Clear`. A past, not-done block goes hollow (`· unfinished`) on both breakpoints; `→` on the desktop hover row or `Move to next open slot` in the block action sheet moves it to the next open slot of the **current** week (weekends included). Done styling always wins over carry.
 - Inline styles in the planner never mix a CSS shorthand with one of its longhands (React 19 conflicting-style warning); variant borders/decorations go through class names or longhands.
 - Busy fetch is screen-level: one `getBusy` per visible week (Mon 00:00 → Sun 24:00, local ISO instants), simple in-memory per-week cache keyed on `dashboardRefreshKey`; `lib/busyCache`/`BusyStrip` remain the Dashboard's day-scoped concern.
-- All planner day/time math is browser-local (`lib/plannerGeometry`); `settings.timezone` stays a routines/streak, Insights, reminder/due-date entry and Today concern; the planner stays browser-local.
+- All planner day/time math is browser-local (`lib/plannerGeometry`); `settings.timezone` stays a task streak, Insights, reminder/due-date entry and Today concern; the planner stays browser-local.
 - Capacity math (`lib/plannerCapacity`) already accepts busy + scheduled inputs; chunk 36 passes `scheduled = []` so "planned" is honestly 0m.
 - The tray reuses the chunk-33 global sort (`hupo.taskSort` + `TaskSortControl`); the five `--busy-*` CSS variables in `src/index.css` are the only sanctioned raw values beyond the Daylight tokens.
 
 **Notebook (chunk 58; visual spec `hupomnemata_handoff/notebook/`):**
-- Route and nav: one lazy-loaded route, `notebook/:noteId?`, under `ProtectedLayout` — a single entry rather than two, so the screen and an unsaved draft stay mounted between list and note. At ≥640px `:noteId` selects the note in a two-pane view; below 640px it is a full-screen editor. An unknown id falls back to `/notebook`. Notebook is the sixth primary tab, fifth in order: Dashboard · Planner · Routines · Insights · Notebook · Settings. Below 640px the bottom nav and the shell's bottom-nav clearance are dropped on `/notebook/:noteId` — that route only.
+- Route and nav: one lazy-loaded route, `notebook/:noteId?`, under `ProtectedLayout` — a single entry rather than two, so the screen and an unsaved draft stay mounted between list and note. At ≥640px `:noteId` selects the note in a two-pane view; below 640px it is a full-screen editor. An unknown id falls back to `/notebook`. Notebook is the fifth primary tab, fourth in order: Dashboard · Planner · Insights · Notebook · Settings. Below 640px the bottom nav and the shell's bottom-nav clearance are dropped on `/notebook/:noteId` — that route only.
 - List: search, an All · Freeform · Attached segment, then a `PINNED` group and a `RECENT` group, each by `updatedAt` desc. The `RECENT` label shows whenever unpinned notes exist, with or without a `PINNED` group above it. A row shows the title (or the first body line in italic when untitled), a two-line excerpt, a relative time and the attachment chip. Search is client-side over the Dexie cache, case-insensitive, over title + body, highlighted with `<mark>` built from text nodes — never `innerHTML`.
 - Attachment chip: category dot + subcategory name, or the task title with a `TASK` micro-label; archived subcategories render normally. A detached note (`detachedLabel` set, both links null) gets a hollow dashed chip with the name struck through.
 - Notes on completed tasks are hidden by default behind a `+N ON COMPLETED TASKS` row at the bottom of the list; once revealed, a `HIDE COMPLETED TASKS’ NOTES` row hides them again. The reveal is session-scoped component state, like `SubcategorySection`'s completed-task reveal — there is no persisted hide-completed preference. Freeform and subcategory notes are never hidden.
