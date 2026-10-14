@@ -149,7 +149,7 @@ describe('task row notes live in the ⋯ menu (chunk 71)', () => {
   it('0 notes: the menu offers "Add a note", which opens the sheet', async () => {
     row([])
     fireEvent.click(await menuItem(/Add a note/))
-    expect(openTaskNotes).toHaveBeenCalledWith('t-open')
+    expect(openTaskNotes).toHaveBeenCalledWith('t-open', undefined, expect.any(Function))
   })
 
   it('1 note: the menu reads "Notes" with the relative time, and opens the sheet', async () => {
@@ -157,7 +157,7 @@ describe('task row notes live in the ⋯ menu (chunk 71)', () => {
     const item = await menuItem(/^Notes/)
     expect(item).toHaveTextContent(`Notes${noteRel(ONE[0].updatedAt)}`)
     fireEvent.click(item)
-    expect(openTaskNotes).toHaveBeenCalledWith('t-open')
+    expect(openTaskNotes).toHaveBeenCalledWith('t-open', undefined, expect.any(Function))
   })
 
   it('2 notes: the menu reads "Notes" with the count, and opens the sheet', async () => {
@@ -166,7 +166,7 @@ describe('task row notes live in the ⋯ menu (chunk 71)', () => {
     expect(item).toHaveTextContent('Notes2')
     expect(screen.queryByRole('menuitem', { name: /Edit notes/ })).toBeNull()
     fireEvent.click(item)
-    expect(openTaskNotes).toHaveBeenCalledWith('t-open')
+    expect(openTaskNotes).toHaveBeenCalledWith('t-open', undefined, expect.any(Function))
   })
 })
 

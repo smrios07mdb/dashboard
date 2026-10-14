@@ -57,6 +57,8 @@ export type TaskMenuProps = {
   notes: Note[]
   onOpenNotes: () => void
   onDelete: () => void | Promise<void>
+  /** Where focus goes when the Block time sheet closes (chunk 77c). */
+  onSheetClose?: (e: Event) => void
   /** TaskRow's roving-tabindex props for the ⋯ trigger (chunk 77). */
   triggerProps?: {
     'data-row-nav'?: string
@@ -76,6 +78,7 @@ export default function TaskMenu({
   notes,
   onOpenNotes,
   onDelete,
+  onSheetClose,
   triggerProps,
 }: TaskMenuProps) {
   const isTouch = useIsTouchDevice()
@@ -187,6 +190,7 @@ export default function TaskMenu({
         task={task}
         open={blockTimeOpen}
         onOpenChange={setBlockTimeOpen}
+        onCloseAutoFocus={onSheetClose}
       />
     </>
   )

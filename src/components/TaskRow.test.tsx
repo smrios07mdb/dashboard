@@ -768,7 +768,8 @@ describe('TaskRow — pickers opened from ⋯ (chunk 77a)', () => {
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
     await settle()
     await openFromMenu(/Add a note/)
-    expect(openTaskNotes).toHaveBeenCalledWith('t1')
+    // Chunk 77c: plus the sheet's onCloseAutoFocus, which returns focus to ⋯.
+    expect(openTaskNotes).toHaveBeenCalledWith('t1', undefined, expect.any(Function))
   })
 })
 
@@ -851,5 +852,63 @@ describe('TaskRow — mouse hand-off from ⋯ (chunk 77b)', () => {
     fireEvent.pointerLeave(block, mouse)
     expect(screen.getByRole('menu')).toHaveFocus()
     expect(block).not.toHaveAttribute('data-highlighted')
+  })
+})
+
+describe('TaskRow — row focus follow-ups (chunk 77c)', () => {
+  const menuButton = () =>
+    screen.getByRole('button', { name: 'Actions for "Atlas launch"' })
+
+  it('(1) a fast Home then Tab leaves the row', async () => {
+    vi.useRealTimers()
+    const user = userEvent.setup({ delay: null })
+    twoRows()
+    const first = screen.getByRole('group', { name: 'Atlas launch' })
+    const second = screen.getByRole('group', { name: 'Beacon review' })
+    act(() => within(first).getByRole('button', { name: /^Actions for/ }).focus())
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowLeft' })
+    await settle()
+    expect(document.activeElement).toHaveAttribute('data-row-nav', 'today')
+    // Home outside act, as a browser delivers it: React's act would flush
+    // a deferred stop update before Tab could see the stale one.
+    ;(document.activeElement as HTMLElement).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Home', bubbles: true }),
+    )
+    expect(document.activeElement).toHaveAttribute('data-row-nav', 'complete')
+    await Promise.resolve() // only microtasks before the next key
+    await user.tab()
+    expect(document.activeElement?.closest("[role=group]")).toBe(second)
+  })
+
+  it('(2) closing Block time returns focus to ⋯', async () => {
+    vi.useRealTimers()
+    row()
+    fireEvent.keyDown(menuButton(), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Block time/ }))
+    await screen.findByRole('dialog')
+    await settle()
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    await settle()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(menuButton()).toHaveFocus()
+    expect(menuButton()).toHaveAttribute('tabindex', '0')
+  })
+
+  it('(4) focus moved elsewhere before the sheet closes is kept', async () => {
+    vi.useRealTimers()
+    row()
+    // Looked up first: the open modal sheet hides the row from the a11y tree.
+    const sun = screen.getByRole('button', { name: 'Add "Atlas launch" to Today' })
+    fireEvent.keyDown(menuButton(), { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Block time/ }))
+    await screen.findByRole('dialog')
+    await settle()
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    // The sheet has unmounted (no exit animation in jsdom); the refocus
+    // frame has not run yet.
+    act(() => sun.focus())
+    await settle()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(sun).toHaveFocus()
   })
 })

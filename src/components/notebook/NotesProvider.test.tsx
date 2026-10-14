@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { DndContext } from '@dnd-kit/core'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -60,6 +61,7 @@ import {
   useTaskNotes,
 } from './notesContext'
 import NotesProvider from './NotesProvider'
+import TaskRow from '@/components/TaskRow'
 import { useNoteWriter } from './useNoteWriter'
 
 /** A second, older note on the open task — makes it a "2+" task. */
@@ -470,5 +472,52 @@ describe('task notes sheet (D6)', () => {
     // (Behind the modal sheet the page is aria-hidden, so find it by text.)
     fireEvent.click(screen.getByText('delete n-task'))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+})
+
+describe('task notes sheet opened from a row ⋯ (chunk 77c)', () => {
+  it('(3) closing it returns focus to that row’s ⋯', async () => {
+    // Radix Popover / DropdownMenu jsdom shims, as in TaskRow.test.tsx.
+    Element.prototype.hasPointerCapture ??= () => false
+    Element.prototype.releasePointerCapture ??= () => {}
+    Element.prototype.scrollIntoView ??= () => {}
+    repoMock.notes.listAll.mockResolvedValue(NOTES)
+    render(
+      <MemoryRouter>
+        <NotesProvider>
+          <DndContext>
+            <TaskRow
+              task={TASKS[0]}
+              categories={[]}
+              subcategories={[]}
+              onComplete={vi.fn()}
+              onEditTitle={vi.fn()}
+              onEditMinutes={vi.fn()}
+              onDelete={vi.fn()}
+              onMoveToSubcategory={vi.fn()}
+              onSetReminder={vi.fn()}
+              onSetDue={vi.fn()}
+              onSetPriority={vi.fn()}
+              timeZone="America/New_York"
+            />
+          </DndContext>
+        </NotesProvider>
+      </MemoryRouter>,
+    )
+    const menu = screen.getByRole('button', {
+      name: 'Actions for "Ship the pricing page"',
+    })
+    fireEvent.keyDown(menu, { key: 'Enter' })
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: /^(Notes|Add a note)/ }),
+    )
+    await sheet()
+    const settle = () => act(() => new Promise((r) => setTimeout(r, 300)))
+    await settle()
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await settle()
+    expect(menu).toHaveFocus()
+    expect(menu).toHaveAttribute('tabindex', '0')
   })
 })

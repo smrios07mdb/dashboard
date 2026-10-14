@@ -21,8 +21,15 @@ export type NotesContextValue = {
   notes: Note[]
   /** A write that already succeeded — applied here without a refetch. */
   report: (change: NoteChange) => void
-  /** Open the task's notes sheet, optionally straight at one note. */
-  openTaskNotes: (taskId: string, noteId?: string) => void
+  /**
+   * Open the task's notes sheet, optionally straight at one note, and with
+   * the sheet's `onCloseAutoFocus` (chunk 77c — ⋯ gets focus back).
+   */
+  openTaskNotes: (
+    taskId: string,
+    noteId?: string,
+    onCloseAutoFocus?: (e: Event) => void,
+  ) => void
 }
 
 const INERT: NotesContextValue = {
