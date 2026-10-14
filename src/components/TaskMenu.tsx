@@ -57,6 +57,8 @@ export type TaskMenuProps = {
   notes: Note[]
   onOpenNotes: () => void
   onDelete: () => void | Promise<void>
+  /** Where focus goes when the Block time sheet closes (chunk 77c). */
+  onSheetClose?: (e: Event) => void
   /** TaskRow's roving-tabindex props for the ⋯ trigger (chunk 77). */
   triggerProps?: {
     'data-row-nav'?: string
@@ -76,13 +78,18 @@ export default function TaskMenu({
   notes,
   onOpenNotes,
   onDelete,
+  onSheetClose,
   triggerProps,
 }: TaskMenuProps) {
   const isTouch = useIsTouchDevice()
   const [blockTimeOpen, setBlockTimeOpen] = useState(false)
-  // Set by the three picker items (chunk 77a): the menu then keeps focus off
-  // ⋯ as it closes, so the non-modal picker it just opened stays open.
-  const handingOff = useRef(false)
+  // Set by the three picker items (chunk 77a) and the two sheet items (77c):
+  // the menu then keeps focus off ⋯ as it closes, so the picker or sheet it
+  // hands off to keeps it. A sheet item stores its opener instead of `true`:
+  // the sheet opens only once the menu has closed, since the menu's focus
+  // trap stays active through its exit animation and would pull focus back
+  // out of a sheet mounting inside that window.
+  const handingOff = useRef<boolean | (() => void)>(false)
   // Radix focuses a menu item on pointer move and the menu on pointer leave.
   // The closing menu still gets both while the picker sits over it (chunk
   // 77b), so a hand-off item skips them; hover is untouched otherwise.
@@ -109,9 +116,11 @@ export default function TaskMenu({
         <DropdownMenuContent
           align="end"
           onCloseAutoFocus={(e) => {
-            if (handingOff.current) {
+            const open = handingOff.current
+            if (open) {
               e.preventDefault()
               handingOff.current = false
+              if (open !== true) open()
             }
           }}
         >
@@ -159,11 +168,19 @@ export default function TaskMenu({
             <Bell className="size-3.5" aria-hidden />
             {task.remindAt ? 'Edit reminder' : 'Set reminder…'}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setBlockTimeOpen(true)}>
+          <DropdownMenuItem
+            onSelect={() => {
+              handingOff.current = () => setBlockTimeOpen(true)
+            }}
+          >
             <CalendarClock className="size-3.5" aria-hidden />
             Block time
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onOpenNotes()}>
+          <DropdownMenuItem
+            onSelect={() => {
+              handingOff.current = onOpenNotes
+            }}
+          >
             <NoteGlyph size={14} aria-hidden />
             {notes.length > 0 ? 'Notes' : 'Add a note'}
             {notes.length > 0 && (
@@ -187,6 +204,7 @@ export default function TaskMenu({
         task={task}
         open={blockTimeOpen}
         onOpenChange={setBlockTimeOpen}
+        onCloseAutoFocus={onSheetClose}
       />
     </>
   )

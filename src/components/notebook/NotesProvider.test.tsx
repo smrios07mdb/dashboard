@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { DndContext } from '@dnd-kit/core'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /*
  * NotesProvider + the task notes sheet (chunk 59, D5/D6).
@@ -60,6 +61,7 @@ import {
   useTaskNotes,
 } from './notesContext'
 import NotesProvider from './NotesProvider'
+import TaskRow from '@/components/TaskRow'
 import { useNoteWriter } from './useNoteWriter'
 
 /** A second, older note on the open task — makes it a "2+" task. */
@@ -470,5 +472,109 @@ describe('task notes sheet (D6)', () => {
     // (Behind the modal sheet the page is aria-hidden, so find it by text.)
     fireEvent.click(screen.getByText('delete n-task'))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+})
+
+/** A real TaskRow inside the real provider (chunk 77c); `t-archived` has no notes. */
+function rowInProvider(task = TASKS.find((t) => t.id === 't-archived')!) {
+  // Radix Popover / DropdownMenu jsdom shims, as in TaskRow.test.tsx.
+  Element.prototype.hasPointerCapture ??= () => false
+  Element.prototype.releasePointerCapture ??= () => {}
+  Element.prototype.scrollIntoView ??= () => {}
+  repoMock.notes.listAll.mockResolvedValue(NOTES)
+  render(
+    <MemoryRouter>
+      <NotesProvider>
+        <DndContext>
+          <TaskRow
+            task={task}
+            categories={[]}
+            subcategories={[]}
+            onComplete={vi.fn()}
+            onEditTitle={vi.fn()}
+            onEditMinutes={vi.fn()}
+            onDelete={vi.fn()}
+            onMoveToSubcategory={vi.fn()}
+            onSetReminder={vi.fn()}
+            onSetDue={vi.fn()}
+            onSetPriority={vi.fn()}
+            timeZone="America/New_York"
+          />
+        </DndContext>
+      </NotesProvider>
+    </MemoryRouter>,
+  )
+  return screen.getByRole('button', { name: `Actions for "${task.title}"` })
+}
+const settle = () => act(() => new Promise((r) => setTimeout(r, 300)))
+
+describe('task notes sheet opened from a row ⋯ (chunk 77c)', () => {
+  it('(3) closing it returns focus to that row’s ⋯', async () => {
+    const menu = rowInProvider()
+    fireEvent.keyDown(menu, { key: 'Enter' })
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: /^(Notes|Add a note)/ }),
+    )
+    await sheet()
+    await settle()
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await settle()
+    expect(menu).toHaveFocus()
+    expect(menu).toHaveAttribute('tabindex', '0')
+  })
+
+  describe('(5) the sheet keeps focus while the menu closes', () => {
+    // The browser keeps the menu mounted through its exit animation; this
+    // stub gives Radix Presence one for `[role=menu]` (as in the chunk-77b
+    // cases), and the test ends it the way the browser does.
+    let restore: () => void = () => undefined
+    beforeEach(() => {
+      const real = window.getComputedStyle.bind(window)
+      const spy = vi
+        .spyOn(window, 'getComputedStyle')
+        .mockImplementation((el, pseudo) => {
+          const styles = real(el, pseudo)
+          if (el.getAttribute('role') !== 'menu') return styles
+          return new Proxy(styles, {
+            get: (target, prop) => {
+              if (prop === 'animationName') {
+                return el.getAttribute('data-state') === 'closed' ? 'exit' : 'enter'
+              }
+              const value = Reflect.get(target, prop) as unknown
+              return typeof value === 'function' ? value.bind(target) : value
+            },
+          })
+        })
+      restore = () => spy.mockRestore()
+    })
+    afterEach(() => restore())
+
+    it.each(['keyboard', 'mouse'] as const)('by %s', async (how) => {
+      const mouse = { pointerType: 'mouse' }
+      const menu = rowInProvider()
+      fireEvent.keyDown(menu, { key: 'Enter' })
+      const item = await screen.findByRole('menuitem', {
+        name: /^(Notes|Add a note)/,
+      })
+      if (how === 'keyboard') {
+        act(() => item.focus())
+        fireEvent.keyDown(item, { key: 'Enter' })
+      } else {
+        fireEvent.pointerMove(item, mouse)
+        fireEvent.pointerDown(item, mouse)
+        fireEvent.pointerUp(item, mouse)
+        fireEvent.click(item)
+      }
+      await settle()
+      // The menu's exit animation ends: Radix runs its onCloseAutoFocus.
+      const closing = screen.queryByRole('menu', { hidden: true })
+      const end = Object.assign(new Event('animationend'), { animationName: 'exit' })
+      if (closing) act(() => void closing.dispatchEvent(end))
+      const dialog = await sheet()
+      await settle()
+      expect(screen.queryByRole('menu', { hidden: true })).toBeNull()
+      expect(dialog).toContainElement(document.activeElement as HTMLElement)
+    })
   })
 })
