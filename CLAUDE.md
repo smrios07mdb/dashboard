@@ -28,7 +28,7 @@ After completing any chunk:
 ## Definition of done
 A chunk is done when:
 - All acceptance criteria in the chunk prompt pass.
-- `npm run build` and `npm test` are both green.
+- `npm run build` and `npm test` are both green, with the tests run in three zones: `TZ=America/New_York`, `TZ=UTC` and `TZ=Asia/Tokyo` (Tokyo added chunk 81).
 - The deploy workflow runs green on the push — unless the push carries `[skip ci]` (see below).
 - `PROGRESS.md` reflects completion per the rules above.
 
