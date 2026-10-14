@@ -1,15 +1,28 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render, renderHook, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// The file also holds `useBusyToday`; only the two views are under test.
+// The file also holds `useBusyToday`; its fetch is mocked at the module edges.
 vi.mock('@/db/repo', () => ({ repo: { settings: { get: vi.fn() } } }))
+vi.mock('@/lib/auth', () => ({ useSession: () => ({ user: { id: 'u1' } }) }))
+vi.mock('@/lib/busyCache', () => ({ getBusyDay: vi.fn() }))
+vi.mock('@/lib/session', () => ({
+  withSessionRetry: <T,>(action: () => Promise<T>) => action(),
+}))
+vi.mock('@/lib/calendarApi', () => ({ isAuthFailed: () => false }))
 
-import BusyStrip, { BusyInline, type BusyToday } from './BusyStrip'
+import { repo } from '@/db/repo'
+import { getBusyDay } from '@/lib/busyCache'
+
+import BusyStrip, {
+  BusyInline,
+  useBusyToday,
+  type BusyToday,
+} from './BusyStrip'
 
 /* The two views of today's busy times (chunk 74), one case per `BusyToday` kind. */
 
-const READY: BusyToday = { kind: 'ready', text: '12–12:30' }
-const EMPTY: BusyToday = { kind: 'ready', text: '' }
+const READY: BusyToday = { kind: 'ready', text: '12–12:30', freeMin: 120 }
+const EMPTY: BusyToday = { kind: 'ready', text: '', freeMin: 540 }
 
 describe('BusyInline', () => {
   it.each<BusyToday>([{ kind: 'hidden' }, { kind: 'reconnect' }])(
@@ -80,5 +93,30 @@ describe('BusyStrip', () => {
     expect(
       screen.getByText('Couldn’t load busy times — retry on next refresh.'),
     ).toBeInTheDocument()
+  })
+})
+
+describe('useBusyToday', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('carries the free minutes left today in the ready state (chunk 87)', async () => {
+    // Wed 2026-10-14 10:07 in New York: counted from 10:15, busy 12–13.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-14T10:07:00-04:00'))
+    vi.mocked(repo.settings.get).mockResolvedValue({
+      caldavStatus: 'ok',
+      timezone: 'America/New_York',
+    } as Awaited<ReturnType<typeof repo.settings.get>>)
+    vi.mocked(getBusyDay).mockResolvedValue([
+      { start: '2026-10-14T16:00:00.000Z', end: '2026-10-14T17:00:00.000Z' },
+    ])
+    const { result } = renderHook(() => useBusyToday())
+    await waitFor(() => expect(result.current.kind).toBe('ready'))
+    expect(getBusyDay).toHaveBeenCalledWith('2026-10-14', 'America/New_York')
+    expect(result.current).toEqual({
+      kind: 'ready',
+      text: '12–13',
+      freeMin: 465 - 60,
+    })
   })
 })

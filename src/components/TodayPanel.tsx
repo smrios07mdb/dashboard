@@ -61,6 +61,12 @@ export type TodayPanelProps = {
    * banner and off.
    */
   routines?: React.ReactNode
+  /**
+   * Minutes free today, from `useBusyToday` (chunk 87). A number sizes the
+   * suggestions to it minus the plan's open estimates; null or absent (no
+   * calendar, loading, error) leaves them unsized.
+   */
+  freeMin?: number | null
 }
 
 function todayDateLabel(timeZone: string): string {
@@ -269,6 +275,7 @@ function TodayChip({
 // row sun toggle's name (`TaskRow`), and both render on one page.
 function SuggestionBlock({
   suggestions,
+  budgetMin,
   onAdd,
   onAddAll,
   onSkip,
@@ -276,6 +283,8 @@ function SuggestionBlock({
   style,
 }: {
   suggestions: TodaySuggestion[]
+  /** Minutes the suggestions were sized to (chunk 87); null when unsized. */
+  budgetMin: number | null
   onAdd: (id: string) => void
   onAddAll: () => void
   onSkip: (id: string) => void
@@ -290,9 +299,16 @@ function SuggestionBlock({
         className="flex items-center justify-between"
         style={{ gap: 8 }}
       >
-        <h3 className="label" style={{ margin: 0, color: 'var(--ink-2)' }}>
-          Suggested
-        </h3>
+        <div className="flex items-baseline" style={{ gap: 8 }}>
+          <h3 className="label" style={{ margin: 0, color: 'var(--ink-2)' }}>
+            Suggested
+          </h3>
+          {budgetMin !== null && (
+            <span className="label text-ink-3">
+              fits {fmtMin(budgetMin)} free
+            </span>
+          )}
+        </div>
         {suggestions.length >= 2 && (
           <button
             type="button"
@@ -407,6 +423,7 @@ export default function TodayPanel({
   mobile = false,
   busy,
   routines,
+  freeMin = null,
 }: TodayPanelProps) {
   // Let a just-completed task linger ~1s so the strike-through reads before the
   // row drops. (Hooks run before the `off` early-return so hook order is stable.)
@@ -539,12 +556,30 @@ export default function TodayPanel({
 
   // Offered while the plan is short. Done members count toward the target, so
   // a plan that reached it never asks for more. Never in the banner layout.
-  const suggestions = banner
-    ? []
-    : suggestToday(data, todaySet, skipped, TODAY_PLAN_TARGET - all.length)
+  // Chunk 87: with the calendar connected, sized to the time left today.
+  const limit = TODAY_PLAN_TARGET - all.length
+  const budgetMin = freeMin === null ? null : freeMin - minutes
+  const unsized = banner ? [] : suggestToday(data, todaySet, skipped, limit)
+  const suggestions =
+    budgetMin === null
+      ? unsized
+      : suggestToday(data, todaySet, skipped, limit, budgetMin)
+  // Open work exists but none of it fits: one quiet line instead of the block.
+  const noFit =
+    budgetMin !== null && unsized.length > 0 && suggestions.length === 0
+  const noFitLine = (margin: string) => (
+    <p
+      style={{ margin, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.5 }}
+    >
+      {budgetMin !== null && budgetMin <= 0
+        ? 'No free time left today.'
+        : `Nothing open fits the ${fmtMin(budgetMin ?? 0)} left today.`}
+    </p>
+  )
   const suggestionBlock = (marginTop: number) => (
     <SuggestionBlock
       suggestions={suggestions}
+      budgetMin={budgetMin}
       mobile={mobile}
       style={{ marginTop }}
       onAdd={(id) => onToggleToday(id, true)}
@@ -688,10 +723,10 @@ export default function TodayPanel({
           ))}
         </div>
       )
-  } else if (visible.length === 0 && suggestions.length > 0) {
+  } else if (visible.length === 0 && (suggestions.length > 0 || noFit)) {
     bodyEl = (
       <>
-        {suggestionBlock(10)}
+        {noFit ? noFitLine('10px 0 0') : suggestionBlock(10)}
         <p
           style={{
             margin: '10px 0 0',
@@ -766,7 +801,9 @@ export default function TodayPanel({
             />
           </div>
         )}
-        {suggestions.length > 0 && suggestionBlock(mobile ? 12 : 6)}
+        {suggestions.length > 0
+          ? suggestionBlock(mobile ? 12 : 6)
+          : noFit && noFitLine(`${mobile ? 12 : 6}px 0 0`)}
       </>
     )
   }

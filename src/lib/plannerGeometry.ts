@@ -12,6 +12,8 @@
  * routines/streak concern.
  */
 
+import { WORK_END_MIN, WORK_START_MIN } from '@/lib/workDay'
+
 /** Grid constants (DESIGN_NOTES geometry table). Minutes since midnight. */
 export const PLANNER = {
   /** Desktop hour height (px). */
@@ -29,8 +31,8 @@ export const PLANNER = {
   winFullStart: 7 * 60,
   winFullEnd: 21 * 60,
   /** Capacity working window: Mon–Fri 09:00–18:00. */
-  workStart: 9 * 60,
-  workEnd: 18 * 60,
+  workStart: WORK_START_MIN,
+  workEnd: WORK_END_MIN,
 } as const
 
 // ── clock formatting (24h everywhere in the planner) ─────────────────────

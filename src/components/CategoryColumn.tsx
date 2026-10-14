@@ -14,6 +14,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 
 import AddSubcategoryInline from '@/components/AddSubcategoryInline'
+import type { DeleteListChoice } from '@/components/DeleteSubcategoryDialog'
 import HorizonControl from '@/components/HorizonControl'
 import SubcategorySection from '@/components/SubcategorySection'
 import TaskSortControl from '@/components/TaskSortControl'
@@ -88,7 +89,7 @@ export type CategoryColumnProps = {
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,
-    options: { moveToId?: string; cascadeDelete?: boolean },
+    choice: DeleteListChoice,
   ) => void | Promise<void>
   onMergeSubcategory: (
     sourceId: string,
@@ -382,7 +383,7 @@ type SortableSubSectionProps = {
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,
-    options: { moveToId?: string; cascadeDelete?: boolean },
+    choice: DeleteListChoice,
   ) => void | Promise<void>
   onMergeSubcategory: (
     sourceId: string,

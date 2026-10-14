@@ -10,17 +10,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import type { Subcategory } from '@/db/types'
+import type { Category, Subcategory } from '@/db/types'
 import { cn } from '@/lib/utils'
 
 /*
- * Controlled dialog for subcategory deletion. Three internal flows:
+ * Controlled dialog for deleting a list (chunk 87, UX audit #4). It decides by
+ * the list's OPEN tasks:
  *
- *   - No tasks               → single destructive confirm → archive
- *   - Has tasks, no others   → cascade-delete-only confirm → archive
- *                              (no "move to" target available)
- *   - Has tasks + others     → radio between Move to <picker> and
- *                              Delete tasks too → confirm
+ *   - No open tasks → one plain destructive confirm → archive. Completed
+ *                     tasks stay with the archived list (history).
+ *   - Open tasks    → radio between Move them to… (any live list, any
+ *                     category), Mark them done, and Delete them → confirm.
+ *
+ * What each choice does with completed rows lives in `lib/deleteList`.
  *
  * DeleteConfirm.tsx (chunk 7) handles only the simple
  * trigger+title+description+confirm shape — this dialog needs internal
@@ -31,36 +33,68 @@ import { cn } from '@/lib/utils'
  * chunk-7 destructive-confirm precedent.
  */
 
+/** What to do with the list's tasks; `none` when it has no open ones. */
+export type DeleteListChoice =
+  | { kind: 'none' }
+  | { kind: 'move'; toId: string }
+  | { kind: 'complete' }
+  | { kind: 'delete' }
+
 export type DeleteSubcategoryDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   subcategory: Subcategory
-  /** Total tasks belonging to this subcategory (any completion state). */
-  taskCount: number
-  /** Other non-archived subs in the same category — for the move picker. */
-  otherSubsInCategory: Subcategory[]
-  onConfirm: (
-    options: { moveToId?: string; cascadeDelete?: boolean },
-  ) => void | Promise<void>
+  /** Open tasks in this list. */
+  openCount: number
+  /** Completed tasks in this list (any age). */
+  doneCount: number
+  /** Every live list except this one, in any category — the move picker. */
+  targets: Subcategory[]
+  categories: Category[]
+  onConfirm: (choice: DeleteListChoice) => void | Promise<void>
 }
 
-type Action = 'move' | 'cascade'
+type Action = 'move' | 'complete' | 'delete'
+
+/** Targets grouped by category: this list's own first, then `categories` order. */
+function groupTargets(
+  targets: Subcategory[],
+  categories: Category[],
+  ownCategoryId: string,
+): { category: Category; subs: Subcategory[] }[] {
+  const ordered = [
+    ...categories.filter((c) => c.id === ownCategoryId),
+    ...categories.filter((c) => c.id !== ownCategoryId),
+  ]
+  return ordered
+    .map((category) => ({
+      category,
+      subs: targets
+        .filter((s) => s.categoryId === category.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    }))
+    .filter((g) => g.subs.length > 0)
+}
+
+const plural = (n: number) => (n === 1 ? '' : 's')
 
 export default function DeleteSubcategoryDialog({
   open,
   onOpenChange,
   subcategory,
-  taskCount,
-  otherSubsInCategory,
+  openCount,
+  doneCount,
+  targets,
+  categories,
   onConfirm,
 }: DeleteSubcategoryDialogProps) {
-  const hasTasks = taskCount > 0
-  const hasOthers = otherSubsInCategory.length > 0
-  const defaultAction: Action = hasOthers ? 'move' : 'cascade'
+  const hasOpen = openCount > 0
+  const groups = groupTargets(targets, categories, subcategory.categoryId)
+  const defaultTargetId = groups[0]?.subs[0]?.id ?? ''
+  const canMove = defaultTargetId !== ''
+  const defaultAction: Action = canMove ? 'move' : 'complete'
   const [action, setAction] = useState<Action>(defaultAction)
-  const [moveToId, setMoveToId] = useState<string>(
-    otherSubsInCategory[0]?.id ?? '',
-  )
+  const [moveToId, setMoveToId] = useState<string>(defaultTargetId)
   // Adjust-state-during-render pattern: when `open` transitions from
   // false to true, reset the radio + picker to fresh defaults so a
   // prior session's selection doesn't bleed into the new invocation.
@@ -71,29 +105,30 @@ export default function DeleteSubcategoryDialog({
     setPrevOpen(open)
     if (open) {
       setAction(defaultAction)
-      setMoveToId(otherSubsInCategory[0]?.id ?? '')
+      setMoveToId(defaultTargetId)
     }
   }
 
-  const confirmDisabled = hasTasks && action === 'move' && !moveToId
-  const confirmLabel = !hasTasks
+  const confirmDisabled = hasOpen && action === 'move' && !moveToId
+  const confirmLabel = !hasOpen
     ? 'Delete'
     : action === 'move'
-    ? 'Move tasks and delete'
-    : 'Delete tasks and subcategory'
-  const isDestructive = !hasTasks || action === 'cascade'
+      ? 'Move and delete list'
+      : action === 'complete'
+        ? 'Mark done and delete list'
+        : 'Delete tasks and list'
+  const isDestructive = !hasOpen || action === 'delete'
 
   async function handleConfirm() {
     if (confirmDisabled) return
-    if (!hasTasks) {
-      await onConfirm({})
-    } else if (action === 'move') {
-      await onConfirm({ moveToId })
-    } else {
-      await onConfirm({ cascadeDelete: true })
-    }
+    if (!hasOpen) await onConfirm({ kind: 'none' })
+    else if (action === 'move') await onConfirm({ kind: 'move', toId: moveToId })
+    else await onConfirm({ kind: action })
     onOpenChange(false)
   }
+
+  const card =
+    'flex items-start gap-3 rounded-sm border border-border bg-background p-3 hover:bg-secondary/40'
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -103,58 +138,87 @@ export default function DeleteSubcategoryDialog({
             Delete &ldquo;{subcategory.name}&rdquo;?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {!hasTasks
-              ? 'This subcategory has no tasks. This cannot be undone.'
-              : hasOthers
-                ? `This subcategory has ${taskCount} task${taskCount === 1 ? '' : 's'}. What should happen to them?`
-                : `This subcategory has ${taskCount} task${taskCount === 1 ? '' : 's'}. No other subcategories are available to move them to.`}
+            {hasOpen
+              ? `This list has ${openCount} open task${plural(openCount)}. What should happen to them?`
+              : `This list has no open tasks.${
+                  doneCount > 0
+                    ? doneCount === 1
+                      ? ' Its 1 completed task stays in your history.'
+                      : ` Its ${doneCount} completed tasks stay in your history.`
+                    : ''
+                } This cannot be undone.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        {hasTasks && hasOthers && (
+        {hasOpen && (
           <div className="space-y-3 py-1">
-            <label className="flex items-start gap-3 rounded-sm border border-border bg-background p-3 hover:bg-secondary/40">
+            {canMove && (
+              <label className={card}>
+                <input
+                  type="radio"
+                  name="delete-subcategory-action"
+                  value="move"
+                  checked={action === 'move'}
+                  onChange={() => setAction('move')}
+                  className="mt-1"
+                  aria-label="Move them to…"
+                />
+                <div className="flex flex-1 flex-col gap-2">
+                  <span className="text-[13px] font-medium text-foreground">
+                    Move them to…
+                  </span>
+                  <select
+                    value={moveToId}
+                    onChange={(e) => setMoveToId(e.target.value)}
+                    disabled={action !== 'move'}
+                    aria-label="Target list"
+                    className="w-full rounded-sm border border-border bg-background px-2 py-1 text-base sm:text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                  >
+                    {groups.map(({ category, subs }) => (
+                      <optgroup key={category.id} label={category.name}>
+                        {subs.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+              </label>
+            )}
+            <label className={card}>
               <input
                 type="radio"
                 name="delete-subcategory-action"
-                value="move"
-                checked={action === 'move'}
-                onChange={() => setAction('move')}
+                value="complete"
+                checked={action === 'complete'}
+                onChange={() => setAction('complete')}
                 className="mt-1"
-                aria-label="Move tasks to another subcategory"
+                aria-label="Mark them done"
               />
-              <div className="flex flex-1 flex-col gap-2">
+              <div className="flex flex-1 flex-col gap-1">
                 <span className="text-[13px] font-medium text-foreground">
-                  Move them to…
+                  Mark them done
                 </span>
-                <select
-                  value={moveToId}
-                  onChange={(e) => setMoveToId(e.target.value)}
-                  disabled={action !== 'move'}
-                  aria-label="Target subcategory"
-                  className="w-full rounded-sm border border-border bg-background px-2 py-1 text-base sm:text-[13px] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-                >
-                  {otherSubsInCategory.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                <span className="text-[12px] text-muted-foreground">
+                  They&rsquo;ll show in Insights.
+                </span>
               </div>
             </label>
-            <label className="flex items-start gap-3 rounded-sm border border-border bg-background p-3 hover:bg-secondary/40">
+            <label className={card}>
               <input
                 type="radio"
                 name="delete-subcategory-action"
-                value="cascade"
-                checked={action === 'cascade'}
-                onChange={() => setAction('cascade')}
+                value="delete"
+                checked={action === 'delete'}
+                onChange={() => setAction('delete')}
                 className="mt-1"
-                aria-label="Delete the tasks too"
+                aria-label="Delete them"
               />
               <div className="flex flex-1 flex-col gap-1">
                 <span className="text-[13px] font-medium text-destructive">
-                  Delete the tasks too
+                  Delete them
                 </span>
                 <span className="text-[12px] text-muted-foreground">
                   This cannot be undone.

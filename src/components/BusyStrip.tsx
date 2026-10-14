@@ -8,6 +8,7 @@ import { useSession } from '@/lib/auth'
 import { isAuthFailed } from '@/lib/calendarApi'
 import { getBusyDay } from '@/lib/busyCache'
 import { today as clockToday } from '@/lib/clock'
+import { freeMinutesToday, mergeRanges } from '@/lib/freeToday'
 import { withSessionRetry } from '@/lib/session'
 
 /*
@@ -41,7 +42,12 @@ export type BusyToday =
   | { kind: 'hidden' } // settings not loaded yet, or unconfigured
   | { kind: 'reconnect' } // caldav_status auth_failed
   | { kind: 'loading' }
-  | { kind: 'ready'; text: string } // formatBusyRanges(...), '' when there are no ranges
+  /**
+   * `text`: formatBusyRanges(...), '' when there are no ranges. `freeMin`:
+   * minutes left in today's 09:00–18:00 window, minus busy (chunk 87); the
+   * two views ignore it, TodayPanel sizes its suggestions with it.
+   */
+  | { kind: 'ready'; text: string; freeMin: number }
   | { kind: 'error' }
 
 // eslint-disable-next-line react-refresh/only-export-components -- the fetch stays beside its two views (chunk 74)
@@ -121,9 +127,11 @@ export function useBusyToday(): BusyToday {
   if (caldavStatus === 'auth_failed') return { kind: 'reconnect' }
   if (phase.status === 'loading') return { kind: 'loading' }
   if (phase.status === 'error') return { kind: 'error' }
+  const tz = timezone ?? 'America/New_York'
   return {
     kind: 'ready',
-    text: formatBusyRanges(phase.ranges, timezone ?? 'America/New_York'),
+    text: formatBusyRanges(phase.ranges, tz),
+    freeMin: freeMinutesToday(phase.ranges, tz, new Date()),
   }
 }
 
@@ -164,21 +172,6 @@ export function BusyInline({ busy }: { busy: BusyToday }) {
 }
 
 // ── pure formatting helpers ──────────────────────────────────────────────
-
-/** Merge overlapping/adjacent ranges into sorted [startMs, endMs] tuples. */
-function mergeRanges(ranges: BusyRange[]): Array<[number, number]> {
-  const parsed = ranges
-    .map((r) => [Date.parse(r.start), Date.parse(r.end)] as [number, number])
-    .filter(([s, e]) => Number.isFinite(s) && Number.isFinite(e) && e > s)
-    .sort((a, b) => a[0] - b[0])
-  const merged: Array<[number, number]> = []
-  for (const [s, e] of parsed) {
-    const last = merged[merged.length - 1]
-    if (last && s <= last[1]) last[1] = Math.max(last[1], e)
-    else merged.push([s, e])
-  }
-  return merged
-}
 
 /** "9–11, 14–15" — 24h local time, dropping :00 minutes, en-dash separated. */
 function formatBusyRanges(ranges: BusyRange[], timezone: string): string {

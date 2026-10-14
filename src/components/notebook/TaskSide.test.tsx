@@ -185,9 +185,12 @@ describe('subcategory header count (D6)', () => {
       <SubcategoryHeader
         subcategory={SUBCATEGORIES[0]}
         incompleteCount={3}
-        taskCount={4}
+        openCount={3}
+        doneCount={1}
         noteCount={noteCount}
         otherSubsInCategory={[]}
+        targets={[]}
+        categories={[]}
         canMoveUp={false}
         canMoveDown={false}
         isTouch={false}

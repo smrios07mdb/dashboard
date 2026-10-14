@@ -245,3 +245,62 @@ describe('TodayPanel suggestions', () => {
     ).toHaveStyle({ width: '44px', height: '44px' })
   })
 })
+
+describe('TodayPanel suggestions sized to free time (chunk 87)', () => {
+  const sum = (titles: string[]) =>
+    titles.reduce(
+      (s, t) => s + TASKS.find((x) => x.id === t)!.estimateMinutes,
+      0,
+    )
+
+  it('freeMin null: the unsized output, no fits text', () => {
+    setup({ freeMin: null })
+    expect(suggested()).toEqual(['Work 1', 'Home 1', 'Work 2'])
+    expect(screen.queryByText(/^fits /)).toBeNull()
+    expect(screen.queryByText(/left today\.$/)).toBeNull()
+  })
+
+  it('freeMin 90 with one 30m task planned: fits 1h free, sum within it', () => {
+    setup({ freeMin: 90, todaySet: new Set(['Work 1']) })
+    const label = within(region()).getByText('fits 1h free')
+    expect(label).toHaveClass('text-ink-3')
+    // After the label, before Add all.
+    const row = within(region()).getByText('Suggested').closest('div')!.parentElement!
+    expect(row.textContent).toMatch(/^Suggested.*fits 1h free.*Add all/)
+    const titles = suggested()
+    expect(titles).toEqual(['Work 2', 'Home 1'])
+    expect(sum(titles)).toBeLessThanOrEqual(60)
+  })
+
+  it('freeMin 0: one no-free-time line, no Suggested section', () => {
+    setup({ freeMin: 0 })
+    expect(queryRegion()).toBeNull()
+    const line = screen.getByText('No free time left today.')
+    expect(line).toHaveStyle({ fontSize: '12.5px', color: 'var(--ink-2)' })
+    // Empty plan: the sun hint stays.
+    expect(screen.getByText(/on any task\.$/)).toBeInTheDocument()
+  })
+
+  it('freeMin 20 with only 30m candidates: names the time left', () => {
+    setup({ freeMin: 20 })
+    expect(queryRegion()).toBeNull()
+    expect(
+      screen.getByText('Nothing open fits the 20m left today.'),
+    ).toBeInTheDocument()
+  })
+
+  it('the no-fit line replaces the block under a non-empty plan', () => {
+    setup({ freeMin: 40, todaySet: new Set(['Work 1']) })
+    expect(queryRegion()).toBeNull()
+    expect(
+      screen.getByText('Nothing open fits the 10m left today.'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/on any task/)).toBeNull()
+  })
+
+  it('a plan already at three shows no line', () => {
+    setup({ freeMin: 0, todaySet: new Set(['Work 1', 'Home 1', 'Work 2']) })
+    expect(queryRegion()).toBeNull()
+    expect(screen.queryByText(/left today\.$/)).toBeNull()
+  })
+})

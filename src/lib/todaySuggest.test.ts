@@ -195,4 +195,61 @@ describe('todaySuggest', () => {
   it('returns nothing when there are no tasks', () => {
     expect(ids([], 3)).toEqual([])
   })
+
+  // ── sized to the time left today (chunk 87, D6) ──
+
+  it('an undefined or null budget gives the unsized result', () => {
+    const tasks = [
+      task({ id: 'w1', createdAt: '2026-08-01T12:00:00.000Z', estimateMinutes: 240 }),
+      task({ id: 'w2', createdAt: '2026-08-02T12:00:00.000Z' }),
+      task({ id: 'p1', subcategoryId: 's-home', estimateMinutes: 90 }),
+    ]
+    const unsized = suggestToday(data(tasks), NONE, NONE, 3)
+    expect(unsized.map((s) => s.task.id)).toEqual(['w1', 'p1', 'w2'])
+    expect(suggestToday(data(tasks), NONE, NONE, 3, undefined)).toEqual(unsized)
+    expect(suggestToday(data(tasks), NONE, NONE, 3, null)).toEqual(unsized)
+  })
+
+  const sized = (tasks: Task[], budget: number, limit = 3) =>
+    suggestToday(data(tasks), NONE, NONE, limit, budget).map((s) => s.task.id)
+
+  it('a 45m budget over 30/30/15 takes the first 30 and the 15', () => {
+    const tasks = [
+      task({ id: 'a', createdAt: '2026-08-01T12:00:00.000Z' }),
+      task({ id: 'b', createdAt: '2026-08-02T12:00:00.000Z' }),
+      task({ id: 'c', createdAt: '2026-08-03T12:00:00.000Z', estimateMinutes: 15 }),
+    ]
+    expect(sized(tasks, 45)).toEqual(['a', 'c'])
+  })
+
+  it('a budget of 0 or less returns nothing', () => {
+    const tasks = [task({ id: 'a', estimateMinutes: 15 })]
+    expect(sized(tasks, 0)).toEqual([])
+    expect(sized(tasks, -30)).toEqual([])
+  })
+
+  it('skips a large first-ranked task and keeps walking', () => {
+    const tasks = [
+      task({ id: 'big', priority: 1, estimateMinutes: 180 }),
+      task({ id: 'x', createdAt: '2026-08-01T12:00:00.000Z' }),
+      task({ id: 'y', createdAt: '2026-08-02T12:00:00.000Z' }),
+    ]
+    expect(sized(tasks, 60)).toEqual(['x', 'y'])
+    // The limit still caps a budget with room to spare.
+    expect(sized(tasks, 600, 2)).toEqual(['big', 'x'])
+  })
+
+  it('keeps the round-robin order among the tasks it takes', () => {
+    const tasks = [
+      task({ id: 'w1', createdAt: '2026-08-01T12:00:00.000Z', estimateMinutes: 120 }),
+      task({ id: 'w2', createdAt: '2026-08-02T12:00:00.000Z', estimateMinutes: 15 }),
+      task({ id: 'w3', createdAt: '2026-08-03T12:00:00.000Z', estimateMinutes: 15 }),
+      task({ id: 'p1', subcategoryId: 's-home', createdAt: '2026-08-05T12:00:00.000Z', estimateMinutes: 15 }),
+      task({ id: 'p2', subcategoryId: 's-home', createdAt: '2026-08-06T12:00:00.000Z', estimateMinutes: 15 }),
+    ]
+    // Unsized order: w1, p1, w2, p2, w3. w1 does not fit 60.
+    expect(ids(tasks, 5)).toEqual(['w1', 'p1', 'w2', 'p2', 'w3'])
+    expect(sized(tasks, 60, 5)).toEqual(['p1', 'w2', 'p2', 'w3'])
+    expect(sized(tasks, 60, 3)).toEqual(['p1', 'w2', 'p2'])
+  })
 })

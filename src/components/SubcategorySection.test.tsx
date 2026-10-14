@@ -2,6 +2,15 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Chunk 87: the delete dialog is stubbed to read the counts it receives.
+const deleteDialogProps = vi.hoisted(() => ({ last: null as Record<string, unknown> | null }))
+vi.mock('@/components/DeleteSubcategoryDialog', () => ({
+  default: (props: Record<string, unknown>) => {
+    deleteDialogProps.last = props
+    return null
+  },
+}))
+
 import SubcategorySection from './SubcategorySection'
 import type { Category, Subcategory, Task } from '@/db/types'
 import type { HorizonFilter } from '@/lib/horizon'
@@ -242,5 +251,37 @@ describe('SubcategorySection — 30-day completions (chunk 86)', () => {
     // Rows keep their own `30m`; the header row has none.
     const header = screen.getByTestId('list-counts').parentElement as HTMLElement
     expect(header.textContent).not.toMatch(/\d+h|\d+m\b/)
+  })
+})
+
+describe('SubcategorySection — delete-list counts (chunk 87)', () => {
+  it('passes open/done counts from all tasks, not the horizon-filtered rows', () => {
+    // No priority or dates: every open row is long term, so "near" hides them.
+    const tasks = [
+      task('Open A'),
+      task('Open B'),
+      task('Done recent', daysAgo(2)),
+      task('Done old', daysAgo(90)),
+    ]
+    const other = sub('s2', 'c-personal')
+    const archived = { ...sub('s3', 'c-work'), archivedAt: daysAgo(1) }
+    render(
+      <SubcategorySection
+        {...baseProps(tasks)}
+        allCategories={[cat('c-work', 'Work'), cat('c-personal', 'Personal')]}
+        allSubcategories={[sub('s1', 'c-work'), other, archived]}
+        horizon="near"
+      />,
+      { wrapper: MemoryRouter },
+    )
+    expect(screen.getByText('Nothing near term.')).toBeInTheDocument()
+    const props = deleteDialogProps.last!
+    expect(props.openCount).toBe(2)
+    expect(props.doneCount).toBe(2)
+    expect(props.targets).toEqual([other])
+    expect(props.categories).toEqual([
+      cat('c-work', 'Work'),
+      cat('c-personal', 'Personal'),
+    ])
   })
 })

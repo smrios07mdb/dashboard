@@ -11,7 +11,9 @@ import {
 } from 'lucide-react'
 
 import { Note } from '@/components/icons'
-import DeleteSubcategoryDialog from '@/components/DeleteSubcategoryDialog'
+import DeleteSubcategoryDialog, {
+  type DeleteListChoice,
+} from '@/components/DeleteSubcategoryDialog'
 import MergeSubcategoryDialog from '@/components/MergeSubcategoryDialog'
 import {
   DropdownMenu,
@@ -20,7 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { Subcategory } from '@/db/types'
+import type { Category, Subcategory } from '@/db/types'
 import { subColor } from '@/lib/gamify'
 import { cn } from '@/lib/utils'
 
@@ -36,7 +38,7 @@ import { cn } from '@/lib/utils'
  *
  * Three-dot menu items:
  *   Rename         — flips into edit mode (same path as clicking name)
- *   Delete         — opens DeleteSubcategoryDialog (no-tasks vs has-tasks
+ *   Delete list    — opens DeleteSubcategoryDialog (no-open-tasks vs open
  *                    branch decided by the dialog itself)
  *   Merge into…    — opens MergeSubcategoryDialog
  *   Move up/down   — touch-only fallback for reorder (drag is desktop-only)
@@ -49,12 +51,17 @@ import { cn } from '@/lib/utils'
 export type SubcategoryHeaderProps = {
   subcategory: Subcategory
   incompleteCount: number
-  /** Total tasks attached to this subcategory (live + completed). */
-  taskCount: number
+  /** Open tasks in this list, any horizon (chunk 87: the delete dialog). */
+  openCount: number
+  /** Completed tasks in this list, any age. */
+  doneCount: number
   /** Notes on this list and its tasks (chunk 59); the glyph shows above 0. */
   noteCount?: number
   /** Other non-archived subs in the same category — exclude self. */
   otherSubsInCategory: Subcategory[]
+  /** Every other live list, any category — the delete dialog's move picker. */
+  targets: Subcategory[]
+  categories: Category[]
   canMoveUp: boolean
   canMoveDown: boolean
   isTouch: boolean
@@ -67,7 +74,7 @@ export type SubcategoryHeaderProps = {
   onRename: (name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,
-    options: { moveToId?: string; cascadeDelete?: boolean },
+    choice: DeleteListChoice,
   ) => void | Promise<void>
   onMergeSubcategory: (
     sourceId: string,
@@ -80,9 +87,12 @@ export type SubcategoryHeaderProps = {
 export default function SubcategoryHeader({
   subcategory,
   incompleteCount,
-  taskCount,
+  openCount,
+  doneCount,
   noteCount = 0,
   otherSubsInCategory,
+  targets,
+  categories,
   canMoveUp,
   canMoveDown,
   isTouch,
@@ -308,7 +318,7 @@ export default function SubcategoryHeader({
             className="text-destructive focus:text-destructive"
           >
             <Trash2 className="size-3.5" aria-hidden />
-            Delete subcategory
+            Delete list
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -317,17 +327,17 @@ export default function SubcategoryHeader({
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         subcategory={subcategory}
-        taskCount={taskCount}
-        otherSubsInCategory={otherSubsInCategory}
-        onConfirm={(options) =>
-          onDeleteSubcategory(subcategory.id, options)
-        }
+        openCount={openCount}
+        doneCount={doneCount}
+        targets={targets}
+        categories={categories}
+        onConfirm={(choice) => onDeleteSubcategory(subcategory.id, choice)}
       />
       <MergeSubcategoryDialog
         open={mergeOpen}
         onOpenChange={setMergeOpen}
         subcategory={subcategory}
-        taskCount={taskCount}
+        taskCount={openCount + doneCount}
         otherSubsInCategory={otherSubsInCategory}
         onConfirm={(targetId) =>
           onMergeSubcategory(subcategory.id, targetId)

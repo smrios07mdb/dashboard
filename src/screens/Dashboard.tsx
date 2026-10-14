@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import AllClearBanner from '@/components/AllClearBanner'
 import BusyStrip, { BusyInline, useBusyToday } from '@/components/BusyStrip'
 import CategoryColumn from '@/components/CategoryColumn'
+import type { DeleteListChoice } from '@/components/DeleteSubcategoryDialog'
 import EmptyStateCard from '@/components/EmptyStateCard'
 import DailyHero from '@/components/gamify/DailyHero'
 import ReconnectBanner from '@/components/ReconnectBanner'
@@ -37,6 +38,7 @@ import {
   reviewCandidates,
   storeLastReview,
 } from '@/lib/review'
+import { deleteList, DELETE_LIST_TOAST } from '@/lib/deleteList'
 import { resolveToday } from '@/lib/today'
 import {
   loadTaskSortKey,
@@ -545,44 +547,27 @@ export default function Dashboard() {
   )
 
   const onDeleteSubcategory = useCallback(
-    async (
-      id: string,
-      options: { moveToId?: string; cascadeDelete?: boolean },
-    ) => {
-      const subTasks = data.tasks.filter((t) => t.subcategoryId === id)
+    async (id: string, choice: DeleteListChoice) => {
       try {
-        if (options.moveToId && subTasks.length > 0) {
-          const moved = await repo.tasks.bulkUpdate(
-            subTasks.map((t) => ({
-              id: t.id,
-              patch: { subcategoryId: options.moveToId! },
-            })),
-          )
-          setData((prev) => {
-            const byId = new Map(moved.map((t) => [t.id, t]))
-            return {
-              ...prev,
-              tasks: prev.tasks.map((t) => byId.get(t.id) ?? t),
-            }
-          })
-        } else if (options.cascadeDelete && subTasks.length > 0) {
-          await repo.tasks.bulkDelete(subTasks.map((t) => t.id))
+        const { archived, updated, deletedIds } = await deleteList(
+          id,
+          choice,
+          data.tasks,
+        )
+        if (updated.length > 0 || deletedIds.length > 0) {
+          const byId = new Map(updated.map((t) => [t.id, t]))
+          const gone = new Set(deletedIds)
           setData((prev) => ({
             ...prev,
-            tasks: prev.tasks.filter((t) => t.subcategoryId !== id),
+            tasks: prev.tasks
+              .filter((t) => !gone.has(t.id))
+              .map((t) => byId.get(t.id) ?? t),
           }))
         }
-        const archived = await repo.subcategories.archive(id)
         upsertSubcategory(archived)
-        if (options.cascadeDelete && subTasks.length > 0) {
-          toast('Subcategory and tasks deleted')
-        } else if (options.moveToId) {
-          toast('Tasks moved, subcategory deleted')
-        } else {
-          toast('Subcategory deleted')
-        }
+        toast(DELETE_LIST_TOAST[choice.kind])
       } catch (e) {
-        console.error('Delete subcategory failed', e)
+        console.error('Delete list failed', e)
         toast.error(SAVE_ERROR)
       }
     },
@@ -856,6 +841,7 @@ export default function Dashboard() {
             onCompleteTask={onCompleteTask}
             mobile={isTouch}
             busy={busyInline}
+            freeMin={busy.kind === 'ready' ? busy.freeMin : null}
             routines={<TodayRoutines />}
           />
         </div>
@@ -878,6 +864,7 @@ export default function Dashboard() {
             onCompleteTask={onCompleteTask}
             mobile={isTouch}
             busy={busyInline}
+            freeMin={busy.kind === 'ready' ? busy.freeMin : null}
             routines={<TodayRoutines />}
           />
           {columns}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 import AddTaskInline from '@/components/AddTaskInline'
+import type { DeleteListChoice } from '@/components/DeleteSubcategoryDialog'
 import { useListNotes } from '@/components/notebook/notesContext'
 import SubcategoryHeader from '@/components/SubcategoryHeader'
 import TaskRow from '@/components/TaskRow'
@@ -80,7 +81,7 @@ export type SubcategorySectionProps = {
   onRenameSubcategory: (id: string, name: string) => void | Promise<void>
   onDeleteSubcategory: (
     id: string,
-    options: { moveToId?: string; cascadeDelete?: boolean },
+    choice: DeleteListChoice,
   ) => void | Promise<void>
   onMergeSubcategory: (
     sourceId: string,
@@ -132,6 +133,12 @@ export default function SubcategorySection({
     tasks.map((t) => t.id),
   ).length
   const openNow = tasks.filter((t) => !t.completedAt)
+  // Chunk 87: the delete-list dialog counts every task in the list — not the
+  // horizon-filtered rows, not the 30-day-filtered completions.
+  const doneCount = tasks.length - openNow.length
+  const targets = allSubcategories.filter(
+    (s) => s.id !== subcategory.id && !s.archivedAt,
+  )
   // Chunk 86 (D2): only completions from the last 30 days stay on the list.
   const completed = tasks.filter((t) => isRecentCompletion(t))
   // Chunk 76: the header counts what the horizon filter leaves on screen.
@@ -227,9 +234,12 @@ export default function SubcategorySection({
       <SubcategoryHeader
         subcategory={subcategory}
         incompleteCount={shownOpen.length}
-        taskCount={tasks.length}
+        openCount={openNow.length}
+        doneCount={doneCount}
         noteCount={noteCount}
         otherSubsInCategory={otherSubsInCategory}
+        targets={targets}
+        categories={allCategories}
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
         isTouch={isTouch}

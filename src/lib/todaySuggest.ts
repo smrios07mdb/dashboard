@@ -61,20 +61,53 @@ function compareCandidates(a: Task, b: Task): number {
  * is in `data.subcategories`. They are grouped by category and sorted within
  * each group; the groups are ordered by their best candidate and then take
  * turns, so one category never fills the list while another has open work.
+ *
+ * With a `budgetMin` (chunk 87: minutes free today minus the plan's open
+ * estimates), the same order is walked over every candidate and a task is
+ * taken only if its estimate fits what is left; ones that don't fit are
+ * skipped. A budget of 0 or less suggests nothing. null/undefined → unsized.
  */
 export function suggestToday(
   data: TodaySuggestData,
   todaySet: ReadonlySet<string>,
   skipped: ReadonlySet<string>,
   limit: number,
+  budgetMin?: number | null,
 ): TodaySuggestion[] {
   if (!(limit > 0)) return []
+  const sized = budgetMin !== null && budgetMin !== undefined
+  if (sized && budgetMin <= 0) return []
 
   const subById = new Map(data.subcategories.map((s) => [s.id, s]))
   const catNameById = new Map(data.categories.map((c) => [c.id, c.name]))
 
+  const out: TodaySuggestion[] = []
+  let remaining = budgetMin ?? 0
+  for (const t of roundRobin(data.tasks, todaySet, skipped, subById)) {
+    if (sized) {
+      if (t.estimateMinutes > remaining) continue
+      remaining -= t.estimateMinutes
+    }
+    const sub = subById.get(t.subcategoryId)!
+    out.push({
+      task: t,
+      subName: sub.name,
+      catName: catNameById.get(sub.categoryId) ?? '',
+    })
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** Every candidate once, in suggestion order: categories taking turns. */
+function* roundRobin(
+  tasks: Task[],
+  todaySet: ReadonlySet<string>,
+  skipped: ReadonlySet<string>,
+  subById: ReadonlyMap<string, Subcategory>,
+): Generator<Task> {
   const groups = new Map<string, Task[]>()
-  for (const t of data.tasks) {
+  for (const t of tasks) {
     if (t.completedAt !== null) continue
     if (todaySet.has(t.id) || skipped.has(t.id)) continue
     const sub = subById.get(t.subcategoryId)
@@ -88,22 +121,14 @@ export function suggestToday(
   for (const group of ordered) group.sort(compareCandidates)
   ordered.sort((a, b) => compareCandidates(a[0], b[0]))
 
-  const out: TodaySuggestion[] = []
-  for (let turn = 0; out.length < limit; turn++) {
+  for (let turn = 0; ; turn++) {
     let took = false
     for (const group of ordered) {
       const t = group[turn]
       if (!t) continue
       took = true
-      const sub = subById.get(t.subcategoryId)!
-      out.push({
-        task: t,
-        subName: sub.name,
-        catName: catNameById.get(sub.categoryId) ?? '',
-      })
-      if (out.length >= limit) break
+      yield t
     }
-    if (!took) break
+    if (!took) return
   }
-  return out
 }
