@@ -75,14 +75,15 @@ describe('CategoryColumn header — phone width (chunk 68)', () => {
     expect(onDrillDown).toHaveBeenLastCalledWith('category', 'cat-work')
   })
 
-  it('puts the total, sort control and › on line two, apart from the name and pill', () => {
+  // Chunk 86 (D3): the time total is gone; line two is found from sort.
+  it('puts the sort control and › on line two, apart from the name and pill', () => {
     const { header, name } = renderColumn()
-    const total = screen.getByText('0m')
+    expect(screen.queryByText('0m')).toBeNull()
     const sort = screen.getByRole('button', { name: /^Sort tasks/ })
     const open = screen.getByRole('button', { name: 'Open Work' })
     const pill = screen.getByText('0 open')
 
-    const lineTwo = total.parentElement as HTMLElement
+    const lineTwo = sort.parentElement as HTMLElement
     expect(sort.parentElement).toBe(lineTwo)
     expect(open.parentElement).toBe(lineTwo)
     expect(lineTwo.parentElement).toBe(header)
@@ -167,6 +168,19 @@ describe('CategoryColumn horizon (chunk 76)', () => {
       horizon: 'all',
     })
     expect(screen.getByText('2 open')).toBeInTheDocument()
+  })
+
+  it('shows no time total in the header (chunk 86, D3)', () => {
+    const three = { s1: [task('A', null), task('B', null), task('C', null)] }
+    const { header } = renderColumn({
+      subcategories: [sub],
+      allSubcategories: [sub],
+      tasksBySub: three,
+      horizon: 'all',
+    })
+    // Three 30 m rows read `1h 30m` before chunk 86.
+    expect(screen.queryByText('1h 30m')).toBeNull()
+    expect(header.textContent).not.toMatch(/\d+h|\d+m\b/)
   })
 
   it('mounts the horizon control on line two, before sort, without drilling', () => {

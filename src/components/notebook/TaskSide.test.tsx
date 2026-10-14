@@ -185,7 +185,6 @@ describe('subcategory header count (D6)', () => {
       <SubcategoryHeader
         subcategory={SUBCATEGORIES[0]}
         incompleteCount={3}
-        incompleteMinutes={90}
         taskCount={4}
         noteCount={noteCount}
         otherSubsInCategory={[]}
@@ -217,15 +216,16 @@ describe('subcategory header count (D6)', () => {
 
   // F3 (chunk 59a): with the count showing, the header wrapped its ⋯ button to
   // a second row. Layout is not measurable in jsdom, so this pins the contract
-  // that keeps it on one: the grid still has exactly its six cells, the name
-  // truncates, and everything after it refuses to shrink.
-  it.each([0, 2])('stays one row of six cells with noteCount=%i', (n) => {
+  // that keeps it on one: the grid still has exactly its five cells (six
+  // until chunk 86 dropped the time total), the name truncates, and
+  // everything after it refuses to shrink.
+  it.each([0, 2])('stays one row of five cells with noteCount=%i', (n) => {
     const { container } = header(n)
     const root = container.querySelector('header') as HTMLElement
     expect(root.className).toContain(
-      '[grid-template-columns:auto_1fr_auto_auto_auto_auto]',
+      '[grid-template-columns:auto_1fr_auto_auto_auto]',
     )
-    expect(root.children).toHaveLength(6)
+    expect(root.children).toHaveLength(5)
 
     const name = screen.getByTitle('Atlas launch')
     expect(name).toHaveClass('min-w-0', 'truncate')
@@ -235,7 +235,7 @@ describe('subcategory header count (D6)', () => {
     expect(counts).toHaveClass('shrink-0')
     expect(counts).toHaveTextContent(n ? '32' : '3')
     if (n) expect(screen.getByTestId('list-note-count')).toHaveClass('shrink-0')
-    expect(screen.getByText('1h 30m')).toHaveClass('shrink-0')
+    expect(screen.queryByText('1h 30m')).toBeNull()
     expect(screen.getByRole('button', { name: 'Open Atlas launch' })).toHaveClass('shrink-0')
     expect(
       screen.getByRole('button', { name: 'Actions for Atlas launch' }),

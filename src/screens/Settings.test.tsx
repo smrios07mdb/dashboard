@@ -2,18 +2,38 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-const { settingsGetMock, settingsUpdateMock } = vi.hoisted(() => ({
+const {
+  settingsGetMock,
+  settingsUpdateMock,
+  archivedCountsMock,
+  purgeArchivedMock,
+  sessionUser,
+} = vi.hoisted(() => ({
   settingsGetMock: vi.fn(),
   settingsUpdateMock: vi.fn(),
+  archivedCountsMock: vi.fn(),
+  purgeArchivedMock: vi.fn(),
+  // Chunk 86: `user_metadata` is set per case (Account → Name).
+  sessionUser: {
+    id: 'u1',
+    email: 'sam@hupo.app',
+    user_metadata: {} as Record<string, unknown>,
+  },
 }))
 
 vi.mock('@/db/repo', () => ({
-  repo: { settings: { get: settingsGetMock, update: settingsUpdateMock } },
+  repo: {
+    settings: { get: settingsGetMock, update: settingsUpdateMock },
+    data: {
+      archivedCounts: archivedCountsMock,
+      purgeArchived: purgeArchivedMock,
+    },
+  },
 }))
 
 vi.mock('@/lib/auth', () => ({
   useSession: () => ({
-    user: { id: 'u1', email: 'sam@hupo.app' },
+    user: sessionUser,
     session: null,
     loading: false,
   }),
@@ -71,7 +91,9 @@ vi.mock('@/lib/signOutCleanup', async (importOriginal) => {
 import { Toaster } from 'sonner'
 
 import Settings from './Settings'
+import { useSyncStore } from '@/db/syncStore'
 import { AiError } from '@/lib/ai'
+import { supabase } from '@/lib/supabase'
 
 describe('Settings — AI key (chunk 55, write-only)', () => {
   const base = {
@@ -645,5 +667,163 @@ describe('Settings — page margins row (chunk 69)', () => {
     const row = screen.getByTestId('page-margins-row')
     expect(row).toContainElement(button)
     expect(row).toHaveClass('hidden', 'sm:block')
+  })
+})
+
+describe('Settings — Account → Name (chunk 86, D1)', () => {
+  beforeEach(() => {
+    settingsGetMock.mockResolvedValue({
+      userId: 'u1',
+      aiStatus: 'unconfigured',
+      caldavAppleId: null,
+      caldavCalendarUrl: null,
+      caldavStatus: 'unconfigured',
+      timezone: 'America/New_York',
+      lastDailyReset: null,
+    })
+    settingsUpdateMock.mockResolvedValue(undefined)
+  })
+  afterEach(() => {
+    sessionUser.user_metadata = {}
+    vi.restoreAllMocks()
+    vi.clearAllMocks()
+  })
+
+  // Other rows have their own Save; take the one beside the Name input.
+  const saveFor = (input: HTMLElement) =>
+    within(input.closest('form') as HTMLElement).getByRole('button', {
+      name: 'Save',
+    })
+  const updateUser = () =>
+    vi
+      .spyOn(supabase.auth, 'updateUser')
+      .mockResolvedValue({ data: { user: null }, error: null } as never)
+
+  it('is prefilled from user_metadata.name, and Save waits for a change', async () => {
+    sessionUser.user_metadata = { name: 'Sam' }
+    render(<Settings />)
+    const input = await screen.findByLabelText('Name')
+    expect(input).toHaveValue('Sam')
+    expect(saveFor(input)).toBeDisabled()
+    expect(screen.getByText('Used in the greeting.')).toBeInTheDocument()
+  })
+
+  it('Save sends the trimmed name and toasts', async () => {
+    const spy = updateUser()
+    const user = userEvent.setup()
+    render(
+      <>
+        <Settings />
+        <Toaster />
+      </>,
+    )
+    const input = await screen.findByLabelText('Name')
+    await user.type(input, '  Sergio ')
+    await user.click(saveFor(input))
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).toHaveBeenCalledWith({ data: { name: 'Sergio' } })
+    expect(await screen.findByText('Name saved')).toBeInTheDocument()
+  })
+
+  it('an emptied name saves null', async () => {
+    sessionUser.user_metadata = { name: 'Sam' }
+    const spy = updateUser()
+    const user = userEvent.setup()
+    render(<Settings />)
+    const input = await screen.findByLabelText('Name')
+    await user.clear(input)
+    await user.click(saveFor(input))
+    expect(spy).toHaveBeenCalledWith({ data: { name: null } })
+  })
+
+  it('the email still appears exactly once', async () => {
+    sessionUser.user_metadata = { name: 'Sam' }
+    render(<Settings />)
+    await screen.findByLabelText('Name')
+    expect(screen.getAllByText('sam@hupo.app')).toHaveLength(1)
+  })
+})
+
+describe('Settings — Data → Archived items (chunk 86, D5)', () => {
+  beforeEach(() => {
+    settingsGetMock.mockResolvedValue({
+      userId: 'u1',
+      aiStatus: 'unconfigured',
+      caldavAppleId: null,
+      caldavCalendarUrl: null,
+      caldavStatus: 'unconfigured',
+      timezone: 'America/New_York',
+      lastDailyReset: null,
+    })
+    settingsUpdateMock.mockResolvedValue(undefined)
+    useSyncStore.setState({ state: 'synced' })
+  })
+  afterEach(() => {
+    useSyncStore.setState({ state: 'synced' })
+    vi.clearAllMocks()
+  })
+
+  const openDialog = async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <Settings />
+        <Toaster />
+      </>,
+    )
+    await user.click(
+      await screen.findByRole('button', { name: 'Remove archived…' }),
+    )
+    return { user, dialog: await screen.findByRole('alertdialog') }
+  }
+
+  it('shows the counts sentence; Remove purges once and toasts', async () => {
+    archivedCountsMock.mockResolvedValue({ routineItems: 122, lists: 96, listsKept: 7 })
+    purgeArchivedMock.mockResolvedValue({ routineItems: 122, lists: 96 })
+    const { user, dialog } = await openDialog()
+    expect(
+      await within(dialog).findByText(
+        "Remove 96 archived lists and 122 archived routine items? 7 archived lists that still hold tasks or notes are kept. This can't be undone.",
+      ),
+    ).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(purgeArchivedMock).toHaveBeenCalledTimes(1))
+    expect(
+      await screen.findByText('Removed 96 lists and 122 routine items'),
+    ).toBeInTheDocument()
+  })
+
+  it('omits the kept sentence when none are kept', async () => {
+    archivedCountsMock.mockResolvedValue({ routineItems: 2, lists: 3, listsKept: 0 })
+    const { dialog } = await openDialog()
+    expect(
+      await within(dialog).findByText(
+        "Remove 3 archived lists and 2 archived routine items? This can't be undone.",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('0 + 0 reads "Nothing to remove." with Remove disabled', async () => {
+    archivedCountsMock.mockResolvedValue({ routineItems: 0, lists: 0, listsKept: 4 })
+    const { dialog } = await openDialog()
+    expect(await within(dialog).findByText('Nothing to remove.')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Remove' })).toBeDisabled()
+    expect(purgeArchivedMock).not.toHaveBeenCalled()
+  })
+
+  it('a failed load toasts the error', async () => {
+    archivedCountsMock.mockRejectedValue(new Error('boom'))
+    await openDialog().catch(() => undefined)
+    expect(
+      await screen.findByText('Could not remove archived items. Try again.'),
+    ).toBeInTheDocument()
+  })
+
+  it('is disabled offline', async () => {
+    useSyncStore.setState({ state: 'offline' })
+    render(<Settings />)
+    expect(
+      await screen.findByRole('button', { name: 'Remove archived…' }),
+    ).toBeDisabled()
   })
 })

@@ -844,7 +844,10 @@ describe('Dashboard', () => {
     seedTwoTasks()
     tasksList.mockResolvedValue([
       mkTask('Alpha', 'sw1'),
-      mkTask('Done', 'sw1', { completedAt: '2026-01-03T00:00:00.000Z' }),
+      // Chunk 86: recent, so the completion is listed (30-day rule).
+      mkTask('Done', 'sw1', {
+        completedAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+      }),
     ])
     tasksMarkComplete.mockImplementation((id: string, completed: boolean) =>
       Promise.resolve(

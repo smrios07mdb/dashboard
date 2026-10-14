@@ -332,4 +332,74 @@ describe('QuickCapture (chunk 73)', () => {
     useUIStore.getState().openCapture('add')
     await waitFor(() => expect(input()).toHaveValue(''))
   })
+
+  // Chunk 86 (D4): S / M / L at capture. A typed estimate wins, then the
+  // picked size, then the 30 m default.
+  describe('size (chunk 86)', () => {
+    const sizeGroup = () => screen.getByRole('group', { name: 'Size' })
+    const size = (name: string) => screen.getByRole('button', { name })
+    const pressed = () =>
+      Array.from(sizeGroup().querySelectorAll('button')).filter(
+        (b) => b.getAttribute('aria-pressed') === 'true',
+      )
+
+    it('opens with no size pressed', async () => {
+      await openCapture()
+      await destChip('Personal › General')
+      expect(size('S · 15m')).toHaveAttribute('aria-pressed', 'false')
+      expect(size('M · 30m')).toHaveAttribute('aria-pressed', 'false')
+      expect(size('L · 1h')).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('L + "Call Bob" saves 60 minutes', async () => {
+      await openCapture()
+      await destChip('Personal › General')
+      fireEvent.click(size('L · 1h'))
+      expect(size('L · 1h')).toHaveAttribute('aria-pressed', 'true')
+      await typeAndEnter('Call Bob')
+      await waitFor(() => expect(repo.tasks.create).toHaveBeenCalledTimes(1))
+      expect(created().estimateMinutes).toBe(60)
+    })
+
+    it('a typed estimate wins over the size, and no size reads pressed', async () => {
+      await openCapture()
+      await destChip('Personal › General')
+      fireEvent.click(size('S · 15m'))
+      fireEvent.change(input(), { target: { value: 'Call Bob 45m' } })
+      expect(pressed()).toHaveLength(0)
+      fireEvent.click(addButton())
+      await waitFor(() => expect(repo.tasks.create).toHaveBeenCalledTimes(1))
+      expect(created().estimateMinutes).toBe(45)
+    })
+
+    it('nothing picked saves the 30 m default', async () => {
+      await openCapture()
+      await destChip('Personal › General')
+      await typeAndEnter('Call Bob')
+      await waitFor(() => expect(repo.tasks.create).toHaveBeenCalledTimes(1))
+      expect(created().estimateMinutes).toBe(30)
+    })
+
+    it('pressing M twice clears it', async () => {
+      await openCapture()
+      await destChip('Personal › General')
+      fireEvent.click(size('M · 30m'))
+      expect(size('M · 30m')).toHaveAttribute('aria-pressed', 'true')
+      fireEvent.click(size('M · 30m'))
+      expect(size('M · 30m')).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('the size clears after a save', async () => {
+      await openCapture()
+      await destChip('Personal › General')
+      fireEvent.click(size('L · 1h'))
+      await typeAndEnter('Call Bob')
+      await waitFor(() => expect(repo.tasks.create).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(input()).toHaveValue(''))
+      expect(pressed()).toHaveLength(0)
+      await typeAndEnter('Call Ann')
+      await waitFor(() => expect(repo.tasks.create).toHaveBeenCalledTimes(2))
+      expect(repo.tasks.create.mock.calls[1][0].estimateMinutes).toBe(30)
+    })
+  })
 })

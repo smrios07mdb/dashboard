@@ -1482,6 +1482,38 @@ async function applyServerEcho(table: TableName, row: unknown): Promise<void> {
 // a deliberate, connected action; cache is reloaded from Supabase afterward.
 
 const dataRepo = {
+  /**
+   * Archived rows a purge would touch (chunk 86, D5): archived routine items,
+   * archived lists with no task and no note (`lists`), and archived lists
+   * that still hold a task or a note (`listsKept`). Online-only. The body is
+   * in `./archivedPurge`, loaded on first use (eager JS budget).
+   */
+  async archivedCounts(): Promise<{
+    routineItems: number
+    lists: number
+    listsKept: number
+  }> {
+    if (!isOnline()) throw new Error('offline')
+    const { archivedCounts } = await import('./archivedPurge')
+    return archivedCounts(throwIfClientError)
+  },
+
+  /**
+   * Settings → Data → Archived items (chunk 86, D5). Deletes every archived
+   * routine item (its logs cascade server-side), then the archived lists that
+   * hold no task and no note — re-read in this call, never trusted from an
+   * earlier `archivedCounts` — and drops the same rows from Dexie.
+   * Destructive and online-only: no outbox, no Dexie fallback (the
+   * `deleteAllForUser` pattern). Returns what the server deleted.
+   */
+  async purgeArchived(): Promise<{ routineItems: number; lists: number }> {
+    if (!isOnline()) throw new Error('offline')
+    const { purgeArchived } = await import('./archivedPurge')
+    const res = await purgeArchived(throwIfClientError)
+    markSyncedNow()
+    return res
+  },
+
   /** Upsert raw rows into `table` (default conflict key `id`; `user_id` for settings). */
   async bulkUpsert(
     table: TableName,

@@ -15,8 +15,14 @@ import { Input } from '@/components/ui/input'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory } from '@/db/types'
 import { useSession } from '@/lib/auth'
-import { parseCapture, resolveCaptureDest } from '@/lib/captureParse'
+import {
+  CAPTURE_SIZES,
+  parseCapture,
+  resolveCaptureDest,
+  type CaptureSizeKey,
+} from '@/lib/captureParse'
 import { loadUserTimezone } from '@/lib/userTimezone'
+import { cn } from '@/lib/utils'
 import { useUIStore } from '@/state/uiStore'
 
 /*
@@ -28,6 +34,10 @@ import { useUIStore } from '@/state/uiStore'
  * Destination: a `#list` word, else the list picked here, else the last list
  * captured into (`localStorage['hup:captureDest']`), else General — see
  * `resolveCaptureDest`. Nothing is created but the task; there is no Inbox.
+ *
+ * Size (chunk 86): S / M / L buttons under the chips. A typed estimate wins,
+ * then the picked size, then the 30 m default; pressing the picked size again
+ * clears it, and it resets with the text after each add and on close.
  *
  * Open state lives in `uiStore.capture` (mode `add`). After a successful add
  * the dialog stays open, cleared and focused, for the next task — the
@@ -74,6 +84,7 @@ export default function QuickCapture() {
   const [ignore, setIgnore] = useState(NO_IGNORE)
   const [picked, setPicked] = useState<string | null>(null)
   const [picking, setPicking] = useState(false)
+  const [size, setSize] = useState<CaptureSizeKey | null>(null)
   const [lists, setLists] = useState<Lists | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [loadSeq, setLoadSeq] = useState(0)
@@ -88,6 +99,7 @@ export default function QuickCapture() {
     setIgnore(NO_IGNORE)
     setPicked(null)
     setPicking(false)
+    setSize(null)
     setLists(null)
     setLoadFailed(false)
   }
@@ -163,7 +175,10 @@ export default function QuickCapture() {
         userId,
         subcategoryId: dest.id,
         title: parsed.title,
-        estimateMinutes: parsed.estimateMinutes ?? DEFAULT_MINUTES,
+        estimateMinutes:
+          parsed.estimateMinutes ??
+          CAPTURE_SIZES.find((s) => s.key === size)?.minutes ??
+          DEFAULT_MINUTES,
         dueAt: parsed.dueDay
           ? fromDueInputValue(parsed.dueDay, lists.timeZone)
           : null,
@@ -188,6 +203,7 @@ export default function QuickCapture() {
     setText('')
     setIgnore(NO_IGNORE)
     setPicked(null)
+    setSize(null)
     setSubmitting(false)
     // Microtask so React commits the cleared state before we focus.
     queueMicrotask(() => inputRef.current?.focus())
@@ -217,7 +233,8 @@ export default function QuickCapture() {
           New task
         </DialogTitle>
         <DialogDescription className="sr-only">
-          Type a task. Add p1, 15m, tomorrow or #list to set them.
+          Type a task. Add p1, 15m, tomorrow or #list to set them. Pick a size,
+          or type 15m.
         </DialogDescription>
 
         <form onSubmit={onSubmit} className="flex items-center gap-2">
@@ -315,6 +332,32 @@ export default function QuickCapture() {
               ))}
           </div>
         )}
+
+        {/* A typed estimate wins, so no size reads pressed while one is set. */}
+        <div role="group" aria-label="Size" className="flex items-center gap-1.5">
+          {CAPTURE_SIZES.map(({ key, minutes }) => {
+            const pressed = size === key && parsed?.estimateMinutes == null
+            return (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={pressed}
+                onClick={() => {
+                  setSize((s) => (s === key ? null : key))
+                  inputRef.current?.focus()
+                }}
+                className={cn(
+                  'rounded-full border px-2.5 py-0.5 font-mono text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  pressed
+                    ? 'border-transparent bg-foreground text-background'
+                    : 'border-line text-ink-2 hover:bg-secondary/60',
+                )}
+              >
+                {key} · {minutes < 60 ? `${minutes}m` : `${minutes / 60}h`}
+              </button>
+            )
+          })}
+        </div>
 
         {parsed?.unknownTags.map((tag, i) => (
           <p key={`${tag}-${i}`} className="text-[12px] text-ink-3">

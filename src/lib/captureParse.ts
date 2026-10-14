@@ -15,6 +15,18 @@ import { dateKeyIn } from './clock'
  * word of each kind counts; anything else stays in the title.
  */
 
+/**
+ * Chunk 86 (D4): the capture dialog's size buttons. On save a typed estimate
+ * (`15m`, `1h`) wins, then the picked size, then `DEFAULT_MINUTES`.
+ */
+export const CAPTURE_SIZES = [
+  { key: 'S', minutes: 15 },
+  { key: 'M', minutes: 30 },
+  { key: 'L', minutes: 60 },
+] as const
+
+export type CaptureSizeKey = (typeof CAPTURE_SIZES)[number]['key']
+
 export type CaptureTokenKind = 'priority' | 'estimate' | 'due' | 'list'
 
 export type CaptureToken = {

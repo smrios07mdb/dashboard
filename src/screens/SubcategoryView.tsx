@@ -20,6 +20,7 @@ import {
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { useSession } from '@/lib/auth'
+import { isRecentCompletion } from '@/lib/completedAge'
 import {
   filterByHorizon,
   loadHorizonFilter,
@@ -56,14 +57,6 @@ import { useUIStore } from '@/state/uiStore'
  */
 
 const SAVE_ERROR = 'Could not save — retry'
-
-function formatMinutes(mins: number): string {
-  if (!mins) return '0m'
-  if (mins < 60) return `${mins}m`
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  return m ? `${h}h ${m}m` : `${h}h`
-}
 
 /*
  * List sort: chunk 33 replaced the chunk-31 view-local sort (D2:
@@ -167,8 +160,10 @@ export default function SubcategoryView() {
     () => allTasks.filter((t) => !t.completedAt),
     [allTasks],
   )
+  // Chunk 86 (D2): only completions from the last 30 days are listed; older
+  // ones live in Insights.
   const completed = useMemo(
-    () => allTasks.filter((t) => t.completedAt),
+    () => allTasks.filter((t) => isRecentCompletion(t)),
     [allTasks],
   )
 
@@ -187,10 +182,6 @@ export default function SubcategoryView() {
   // Rendered order respects the global sort; selection still operates on the
   // unsorted `visibleTasks` set (order is irrelevant to which ids are chosen).
   const sortedTasks = [...visibleTasks].sort(compareTasks(sortKey))
-  const openMinutes = visibleIncomplete.reduce(
-    (sum, t) => sum + t.estimateMinutes,
-    0,
-  )
 
   const liveSubs = useMemo(
     () => data.subcategories.filter((s) => !s.archivedAt),
@@ -536,7 +527,7 @@ export default function SubcategoryView() {
           {subcategory.name}
         </h1>
         <span className="label">
-          {visibleIncomplete.length} open · {formatMinutes(openMinutes)}
+          {visibleIncomplete.length} open
         </span>
         <div className="ml-auto flex items-center gap-2">
           <HorizonControl value={horizon} onChange={onChangeHorizon} />
@@ -584,7 +575,9 @@ export default function SubcategoryView() {
                 ? horizon === 'near'
                   ? 'Nothing near term.'
                   : 'Nothing long term.'
-                : `All done. ${completed.length} completed.`}
+                : completed.length > 0
+                  ? `All done. ${completed.length} completed.`
+                  : 'All done.'}
           </div>
         ) : (
           <>

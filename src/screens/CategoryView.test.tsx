@@ -169,4 +169,13 @@ describe('CategoryView (chunk 31 re-skin)', () => {
     expect(screen.getByText(/^0 open/)).toBeInTheDocument()
     localStorage.removeItem('hupo.taskHorizon')
   })
+
+  it('the header reads "N open" with no time total (chunk 86, D3)', async () => {
+    localStorage.removeItem('hupo.taskHorizon')
+    renderCategory()
+    await screen.findByRole('heading', { name: /^work$/i })
+    const label = screen.getByText(/^\d+ open/)
+    expect(label.textContent).toBe('1 open')
+    expect(label.textContent).not.toContain('·')
+  })
 })

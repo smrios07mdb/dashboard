@@ -21,7 +21,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { Subcategory } from '@/db/types'
-import { fmtMin } from '@/lib/cat'
 import { subColor } from '@/lib/gamify'
 import { cn } from '@/lib/utils'
 
@@ -50,7 +49,6 @@ import { cn } from '@/lib/utils'
 export type SubcategoryHeaderProps = {
   subcategory: Subcategory
   incompleteCount: number
-  incompleteMinutes: number
   /** Total tasks attached to this subcategory (live + completed). */
   taskCount: number
   /** Notes on this list and its tasks (chunk 59); the glyph shows above 0. */
@@ -82,7 +80,6 @@ export type SubcategoryHeaderProps = {
 export default function SubcategoryHeader({
   subcategory,
   incompleteCount,
-  incompleteMinutes,
   taskCount,
   noteCount = 0,
   otherSubsInCategory,
@@ -156,7 +153,7 @@ export default function SubcategoryHeader({
         }
       }}
       className={cn(
-        'grid cursor-pointer items-center gap-2 px-3 py-3 transition-colors [grid-template-columns:auto_1fr_auto_auto_auto_auto]',
+        'grid cursor-pointer items-center gap-2 px-3 py-3 transition-colors [grid-template-columns:auto_1fr_auto_auto_auto]',
         isOver
           ? 'bg-accent-soft ring-1 ring-inset ring-[hsl(var(--ring))]'
           : 'hover:bg-bg-alt/60',
@@ -228,9 +225,10 @@ export default function SubcategoryHeader({
         )}
       </div>
 
-      {/* One grid cell for both counts. The header's template has six fixed
-          columns; a seventh child (the note count on its own, chunk 59) wrapped
-          the ⋯ button onto a second row (chunk 59a, F3). */}
+      {/* One grid cell for both counts. The header's template has five fixed
+          columns (six until chunk 86 dropped the time total); an extra child
+          (the note count on its own, chunk 59) wrapped the ⋯ button onto a
+          second row (chunk 59a, F3). */}
       <span
         data-testid="list-counts"
         className="inline-flex shrink-0 items-center gap-2"
@@ -248,9 +246,6 @@ export default function SubcategoryHeader({
             {noteCount}
           </span>
         )}
-      </span>
-      <span className="min-w-[50px] shrink-0 text-right font-mono text-[12px] tabular-nums text-ink-3">
-        {fmtMin(incompleteMinutes)}
       </span>
 
       <button

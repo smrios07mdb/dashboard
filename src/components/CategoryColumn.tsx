@@ -18,7 +18,7 @@ import HorizonControl from '@/components/HorizonControl'
 import SubcategorySection from '@/components/SubcategorySection'
 import TaskSortControl from '@/components/TaskSortControl'
 import type { Category, Subcategory, Task } from '@/db/types'
-import { catColor, catInk, fmtMin } from '@/lib/cat'
+import { catColor, catInk } from '@/lib/cat'
 import { filterByHorizon, type HorizonFilter } from '@/lib/horizon'
 import { isTaskDragId, taskDragCollision } from '@/lib/taskDragCollision'
 import type { TaskSortKey } from '@/lib/taskSort'
@@ -28,7 +28,7 @@ import { browserTimezone } from '@/lib/userTimezone'
 /*
  * One category column on the dashboard ("Work" or "Personal").
  *
- * Renders the category header with totals plus a card listing each
+ * Renders the category header (open count, controls) plus a card listing each
  * subcategory section. Chunk 8 adds:
  *   - DndContext + SortableContext scoped per column (within-category
  *     reorder only; cross-category drag is chunk 9's job)
@@ -142,13 +142,12 @@ export default function CategoryColumn({
   const isTouch = useIsTouchDevice()
 
   const allTasks = subcategories.flatMap((s) => tasksBySub[s.id] ?? [])
-  // Chunk 76: the pill and the total follow the horizon filter.
+  // Chunk 76: the pill follows the horizon filter. Chunk 86: no time total.
   const open = filterByHorizon(
     allTasks.filter((t) => !t.completedAt),
     horizon,
     timeZone ?? browserTimezone(),
   )
-  const total = open.reduce((sum, t) => sum + t.estimateMinutes, 0)
   const accent = catColor(category.name)
 
   // 5px activation distance prevents accidental drags from clicks on
@@ -252,12 +251,9 @@ export default function CategoryColumn({
             {open.length} open
           </span>
         </div>
-        {/* Wraps too: in a column narrower than the three controls, the total
-            goes above sort + › rather than overflowing to the left. */}
+        {/* Wraps too: in a column narrower than the controls they wrap rather
+            than overflowing to the left. */}
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3.5 gap-y-1.5">
-          <span className="whitespace-nowrap font-display text-[19px] font-medium tabular-nums text-ink-2">
-            {fmtMin(total)}
-          </span>
           {/* Chunk 33: list sort — global preference, one control per column. */}
           {/* Chunk 76: near/long horizon — global preference, beside sort. */}
           <HorizonControl value={horizon} onChange={onChangeHorizon} />

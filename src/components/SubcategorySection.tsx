@@ -6,6 +6,7 @@ import { useListNotes } from '@/components/notebook/notesContext'
 import SubcategoryHeader from '@/components/SubcategoryHeader'
 import TaskRow from '@/components/TaskRow'
 import type { Category, Subcategory, Task } from '@/db/types'
+import { isRecentCompletion } from '@/lib/completedAge'
 import { subColor } from '@/lib/gamify'
 import { filterByHorizon, type HorizonFilter } from '@/lib/horizon'
 import { compareTasks, type TaskSortKey } from '@/lib/taskSort'
@@ -131,7 +132,8 @@ export default function SubcategorySection({
     tasks.map((t) => t.id),
   ).length
   const openNow = tasks.filter((t) => !t.completedAt)
-  const completed = tasks.filter((t) => !!t.completedAt)
+  // Chunk 86 (D2): only completions from the last 30 days stay on the list.
+  const completed = tasks.filter((t) => isRecentCompletion(t))
   // Chunk 76: the header counts what the horizon filter leaves on screen.
   const shownOpen = filterByHorizon(
     openNow,
@@ -139,7 +141,6 @@ export default function SubcategorySection({
     timeZone ?? browserTimezone(),
   )
   const shown = new Set(shownOpen.map((t) => t.id))
-  const minutes = shownOpen.reduce((sum, t) => sum + t.estimateMinutes, 0)
 
   // Just-completed "linger": when a task flips to done, hold its id in a Set
   // for ~1.1s so it stays in the visible list and its rowFlush + "+XP"
@@ -226,7 +227,6 @@ export default function SubcategorySection({
       <SubcategoryHeader
         subcategory={subcategory}
         incompleteCount={shownOpen.length}
-        incompleteMinutes={minutes}
         taskCount={tasks.length}
         noteCount={noteCount}
         otherSubsInCategory={otherSubsInCategory}
@@ -253,6 +253,11 @@ export default function SubcategorySection({
         ) : visibleIncomplete.length === 0 && completed.length > 0 && !showCompleted ? (
           <div className="border-t border-line px-4 py-3 text-[12px] italic text-ink-3">
             All done. {completed.length} completed.
+          </div>
+        ) : visibleIncomplete.length === 0 && completed.length === 0 ? (
+          // Only completions older than 30 days: never an empty body (D2).
+          <div className="border-t border-line px-4 py-3 text-[12px] italic text-ink-3">
+            All done.
           </div>
         ) : (
           visibleIncomplete.map((t) => (

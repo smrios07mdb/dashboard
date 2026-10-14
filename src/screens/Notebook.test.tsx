@@ -262,17 +262,18 @@ describe('Notebook — list', () => {
 })
 
 describe('Notebook — empty states', () => {
-  it('empty notebook: the card and its New note, no search or segment', async () => {
+  it('empty notebook: the card, one New note (the header), no search or segment', async () => {
     await renderAt('/notebook', [])
     expect(screen.getByText('Nothing written yet.')).toBeInTheDocument()
     expect(
       screen.getByText(
-        "Notes can stand alone or sit beside a task or list. Start one here, or from any task's menu.",
+        "Notes can stand alone or sit beside a task or list. Start one with New note, or from any task's menu.",
       ),
     ).toBeInTheDocument()
     expect(screen.queryByLabelText('Search notes')).toBeNull()
     expect(screen.queryByRole('tablist')).toBeNull()
-    expect(screen.getAllByRole('button', { name: 'New note' })).toHaveLength(2)
+    // Chunk 86 (D6): the card has no button of its own.
+    expect(screen.getAllByRole('button', { name: 'New note' })).toHaveLength(1)
   })
 
   it('empty search', async () => {

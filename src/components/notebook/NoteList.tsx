@@ -247,13 +247,7 @@ export default function NoteList({
         {empty && (
           <DashedCard
             title="Nothing written yet."
-            body="Notes can stand alone or sit beside a task or list. Start one here, or from any task's menu."
-            action={
-              <Button type="button" onClick={onNew}>
-                <Plus aria-hidden />
-                New note
-              </Button>
-            }
+            body="Notes can stand alone or sit beside a task or list. Start one with New note, or from any task's menu."
           />
         )}
         {!empty && shown === 0 && hiddenCount === 0 && (

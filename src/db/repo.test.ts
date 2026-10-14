@@ -1126,3 +1126,119 @@ describe('repo — pending deletes (chunk 72)', () => {
     }
   })
 })
+
+// ============================================================
+// Repo: data.archivedCounts / data.purgeArchived (chunk 86, D5)
+// ============================================================
+
+describe('repo.data archived purge (chunk 86)', () => {
+  // Per-table result queues, consumed in call order; every `from` is logged
+  // into `chainCalls` so a segment can be read back per table.
+  function serve(queues: Record<string, SupabaseResult<unknown>[]>) {
+    fromMock.mockImplementation((table: string) => {
+      chainCalls.push({ method: 'from', args: [table] })
+      const next = queues[table]?.shift()
+      if (!next) throw new Error(`unexpected from(${table})`)
+      return makeChain(next)
+    })
+  }
+  /** One entry per `from` call: the table and the methods chained on it. */
+  function segments() {
+    const out: { table: string; calls: { method: string; args: unknown[] }[] }[] = []
+    for (const c of chainCalls) {
+      if (c.method === 'from') out.push({ table: c.args[0] as string, calls: [] })
+      else out[out.length - 1]?.calls.push(c)
+    }
+    return out
+  }
+  const isDelete = (s: { calls: { method: string }[] }) =>
+    s.calls.some((c) => c.method === 'delete')
+
+  // ri-1, ri-2 archived; s-empty and s-empty2 deletable; s-task holds a
+  // task, s-note a note.
+  const reads = () => ({
+    routine_items: [
+      { data: [{ id: 'ri-1' }, { id: 'ri-2' }], error: null },
+    ] as SupabaseResult<unknown>[],
+    subcategories: [
+      {
+        data: [
+          { id: 's-empty' },
+          { id: 's-task' },
+          { id: 's-note' },
+          { id: 's-empty2' },
+        ],
+        error: null,
+      },
+    ] as SupabaseResult<unknown>[],
+    tasks: [
+      { data: [{ subcategory_id: 's-task' }, { subcategory_id: 's-task' }], error: null },
+    ] as SupabaseResult<unknown>[],
+    notes: [{ data: [{ subcategory_id: 's-note' }], error: null }] as SupabaseResult<unknown>[],
+  })
+
+  it('archivedCounts returns routine items, deletable lists and kept lists', async () => {
+    serve(reads())
+    expect(await repo.data.archivedCounts()).toEqual({
+      routineItems: 2,
+      lists: 2,
+      listsKept: 2,
+    })
+    expect(segments().some(isDelete)).toBe(false)
+  })
+
+  it('purgeArchived deletes archived routine items and only the empty archived lists', async () => {
+    const q = reads()
+    q.routine_items.push({ data: [{ id: 'ri-1' }, { id: 'ri-2' }], error: null })
+    q.subcategories.push({ data: [{ id: 's-empty' }, { id: 's-empty2' }], error: null })
+    serve(q)
+    await db.routine_items.bulkPut([
+      { id: 'ri-1', userId: 'u-1', routine: 'morning', label: 'a', sortOrder: 0, archivedAt: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'ri-2', userId: 'u-1', routine: 'morning', label: 'b', sortOrder: 1, archivedAt: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 'ri-live', userId: 'u-1', routine: 'morning', label: 'c', sortOrder: 2, archivedAt: null, createdAt: '2026-01-01T00:00:00.000Z' },
+    ])
+    await db.routine_logs.bulkPut([
+      { id: 'rl-1', userId: 'u-1', routineItemId: 'ri-1', dateKey: '2026-05-25', completed: true },
+      { id: 'rl-live', userId: 'u-1', routineItemId: 'ri-live', dateKey: '2026-05-25', completed: true },
+    ])
+    await db.subcategories.bulkPut(
+      ['s-empty', 's-task', 's-note', 's-empty2'].map((id, i) => ({
+        id,
+        userId: 'u-1',
+        categoryId: 'c-1',
+        name: id,
+        sortOrder: i,
+        archivedAt: '2026-01-01T00:00:00.000Z',
+      })),
+    )
+
+    expect(await repo.data.purgeArchived()).toEqual({ routineItems: 2, lists: 2 })
+
+    const deletes = segments().filter(isDelete)
+    expect(deletes.map((d) => d.table)).toEqual(['routine_items', 'subcategories'])
+    const inIds = (d: (typeof deletes)[number]) =>
+      d.calls.find((c) => c.method === 'in' && c.args[0] === 'id')?.args[1]
+    expect(inIds(deletes[0])).toEqual(['ri-1', 'ri-2'])
+    expect(inIds(deletes[1])).toEqual(['s-empty', 's-empty2'])
+    // Never a delete naming a list that holds a task or a note.
+    for (const d of deletes) {
+      expect(inIds(d)).not.toContain('s-task')
+      expect(inIds(d)).not.toContain('s-note')
+    }
+
+    expect((await db.routine_items.toArray()).map((r) => r.id)).toEqual(['ri-live'])
+    expect((await db.routine_logs.toArray()).map((r) => r.id)).toEqual(['rl-live'])
+    expect((await db.subcategories.toArray()).map((r) => r.id).sort()).toEqual([
+      's-note',
+      's-task',
+    ])
+    expect(await db.outbox.count()).toBe(0)
+  })
+
+  it('throws offline without calling Supabase', async () => {
+    isOnlineMock.mockReturnValue(false)
+    await expect(repo.data.purgeArchived()).rejects.toThrow('offline')
+    await expect(repo.data.archivedCounts()).rejects.toThrow('offline')
+    expect(fromMock).not.toHaveBeenCalled()
+  })
+})

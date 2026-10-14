@@ -2,6 +2,8 @@ import { render, screen, cleanup, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import type { User } from '@supabase/supabase-js'
+
 import type { Category, Subcategory, Task } from '@/db/types'
 
 import DailyHero from './DailyHero'
@@ -61,6 +63,7 @@ function renderHero(
     today?: { done: number; total: number }
     streak?: number
     tasks?: Task[]
+    user?: User | null
   } = {},
 ) {
   // WhatsNextSheet (inside the hero's action) calls useNavigate, so a router
@@ -68,7 +71,7 @@ function renderHero(
   return render(
     <MemoryRouter>
       <DailyHero
-        user={null}
+        user={opts.user ?? null}
         tasks={opts.tasks ?? TASKS}
         subcategories={SUBS}
         categories={categories}
@@ -191,5 +194,34 @@ describe('DailyHero today ring and chips (chunk 70)', () => {
     cleanup()
     renderHero([WORK, PERSONAL], { tasks: [doneTask('t-d', 's-w')] })
     expect(screen.getByText('LVL')).toBeInTheDocument()
+  })
+})
+
+// Chunk 86 (D1): the greeting reads a name you set, never the email.
+describe('DailyHero greeting name', () => {
+  afterEach(cleanup)
+
+  const user = (meta: Record<string, unknown>): User =>
+    ({
+      id: 'u1',
+      email: 'smrios07@example.com',
+      user_metadata: meta,
+      app_metadata: {},
+      aud: 'authenticated',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }) as User
+
+  it('greets by user_metadata.name', () => {
+    renderHero([WORK, PERSONAL], { user: user({ name: 'Sergio' }) })
+    expect(
+      screen.getByRole('heading', { level: 1 }).textContent,
+    ).toMatch(/, Sergio$/)
+  })
+
+  it('never falls back to the email local-part', () => {
+    renderHero([WORK, PERSONAL], { user: user({}) })
+    const h1 = screen.getByRole('heading', { level: 1 })
+    expect(h1.textContent).not.toMatch(/Smrios07/i)
+    expect(h1.textContent).not.toContain(',')
   })
 })

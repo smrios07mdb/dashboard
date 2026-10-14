@@ -61,14 +61,6 @@ import { useUIStore } from '@/state/uiStore'
 
 const SAVE_ERROR = 'Could not save — retry'
 
-function formatMinutes(mins: number): string {
-  if (!mins) return '0m'
-  if (mins < 60) return `${mins}m`
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  return m ? `${h}h ${m}m` : `${h}h`
-}
-
 type ViewData = {
   categories: Category[]
   subcategories: Subcategory[]
@@ -194,10 +186,10 @@ export default function CategoryView() {
       ),
     [data.tasks, liveSubIds],
   )
-  // Chunk 76: the header counts follow the horizon filter.
+  // Chunk 76: the header count follows the horizon filter (no time total,
+  // chunk 86).
   const shownOpen = filterByHorizon(allTasks, horizon, timeZone)
   const openCount = shownOpen.length
-  const openMinutes = shownOpen.reduce((s, t) => s + t.estimateMinutes, 0)
 
   // ---------- task mutation helpers ----------
 
@@ -613,7 +605,7 @@ export default function CategoryView() {
           {category.name}
         </h1>
         <span className="label">
-          {openCount} open · {formatMinutes(openMinutes)}
+          {openCount} open
         </span>
         {/* Chunk 76: horizon, then chunk 33's list sort — same global
             preferences as the Dashboard. */}

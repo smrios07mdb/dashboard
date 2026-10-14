@@ -69,10 +69,10 @@ function encourage(done: number, total: number): string {
 }
 
 /**
- * A clean first name for the greeting, or null. Prefers a real name from the
- * session user metadata; falls back to the email local-part only when it reads
- * like a name (letters first, no `+`/`.`-noise); otherwise null so we render
- * the bare greeting and never surface a raw address (chunk-26 note C).
+ * The name for the greeting, or null. Only a name the user set in the auth
+ * user metadata (Settings → Account → Name) — never the email local-part
+ * (chunk 86; chunk-26 note C had a local-part fallback). With no name the
+ * heading is the bare greeting.
  */
 function displayName(user: User | null): string | null {
   if (!user) return null
@@ -80,12 +80,7 @@ function displayName(user: User | null): string | null {
   const metaName = [meta.name, meta.full_name, meta.display_name].find(
     (v): v is string => typeof v === 'string' && v.trim().length > 0,
   )
-  if (metaName) return metaName.trim()
-  const local = user.email?.split('@')[0] ?? ''
-  if (/^[a-zA-Z][a-zA-Z0-9'’-]*$/.test(local) && local.length <= 20) {
-    return local.charAt(0).toUpperCase() + local.slice(1)
-  }
-  return null
+  return metaName ? metaName.trim() : null
 }
 
 export default function DailyHero({

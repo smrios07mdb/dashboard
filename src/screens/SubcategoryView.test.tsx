@@ -63,6 +63,10 @@ vi.mock('@/state/uiStore', () => ({
 
 import SubcategoryView from './SubcategoryView'
 
+// Chunk 86 (D2): only completions from the last 30 days are listed.
+const daysAgo = (n: number) =>
+  new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString()
+
 function mkTask(
   id: string,
   opts: { priority?: number | null; completedAt?: string | null } = {},
@@ -216,7 +220,7 @@ describe('SubcategoryView (chunk 31 re-skin)', () => {
   })
 
   it('bulk complete offers Undo, which restores each prior completedAt (chunk 72)', async () => {
-    const X = '2026-01-02T00:00:00.000Z'
+    const X = daysAgo(2)
     tasksList.mockResolvedValue([
       mkTask('Alpha'),
       mkTask('Bravo', { completedAt: X }),
@@ -262,7 +266,7 @@ describe('SubcategoryView horizon (chunk 76)', () => {
     tasksList.mockResolvedValue([
       mkTask('Urgent', { priority: 1 }),
       mkTask('Someday', { priority: 3 }),
-      mkTask('Finished', { completedAt: '2026-01-02T00:00:00.000Z' }),
+      mkTask('Finished', { completedAt: daysAgo(2) }),
     ])
   })
 
@@ -282,5 +286,56 @@ describe('SubcategoryView horizon (chunk 76)', () => {
     expect(screen.getByText('Finished')).toBeInTheDocument()
     expect(screen.queryByText('Urgent')).not.toBeInTheDocument()
     localStorage.removeItem('hupo.taskHorizon')
+  })
+})
+
+describe('SubcategoryView — 30-day completions and header (chunk 86)', () => {
+  beforeEach(() => {
+    localStorage.removeItem('hupo.taskHorizon')
+    categoriesList.mockResolvedValue([
+      { id: 'cat-work', name: 'Work', userId: 'u1' },
+    ])
+    subcategoriesList.mockResolvedValue([
+      {
+        id: 'sub-1',
+        name: 'Inbox',
+        categoryId: 'cat-work',
+        sortOrder: 0,
+        userId: 'u1',
+        archivedAt: null,
+      },
+    ])
+  })
+
+  it('Show N done counts recent completions only', async () => {
+    tasksList.mockResolvedValue([
+      mkTask('Open'),
+      mkTask('Recent', { completedAt: daysAgo(3) }),
+      mkTask('Old', { completedAt: daysAgo(45) }),
+    ])
+    renderSub()
+    await screen.findByRole('heading', { name: /^inbox$/i })
+    fireEvent.click(screen.getByRole('button', { name: 'Show 1 done' }))
+    expect(screen.getByText('Recent')).toBeInTheDocument()
+    expect(screen.queryByText('Old')).not.toBeInTheDocument()
+  })
+
+  it('only old completions → "All done." and no Show done', async () => {
+    tasksList.mockResolvedValue([
+      mkTask('Old', { completedAt: daysAgo(45) }),
+    ])
+    renderSub()
+    await screen.findByRole('heading', { name: /^inbox$/i })
+    expect(await screen.findByText('All done.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /done$/i })).toBeNull()
+  })
+
+  it('the header reads "N open" with no time total (D3)', async () => {
+    tasksList.mockResolvedValue([mkTask('A'), mkTask('B'), mkTask('C')])
+    renderSub()
+    await screen.findByRole('heading', { name: /^inbox$/i })
+    const label = screen.getByText(/^\d+ open/)
+    expect(label.textContent).toBe('3 open')
+    expect(label.textContent).not.toContain('·')
   })
 })

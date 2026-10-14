@@ -38,6 +38,7 @@ import {
   validateImport,
 } from '@/lib/import'
 import { signOutUser } from '@/lib/signOutCleanup'
+import { supabase } from '@/lib/supabase'
 import {
   TODAY_LIST_VARIANTS,
   type TodayListVariant,
@@ -312,6 +313,66 @@ function SyncIssuesSection() {
  * guard redirects to Login on the auth-state change, so we don't route manually
  * (Decision G).
  */
+/**
+ * Account → Name (chunk 86, D1): the greeting's name, kept in the auth user
+ * metadata (`user_metadata.name`). The greeting never falls back to the email.
+ * `updateUser` emits `USER_UPDATED` before it resolves, and `useSession`
+ * re-renders on it, so the saved name comes back through the session.
+ */
+function NameRow() {
+  const { user } = useSession()
+  const meta = user?.user_metadata?.name
+  const current = typeof meta === 'string' ? meta : ''
+  const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const value = draft ?? current
+  const unchanged = value.trim() === current.trim()
+
+  async function onSave() {
+    setSaving(true)
+    const name = value.trim()
+    const { error } = await supabase.auth
+      .updateUser({ data: { name: name || null } })
+      .catch((e: Error) => ({ error: e }))
+    setSaving(false)
+    if (error) {
+      toast.error(error.message || 'Could not save your name. Try again.')
+      return
+    }
+    setDraft(null)
+    toast('Name saved')
+  }
+
+  return (
+    <SettingsRow title="Name" hint="Used in the greeting." align="center">
+      <form
+        className="flex flex-wrap items-center gap-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!saving && !unchanged) void onSave()
+        }}
+      >
+        <Input
+          aria-label="Name"
+          value={value}
+          maxLength={40}
+          onChange={(e) => setDraft(e.target.value)}
+          className="h-9 min-w-0 flex-1 sm:max-w-[260px]"
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          size="sm"
+          className="ml-auto"
+          disabled={saving || unchanged}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+      </form>
+    </SettingsRow>
+  )
+}
+
 function AccountSection() {
   const { user } = useSession()
   const email = user?.email ?? ''
@@ -325,6 +386,7 @@ function AccountSection() {
 
   return (
     <SettingsSection kicker="01" title="Account">
+      <NameRow />
       <SettingsRow title="Email" align="center">
         <div className="flex flex-wrap items-center gap-3">
           <span className="num min-w-0 break-all text-[14px] text-ink">
@@ -1311,6 +1373,43 @@ function NotificationsSection() {
  * "Wipe my data"). Replace validates the file before any delete (R4) and
  * requires a typed REPLACE; Wipe local cache requires a typed CACHE.
  */
+// Chunk 86 (D5): the dialog body is its own lazy chunk (eager JS budget).
+const ArchivedItemsDialog = lazy(
+  () => import('@/components/ArchivedItemsDialog'),
+)
+
+/**
+ * Data → Archived items (chunk 86, D5). Archived lists and routine items
+ * still sync to every device; the dialog deletes them for good, on demand.
+ * Online-only, so the button is disabled offline.
+ */
+function ArchivedItemsRow() {
+  const offline = useSyncStore((s) => s.state) === 'offline'
+  const [open, setOpen] = useState(false)
+
+  return (
+    <SettingsRow
+      title="Archived items"
+      hint="Lists and routine items you archived still sync to every device. Removing them deletes them for good; lists that still hold tasks or notes are kept."
+    >
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setOpen(true)}
+        disabled={offline || open}
+      >
+        <Trash2 className="size-4" />
+        Remove archived…
+      </Button>
+      {open && (
+        <Suspense fallback={null}>
+          <ArchivedItemsDialog onClose={() => setOpen(false)} />
+        </Suspense>
+      )}
+    </SettingsRow>
+  )
+}
+
 function DataSection() {
   const { user } = useSession()
   const userId = user?.id ?? null
@@ -1468,6 +1567,8 @@ function DataSection() {
           Wipe local cache
         </Button>
       </SettingsRow>
+
+      <ArchivedItemsRow />
 
       {/* Import dialog */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>

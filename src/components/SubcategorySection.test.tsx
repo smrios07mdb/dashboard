@@ -80,8 +80,12 @@ const baseProps = (tasks: Task[]) => ({
   onMoveSubcategory: vi.fn(),
 })
 
+const DAY_MS = 24 * 60 * 60 * 1000
+const daysAgo = (n: number) => new Date(Date.now() - n * DAY_MS).toISOString()
+
 // Completing a 30-minute task is worth 10 + 30 = 40 XP (see taskXP).
-const DONE_AT = '2026-01-02T00:00:00.000Z'
+// Chunk 86: recent, so the completion stays on the list (30-day rule, D2).
+const DONE_AT = daysAgo(2)
 
 describe('SubcategorySection completion cheer', () => {
   beforeEach(() => vi.useFakeTimers())
@@ -160,9 +164,10 @@ describe('SubcategorySection horizon filter (chunk 76)', () => {
     expect(screen.getByText('Soon one')).toBeInTheDocument()
     expect(screen.getByText('Dated one')).toBeInTheDocument()
     expect(screen.queryByText('Someday one')).toBeNull()
-    // SubcategoryHeader renders the open count and the open minutes.
+    // SubcategoryHeader renders the open count; chunk 86 (D3) dropped the
+    // open minutes (two 30 m rows read `1h` before).
     expect(screen.getByText('2')).toBeInTheDocument()
-    expect(screen.getByText('1h')).toBeInTheDocument()
+    expect(screen.queryByText('1h')).toBeNull()
   })
 
   it('says "Nothing near term." when every open row is long, and the completed expander still works', () => {
@@ -190,5 +195,52 @@ describe('SubcategorySection horizon filter (chunk 76)', () => {
     expect(screen.getByText('Soon one')).toBeInTheDocument()
     expect(screen.getByText('Someday one')).toBeInTheDocument()
     expect(screen.queryByText(/^Nothing (near|long) term\.$/)).toBeNull()
+  })
+})
+
+// Chunk 86 (D2): completions older than 30 days leave the list.
+describe('SubcategorySection — 30-day completions (chunk 86)', () => {
+  const renderWith = (tasks: Task[]) =>
+    render(<SubcategorySection {...baseProps(tasks)} />, {
+      wrapper: MemoryRouter,
+    })
+
+  it('counts and lists only recent completions in the expander', () => {
+    renderWith([
+      task('Open one'),
+      task('Recent done', daysAgo(2)),
+      task('Old done', daysAgo(40)),
+    ])
+    fireEvent.click(screen.getByRole('button', { name: '1 completed' }))
+    expect(screen.getByText('Recent done')).toBeInTheDocument()
+    expect(screen.queryByText('Old done')).toBeNull()
+  })
+
+  it('a list with open rows and only old completions shows no expander', () => {
+    renderWith([task('Open one'), task('Old done', daysAgo(40))])
+    expect(screen.getByText('Open one')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /completed/i })).toBeNull()
+    expect(screen.queryByText('Old done')).toBeNull()
+  })
+
+  it('a list with only old completions reads "All done." — never an empty body', () => {
+    renderWith([task('Old done', daysAgo(40)), task('Older', daysAgo(90))])
+    expect(screen.getByText('All done.')).toBeInTheDocument()
+    expect(screen.queryByText(/completed/)).toBeNull()
+    expect(screen.queryByText('Old done')).toBeNull()
+  })
+
+  it('all done with a recent completion keeps "All done. N completed."', () => {
+    renderWith([task('Recent done', daysAgo(1)), task('Old done', daysAgo(40))])
+    expect(screen.getByText('All done. 1 completed.')).toBeInTheDocument()
+  })
+
+  it('renders no time total in the header (D3)', () => {
+    // Three 30 m open rows read `1h 30m` before chunk 86.
+    renderWith([task('A'), task('B'), task('C')])
+    expect(screen.queryByText('1h 30m')).toBeNull()
+    // Rows keep their own `30m`; the header row has none.
+    const header = screen.getByTestId('list-counts').parentElement as HTMLElement
+    expect(header.textContent).not.toMatch(/\d+h|\d+m\b/)
   })
 })
