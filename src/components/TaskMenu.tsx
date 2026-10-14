@@ -83,6 +83,12 @@ export default function TaskMenu({
   // Set by the three picker items (chunk 77a): the menu then keeps focus off
   // ⋯ as it closes, so the non-modal picker it just opened stays open.
   const handingOff = useRef(false)
+  // Radix focuses a menu item on pointer move and the menu on pointer leave.
+  // The closing menu still gets both while the picker sits over it (chunk
+  // 77b), so a hand-off item skips them; hover is untouched otherwise.
+  const keepFocus = (e: React.PointerEvent) => {
+    if (handingOff.current) e.preventDefault()
+  }
 
   return (
     <>
@@ -116,6 +122,8 @@ export default function TaskMenu({
             onSelect={(id) => void onMoveToSubcategoryId(id)}
           />
           <DropdownMenuItem
+            onPointerMove={keepFocus}
+            onPointerLeave={keepFocus}
             onSelect={() => {
               handingOff.current = true
               onOpenPriority()
@@ -130,6 +138,8 @@ export default function TaskMenu({
             )}
           </DropdownMenuItem>
           <DropdownMenuItem
+            onPointerMove={keepFocus}
+            onPointerLeave={keepFocus}
             onSelect={() => {
               handingOff.current = true
               onOpenDue()
@@ -139,6 +149,8 @@ export default function TaskMenu({
             {task.dueAt ? 'Edit due date' : 'Set due date…'}
           </DropdownMenuItem>
           <DropdownMenuItem
+            onPointerMove={keepFocus}
+            onPointerLeave={keepFocus}
             onSelect={() => {
               handingOff.current = true
               onOpenReminder()

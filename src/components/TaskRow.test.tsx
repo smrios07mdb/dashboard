@@ -771,3 +771,85 @@ describe('TaskRow — pickers opened from ⋯ (chunk 77a)', () => {
     expect(openTaskNotes).toHaveBeenCalledWith('t1')
   })
 })
+
+describe('TaskRow — mouse hand-off from ⋯ (chunk 77b)', () => {
+  // A real browser keeps the menu mounted through its exit animation, so the
+  // picker mounts and takes focus while the selected item can still receive
+  // pointer events. jsdom has no animations; this stub gives Radix Presence an
+  // exit animation name for `[role=menu]` so the closing menu stays mounted.
+  let restoreStyle: () => void = () => undefined
+  beforeEach(() => {
+    vi.useRealTimers()
+    const real = window.getComputedStyle.bind(window)
+    const spy = vi
+      .spyOn(window, 'getComputedStyle')
+      .mockImplementation((el, pseudo) => {
+        const styles = real(el, pseudo)
+        if (el.getAttribute('role') !== 'menu') return styles
+        return new Proxy(styles, {
+          get: (target, prop) => {
+            if (prop === 'animationName') {
+              return el.getAttribute('data-state') === 'closed' ? 'exit' : 'enter'
+            }
+            const value = Reflect.get(target, prop) as unknown
+            return typeof value === 'function' ? value.bind(target) : value
+          },
+        })
+      })
+    restoreStyle = () => spy.mockRestore()
+  })
+  afterEach(() => restoreStyle())
+
+  const mouse = { pointerType: 'mouse' }
+  const menuButton = () =>
+    screen.getByRole('button', { name: 'Actions for "Atlas launch"' })
+
+  it.each([
+    ['Set priority…', {}],
+    ['Set due date…', {}],
+    ['Edit due date', { dueAt: TWO_DAYS_LATE }],
+    ['Set reminder…', {}],
+    ['Edit reminder', { remindAt: LATER_TODAY }],
+  ] as const)(
+    '%s by mouse: the picker survives the pointer leaving the closing menu',
+    async (label, over) => {
+      row(over)
+      fireEvent.keyDown(menuButton(), { key: 'Enter' })
+      const item = await screen.findByRole('menuitem', {
+        name: new RegExp(`^${label}`),
+      })
+      fireEvent.pointerMove(item, mouse)
+      fireEvent.pointerDown(item, mouse)
+      fireEvent.pointerUp(item, mouse)
+      fireEvent.click(item)
+      const dialog = await screen.findByRole('dialog')
+      // The menu is still mounted, closing, as in the browser.
+      expect(item).toBeInTheDocument()
+      expect(dialog).toContainElement(document.activeElement as HTMLElement)
+
+      fireEvent.pointerLeave(item, { ...mouse, relatedTarget: dialog })
+      fireEvent.pointerMove(item, mouse)
+      fireEvent.pointerMove(dialog, mouse)
+      await settle()
+
+      expect(screen.getByRole('dialog')).toBe(dialog)
+      expect(dialog).toContainElement(document.activeElement as HTMLElement)
+    },
+  )
+
+  it('hovering still moves the highlight between items', async () => {
+    row()
+    fireEvent.keyDown(menuButton(), { key: 'Enter' })
+    const due = await screen.findByRole('menuitem', { name: /Set due date…/ })
+    const block = screen.getByRole('menuitem', { name: /Block time/ })
+    fireEvent.pointerMove(due, mouse)
+    expect(due).toHaveFocus()
+    expect(due).toHaveAttribute('data-highlighted')
+    fireEvent.pointerMove(block, mouse)
+    expect(block).toHaveFocus()
+    expect(due).not.toHaveAttribute('data-highlighted')
+    fireEvent.pointerLeave(block, mouse)
+    expect(screen.getByRole('menu')).toHaveFocus()
+    expect(block).not.toHaveAttribute('data-highlighted')
+  })
+})
