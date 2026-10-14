@@ -101,6 +101,10 @@
     --busy-outlook:       rgba(45, 56, 88, 0.06);
     --busy-outlook-ln:    rgba(45, 56, 88, 0.12);
     --busy-outlook-hatch: rgba(45, 56, 88, 0.055);
+    /* Text on busy blocks (chunk 75a): >= 4.5:1 on a 16% wash of any calendar
+       colour, black included, over --bg or --surface, with or without the
+       Outlook hatch. Measured worst case 5.26:1 (black calendar, --bg, hatch). */
+    --busy-ink: color-mix(in srgb, var(--ink-2) 75%, black);
 
     /* Jewel palette — vivid, bold, made to pop on cream */
     --jewel-sapphire: #2f6bf0;

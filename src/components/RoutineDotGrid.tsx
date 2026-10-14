@@ -155,7 +155,7 @@ export default function RoutineDotGrid({
             className="h-5 w-5 rounded-full transition-colors"
             style={dotStyle(c.state, accent, c.isToday)}
           />
-          <span className="num text-[11px] text-ink-4">{c.dow}</span>
+          <span className="num text-[11px] text-ink-3">{c.dow}</span>
         </div>
       ))}
     </div>

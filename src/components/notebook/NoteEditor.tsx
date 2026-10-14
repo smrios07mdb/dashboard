@@ -382,7 +382,7 @@ export default function NoteEditor({
             placeholder="Untitled"
             aria-label="Title"
             className={cn(
-              'title mb-2 w-full border-0 bg-transparent p-0 leading-[1.15] outline-none placeholder:text-ink-4',
+              'title mb-2 w-full border-0 bg-transparent p-0 leading-[1.15] outline-none placeholder:text-ink-3',
               menu ? 'text-[22px]' : 'text-[26px] sm:mb-3 sm:text-[30px]',
             )}
           />

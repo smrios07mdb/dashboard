@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import css from '../index.css?raw'
+import { CALENDAR_PALETTE } from './calendarColors'
 
 /*
  * Small-text contrast guard (chunk 75, UX audit #14; ARCH §13).
@@ -108,5 +109,48 @@ describe('small-text contrast (chunk 75)', () => {
     const sizes = [...css.matchAll(/font-size:\s*([\d.]+)px/g)].map((m) => Number(m[1]))
     expect(sizes.length).toBeGreaterThan(0)
     expect(sizes.filter((n) => n < 11)).toEqual([])
+  })
+})
+
+/** `--name: rgba(r, g, b, a)` out of a block: its colour and its alpha. */
+function rgba(name: string, from: string): { rgb: RGB; alpha: number } {
+  const m = new RegExp(
+    `${name}:\\s*rgba\\((\\d+), (\\d+), (\\d+), ([\\d.]+)\\);`,
+  ).exec(from)
+  if (!m) throw new Error(`${name} is not an rgba() token`)
+  return { rgb: [Number(m[1]), Number(m[2]), Number(m[3])], alpha: Number(m[4]) }
+}
+
+/** BusyBlock's calendar tint: 16% of the calendar colour over the base. */
+const WASH = 0.16
+
+describe('contrast on washes (chunk 75a)', () => {
+  it.each([...CALENDAR_PALETTE, '#000000'])(
+    '--busy-ink is >= 4.5:1 on the wash of %s, with and without the Outlook hatch',
+    (colour) => {
+      const ink = token('--busy-ink')
+      const hatch = rgba('--busy-outlook-hatch', ROOT)
+      for (const base of ['--bg', '--surface']) {
+        const wash = over(hex(colour), WASH, token(base))
+        expect(
+          contrast(ink, wash),
+          `${colour} over ${base}, no hatch`,
+        ).toBeGreaterThanOrEqual(AA)
+        expect(
+          contrast(ink, over(hatch.rgb, hatch.alpha, wash)),
+          `${colour} over ${base}, hatch`,
+        ).toBeGreaterThanOrEqual(AA)
+      }
+    },
+  )
+
+  it('--ink-2 is >= 4.5:1 on the emerald --work-soft over --bg', () => {
+    const soft = rgba('--work-soft', EMERALD)
+    const chip = over(soft.rgb, soft.alpha, token('--bg'))
+    expect(contrast(token('--ink-2'), chip)).toBeGreaterThanOrEqual(AA)
+  })
+
+  it.each(['--bg', '--surface'])('--ink-3 is >= 4.5:1 on %s', (base) => {
+    expect(contrast(token('--ink-3'), token(base))).toBeGreaterThanOrEqual(AA)
   })
 })

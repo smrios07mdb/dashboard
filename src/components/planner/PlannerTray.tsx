@@ -228,7 +228,7 @@ export default function PlannerTray({
                 <span className="label" style={{ color: g.color }}>
                   {g.label}
                 </span>
-                <span className="num mono text-[11px] text-ink-4">
+                <span className="num mono text-[11px] text-ink-3">
                   {g.items.length}
                 </span>
               </div>

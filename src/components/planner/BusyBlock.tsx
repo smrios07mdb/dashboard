@@ -24,13 +24,14 @@ import { blockPos, fmtClock, type WeekBusyBlock } from '@/lib/plannerGeometry'
  * Renders a <button> so the popover is keyboard-reachable (chunk-36
  * acceptance). Stale Outlook: 55% opacity, source tag becomes
  * `OUTLOOK · HH:MM` from the feed's cache time.
+ * Text is --busy-ink (chunk 75a); the stale 55% fade is the one accepted contrast exception.
  */
 
 const clipMarkStyle = (dir: 'up' | 'down'): CSSProperties => ({
   position: 'absolute',
   right: 5,
   fontSize: 8,
-  color: 'var(--ink-3)',
+  color: 'var(--busy-ink)',
   ...(dir === 'up' ? { top: 2 } : { bottom: 2 }),
 })
 
@@ -115,7 +116,7 @@ export default function BusyBlock({
           className={`overflow-hidden text-ellipsis whitespace-nowrap font-medium ${
             tight ? 'text-[10px] leading-[1.1]' : 'text-[10.5px]'
           }`}
-          style={{ color: 'var(--ink-3)' }}
+          style={{ color: 'var(--busy-ink)' }}
         >
           {block.title}
         </span>
@@ -123,7 +124,7 @@ export default function BusyBlock({
       {pos.height >= 46 && (
         <span
           className="label mt-auto inline-flex items-center gap-1"
-          style={{ fontSize: 8.5, letterSpacing: '.14em', opacity: 0.8 }}
+          style={{ fontSize: 8.5, letterSpacing: '.14em', color: 'var(--busy-ink)' }}
         >
           {calColor && (
             <span

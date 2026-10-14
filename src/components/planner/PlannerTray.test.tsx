@@ -82,4 +82,12 @@ describe('PlannerTray (chunk 38)', () => {
     expect(el.className).toContain('border-line')
     expect(screen.getByText('Overdue · Apr 30')).toBeInTheDocument()
   })
+
+  it('the group count is text-ink-3, not text-ink-4 (chunk 75a)', () => {
+    renderTray({ items: [anItem(), anItem({ task: aTask({ id: 't-2' }) })] })
+    const count = screen.getByText('P2 — Soon').nextElementSibling as HTMLElement
+    expect(count).toHaveTextContent('2')
+    expect(count.className).toContain('text-ink-3')
+    expect(count.className).not.toContain('text-ink-4')
+  })
 })

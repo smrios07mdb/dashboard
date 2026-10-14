@@ -183,6 +183,11 @@ describe('WeekGrid (chunk 36)', () => {
     })
     const rails = screen.getAllByText(/· 1 HIDDEN/)
     expect(rails).toHaveLength(2)
+    // Chunk 75a: the hidden count is text, so ink-3, never ink-4.
+    for (const rail of rails) {
+      expect(rail.className).toContain('text-ink-3')
+      expect(rail.className).not.toContain('text-ink-4')
+    }
   })
 
   it('renders the quiet inline notice on busy-fetch error', () => {

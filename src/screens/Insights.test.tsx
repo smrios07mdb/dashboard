@@ -161,6 +161,8 @@ describe('Insights', () => {
     const chip = await screen.findByLabelText(/trend/i)
     expect(chip.textContent).toContain('+')
     expect(chip.textContent).toContain('%')
+    // Chunk 75a: the suffix sits on the --work-soft wash, so ink-2.
+    expect(within(chip).getByText('vs first half').className).toContain('text-ink-2')
   })
 
   it('(c) shows the empty state when no tasks are completed in range', async () => {

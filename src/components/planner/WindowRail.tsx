@@ -38,7 +38,7 @@ export default function WindowRail({
       )}
       {expanded ? `HIDE ${label}` : `SHOW ${label}`}
       {!expanded && hiddenCount > 0 && (
-        <span className="text-ink-4">· {hiddenCount} HIDDEN</span>
+        <span className="text-ink-3">· {hiddenCount} HIDDEN</span>
       )}
     </button>
   )

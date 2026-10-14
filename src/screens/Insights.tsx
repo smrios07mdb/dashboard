@@ -333,7 +333,7 @@ export default function Insights() {
               {trend >= 0 ? '+' : ''}
               {trend}%
             </span>
-            <span className="font-medium text-ink-3">vs first half</span>
+            <span className="font-medium text-ink-2">vs first half</span>
           </span>
         )}
       </header>
