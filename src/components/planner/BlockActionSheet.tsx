@@ -39,6 +39,12 @@ export type BlockActionSheetProps = {
   onToggleDone: () => void
   onUnschedule: () => void
   onClose: () => void
+  /**
+   * The sheet's `onCloseAutoFocus` (chunk 82). The sheet is opened from state,
+   * not a Radix trigger, so without it focus lands on `body` on close; the
+   * Planner uses it to hand focus back to the block that opened the sheet.
+   */
+  onCloseAutoFocus?: (e: Event) => void
 }
 
 export default function BlockActionSheet({
@@ -53,6 +59,7 @@ export default function BlockActionSheet({
   onToggleDone,
   onUnschedule,
   onClose,
+  onCloseAutoFocus,
 }: BlockActionSheetProps) {
   const newest = notes[0]
   return (
@@ -61,6 +68,7 @@ export default function BlockActionSheet({
         side="bottom"
         className="flex flex-col gap-4 rounded-t-xl"
         data-side="bottom"
+        onCloseAutoFocus={onCloseAutoFocus}
       >
         <SheetHeader className="text-left">
           <SheetTitle className="text-[15px] font-semibold tracking-[-.01em]">

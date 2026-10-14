@@ -1,6 +1,7 @@
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { formatInTimeZone } from 'date-fns-tz'
 
 import type { BusyRange } from '@/db/types'
+import { zonedWallToDate } from '@/lib/zonedTime'
 
 /*
  * Pure slot proposer for the "Block time" feature (ARCHITECTURE.md §8).
@@ -75,14 +76,19 @@ export function proposeSlots({
     const dateKey = addDays(todayKey, dayOffset)
     // Window bounds as absolute instants, anchored to the user's tz so the
     // 15-min grid lands on :00/:15/:30/:45 *local* even for :30/:45 offsets.
-    const windowStart = fromZonedTime(
+    const startAt = zonedWallToDate(
       `${dateKey}T${pad(WORK_START_HOUR)}:00:00`,
       timezone,
-    ).getTime()
-    const windowEnd = fromZonedTime(
+    )
+    const endAt = zonedWallToDate(
       `${dateKey}T${pad(WORK_END_HOUR)}:00:00`,
       timezone,
-    ).getTime()
+    )
+    if (!startAt || !endAt) {
+      throw new RangeError(`Invalid date or time zone: ${dateKey} ${timezone}`)
+    }
+    const windowStart = startAt.getTime()
+    const windowEnd = endAt.getTime()
 
     // Candidates step from the window start (a 15-min local boundary), so the
     // first one ≥ `earliest` is exactly "the next 15-min boundary after the

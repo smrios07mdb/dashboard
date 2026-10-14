@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { __clockOverride, today } from './clock'
+import { __clockOverride, startOfDayIso, today } from './clock'
 
 const TZ = 'America/New_York'
 
@@ -89,5 +89,26 @@ describe('clock — __clockOverride', () => {
     expect(fresh.__clockOverride!.get()).toBe(null)
     expect(fresh.today(TZ)).toMatch(/^\d{4}-\d{2}-\d{2}$/)
     expect(fresh.today(TZ)).not.toBe('garbage')
+  })
+})
+
+// Chunk 82: the day's first instant, even where midnight is skipped.
+describe('clock — startOfDayIso', () => {
+  it('a skipped midnight starts the day at 01:00', () => {
+    expect(startOfDayIso('2026-03-29', 'Asia/Beirut')).toBe(
+      '2026-03-28T22:00:00.000Z',
+    )
+  })
+
+  // Not a guard: the doc example passes at base.
+  it('the doc example', () => {
+    expect(startOfDayIso('2026-05-27', 'America/New_York')).toBe(
+      '2026-05-27T04:00:00.000Z',
+    )
+  })
+
+  // Not a guard: base threw from toISOString.
+  it('throws RangeError on an invalid date', () => {
+    expect(() => startOfDayIso('nope', 'America/New_York')).toThrow(RangeError)
   })
 })

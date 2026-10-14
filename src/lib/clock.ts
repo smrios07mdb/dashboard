@@ -1,4 +1,6 @@
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { formatInTimeZone } from 'date-fns-tz'
+
+import { zonedWallToDate } from '@/lib/zonedTime'
 
 /**
  * Single source of truth for "today" and "start-of-day in the user's
@@ -82,7 +84,10 @@ export function startOfDayIso(
   dateKey: string,
   timezone: string = DEFAULT_TZ,
 ): string {
-  return fromZonedTime(`${dateKey}T00:00:00.000`, timezone).toISOString()
+  // The day's first instant, even where midnight is skipped (chunk 82).
+  const d = zonedWallToDate(`${dateKey}T00:00`, timezone)
+  if (!d) throw new RangeError(`Invalid date or time zone: ${dateKey} ${timezone}`)
+  return d.toISOString()
 }
 
 /**

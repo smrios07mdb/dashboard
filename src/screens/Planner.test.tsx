@@ -72,6 +72,24 @@ vi.mock('@/lib/calendarApi', async (importOriginal) => {
   }
 })
 
+// Chunk 82: the block-focus tests give one task a note; every other test
+// sees none. `useOpenTaskNotes` hands back a spy so the notes handoff is
+// observable without the provider.
+const notesMock = vi.hoisted(() => ({
+  notesFor: {} as Record<string, unknown[]>,
+  openTaskNotes: vi.fn(),
+}))
+
+vi.mock('@/components/notebook/notesContext', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/components/notebook/notesContext')>()
+  return {
+    ...actual,
+    useTaskNotes: (id: string | null) => (id && notesMock.notesFor[id]) || [],
+    useOpenTaskNotes: () => notesMock.openTaskNotes,
+  }
+})
+
 import Planner from './Planner'
 
 const thisWeekStart = weekStart(new Date())
@@ -381,5 +399,140 @@ describe('Planner — calendar read set (chunk 51)', () => {
     const blocks = await screen.findAllByRole('button', { name: /Busy 10:00 to 11:00 — Standup/ })
     await user.click(blocks[0])
     expect(await screen.findByText('ICLOUD · WORK')).toBeInTheDocument()
+  })
+})
+
+// ── Chunk 82: the block action sheet hands focus back ────────────────────────
+describe('Planner — block focus (chunk 82)', () => {
+  const dayStart = new Date(new Date().setHours(0, 0, 0, 0))
+  const at = (minutes: number) =>
+    new Date(dayStart.getTime() + minutes * 60_000).toISOString()
+  const NOTE_ID = 'n1'
+
+  beforeEach(() => {
+    if (typeof globalThis.ResizeObserver === 'undefined') {
+      globalThis.ResizeObserver = class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver
+    }
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    mocks.settingsGet.mockResolvedValue({
+      userId: 'u1',
+      plannerWriteout: false,
+      caldavStatus: 'ok',
+      caldavReadCalendars: [],
+      timezone: 'America/New_York',
+    })
+    mocks.categoriesList.mockResolvedValue([])
+    mocks.subcategoriesList.mockResolvedValue([])
+    mocks.tasksList.mockResolvedValue([
+      {
+        id: 't1',
+        userId: 'u1',
+        subcategoryId: 's1',
+        title: 'Deep work',
+        estimateMinutes: 60,
+        dueAt: null,
+        remindAt: null,
+        notified: false,
+        priority: null,
+        completedAt: null,
+        createdAt: at(0),
+        updatedAt: at(0),
+      },
+    ])
+    mocks.listByRange.mockResolvedValue([
+      {
+        id: 'blk1',
+        userId: 'u1',
+        taskId: 't1',
+        startAt: at(10 * 60),
+        endAt: at(11 * 60),
+        calendarUid: null,
+        createdAt: at(0),
+        updatedAt: at(0),
+      },
+    ])
+    mocks.getBusy.mockResolvedValue(busyResult([]))
+    notesMock.notesFor = {
+      t1: [
+        {
+          id: NOTE_ID,
+          userId: 'u1',
+          title: '',
+          body: 'Agenda',
+          pinned: false,
+          taskId: 't1',
+          subcategoryId: null,
+          detachedLabel: null,
+          detachedAt: null,
+          createdAt: at(0),
+          updatedAt: at(0),
+        },
+      ],
+    }
+  })
+
+  afterEach(() => {
+    notesMock.notesFor = {}
+    vi.restoreAllMocks()
+    vi.clearAllMocks()
+  })
+
+  /** The first `task-block` is the WeekGrid's (both branches are mounted). */
+  async function openSheetFromBlock() {
+    const user = userEvent.setup()
+    const view = render(<Planner />)
+    const block = (await screen.findAllByTestId('task-block'))[0]
+    block.focus()
+    expect(document.activeElement).toBe(block)
+    await user.keyboard('{Enter}')
+    await screen.findByRole('button', { name: 'Cancel' })
+    return { user, view, block }
+  }
+
+  it('(a) Cancel returns focus to the block that opened the sheet', async () => {
+    const { user, block } = await openSheetFromBlock()
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull(),
+    )
+    expect(document.activeElement).toBe(block)
+  })
+
+  it('(b) the notes handoff passes a refocus that returns to the block', async () => {
+    const { user, block } = await openSheetFromBlock()
+    await user.click(screen.getByRole('button', { name: /^Open/ }))
+    expect(notesMock.openTaskNotes).toHaveBeenCalledWith(
+      't1',
+      NOTE_ID,
+      expect.any(Function),
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull(),
+    )
+    expect(document.activeElement).not.toBe(block)
+
+    const fn = notesMock.openTaskNotes.mock.calls[0][2] as (e: Event) => void
+    const preventDefault = vi.fn()
+    fn({ preventDefault } as unknown as Event)
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(block)
+  })
+
+  // Not a guard: at base no refocus is passed at all (`fn` is undefined).
+  it('(c) the refocus is a no-op once the block has left the DOM', async () => {
+    const { user, view } = await openSheetFromBlock()
+    await user.click(screen.getByRole('button', { name: /^Open/ }))
+    view.unmount()
+
+    const fn = notesMock.openTaskNotes.mock.calls[0]?.[2] as
+      | ((e: Event) => void)
+      | undefined
+    const preventDefault = vi.fn()
+    expect(() => fn?.({ preventDefault } as unknown as Event)).not.toThrow()
+    expect(preventDefault).not.toHaveBeenCalled()
   })
 })

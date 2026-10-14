@@ -1120,6 +1120,23 @@ export default function Planner() {
   // The action sheet's read-only note preview (chunk 59, D7).
   const actionNotes = useTaskNotes(actionEntry?.task.id ?? null)
   const openTaskNotes = useOpenTaskNotes()
+  // Chunk 82: the sheet opens from state, not a Radix trigger, so focus goes
+  // back to the block that opened it by hand — directly, or after the notes
+  // sheet the action sheet handed over to.
+  const actionOpener = useRef<HTMLElement | null>(null)
+  const notesHandoff = useRef(false)
+  const openActions = useCallback((block: WeekScheduledBlock) => {
+    const el = document.activeElement
+    actionOpener.current =
+      el instanceof HTMLElement && el !== document.body ? el : null
+    setActionBlock(block)
+  }, [])
+  const refocusOpener = (ev: Event) => {
+    // The block may be gone (unscheduled); then Radix's default stands.
+    if (!actionOpener.current?.isConnected) return
+    ev.preventDefault()
+    actionOpener.current.focus()
+  }
 
   const openScheduleDesktop = useCallback(
     (item: TrayItem) =>
@@ -1327,7 +1344,7 @@ export default function Planner() {
             onToggleDone={toggleDone}
             onUnschedule={unschedule}
             onCarryMove={(b) => void carryMove(b)}
-            onOpenActions={setActionBlock}
+            onOpenActions={openActions}
           />
         </div>
       </div>
@@ -1359,7 +1376,7 @@ export default function Planner() {
           fetchedAt={busyState.fetchedAt}
           phase={phase}
           errorMessage={errorMessage}
-          onOpenActions={setActionBlock}
+          onOpenActions={openActions}
           onToggleDone={toggleDone}
           onCarryMove={(b) => void carryMove(b)}
         />
@@ -1426,7 +1443,10 @@ export default function Planner() {
         carry={actionEntry?.carry ?? false}
         notes={actionNotes}
         onOpenNotes={(noteId) => {
-          if (actionEntry) openTaskNotes(actionEntry.task.id, noteId)
+          notesHandoff.current = true
+          if (actionEntry) {
+            openTaskNotes(actionEntry.task.id, noteId, refocusOpener)
+          }
           setActionBlock(null)
         }}
         onCarryMove={() => {
@@ -1442,6 +1462,15 @@ export default function Planner() {
           setActionBlock(null)
         }}
         onClose={() => setActionBlock(null)}
+        onCloseAutoFocus={(ev) => {
+          // Focus belongs to the notes sheet now.
+          if (notesHandoff.current) {
+            notesHandoff.current = false
+            ev.preventDefault()
+            return
+          }
+          refocusOpener(ev)
+        }}
       />
     </div>
   )

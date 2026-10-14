@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
+import { formatInTimeZone } from 'date-fns-tz'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/popover'
 import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
+import { zonedWallToDate } from '@/lib/zonedTime'
 
 /*
  * Due-date picker (chunk 66, Day-7 #11). A native `<input type="date">` in a
@@ -51,13 +52,14 @@ export function toDueInputValue(iso: string | null, tz: string): string {
   return formatInTimeZone(iso, tz, 'yyyy-MM-dd')
 }
 
-/** "YYYY-MM-DD" → ISO of 00:00 on that day in `tz`. Null on invalid input. */
+/**
+ * "YYYY-MM-DD" → ISO of 00:00 on that day in `tz`. Null on invalid input. On a
+ * day with no 00:00 (a skipped midnight) this is the day's first instant.
+ */
 // eslint-disable-next-line react-refresh/only-export-components -- exported for the unit tests (chunk 66)
 export function fromDueInputValue(s: string, tz: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
-  const d = fromZonedTime(`${s}T00:00:00.000`, tz)
-  if (Number.isNaN(d.getTime())) return null
-  return d.toISOString()
+  return zonedWallToDate(`${s}T00:00`, tz)?.toISOString() ?? null
 }
 
 export default function SetDuePopover({

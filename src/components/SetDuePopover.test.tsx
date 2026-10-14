@@ -114,6 +114,20 @@ describe('SetDuePopover — calendar day in settings.timezone (chunk 66)', () =>
     expect(onClear).toHaveBeenCalledTimes(1)
   })
 
+  // Chunk 82: a day whose midnight is skipped or repeated still stores that
+  // day's first instant, on every host.
+  it('(8) a skipped midnight stores the day’s first instant', () => {
+    const iso = fromDueInputValue('2026-03-08', 'America/Havana')
+    expect(iso).toBe('2026-03-08T05:00:00.000Z')
+    expect(toDueInputValue(iso, 'America/Havana')).toBe('2026-03-08')
+  })
+
+  it('(9) a repeated midnight stores the earlier instant', () => {
+    expect(fromDueInputValue('2026-11-01', 'America/Havana')).toBe(
+      '2026-11-01T04:00:00.000Z',
+    )
+  })
+
   it('(7) converters', () => {
     expect(fromDueInputValue('2026-10-20', 'America/New_York')).toBe(
       '2026-10-20T04:00:00.000Z',

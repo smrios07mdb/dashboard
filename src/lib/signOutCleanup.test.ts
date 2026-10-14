@@ -16,12 +16,14 @@ const {
   warningMock,
   signOutMock,
   flushPendingDeletesMock,
+  parkPendingDeletesMock,
 } = vi.hoisted(() => ({
   onAuthStateChangeMock: vi.fn(),
   unsubscribeMock: vi.fn(),
   warningMock: vi.fn(),
   signOutMock: vi.fn(),
   flushPendingDeletesMock: vi.fn(),
+  parkPendingDeletesMock: vi.fn(() => 0),
 }))
 
 vi.mock('@/lib/supabase', () => ({
@@ -32,6 +34,7 @@ vi.mock('@/lib/supabase', () => ({
 vi.mock('sonner', () => ({ toast: { warning: warningMock } }))
 vi.mock('@/lib/taskUndo', () => ({
   flushPendingDeletes: flushPendingDeletesMock,
+  parkPendingDeletes: parkPendingDeletesMock,
 }))
 
 import { db } from '@/db/dexie'
@@ -112,6 +115,7 @@ beforeEach(async () => {
   onAuthStateChangeMock.mockReset()
   unsubscribeMock.mockReset()
   warningMock.mockReset()
+  parkPendingDeletesMock.mockClear()
   onAuthStateChangeMock.mockReturnValue({
     data: { subscription: { unsubscribe: unsubscribeMock } },
   })
@@ -187,6 +191,37 @@ describe('installSignOutCleanup', () => {
     await Promise.resolve()
 
     expect(await db.tasks.count()).toBe(1)
+  })
+
+  // Chunk 82: park before the wipe so the timer cannot commit with no session.
+  it('parks pending deletes on SIGNED_OUT, before the outbox count', async () => {
+    const countSpy = vi.spyOn(db.outbox, 'count')
+    installSignOutCleanup()
+    const handler = onAuthStateChangeMock.mock.calls[0][0] as (
+      event: string,
+      session: unknown,
+    ) => void
+
+    handler('SIGNED_OUT', null)
+    expect(parkPendingDeletesMock).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(countSpy).toHaveBeenCalled())
+    expect(parkPendingDeletesMock.mock.invocationCallOrder[0]).toBeLessThan(
+      countSpy.mock.invocationCallOrder[0],
+    )
+    countSpy.mockRestore()
+  })
+
+  // Not a regression guard from base: base never calls parkPendingDeletes.
+  it('does not park on SIGNED_IN or TOKEN_REFRESHED', () => {
+    installSignOutCleanup()
+    const handler = onAuthStateChangeMock.mock.calls[0][0] as (
+      event: string,
+      session: unknown,
+    ) => void
+
+    handler('SIGNED_IN', { user: { id: 'u1' } })
+    handler('TOKEN_REFRESHED', { user: { id: 'u1' } })
+    expect(parkPendingDeletesMock).not.toHaveBeenCalled()
   })
 
   it('returns an unsubscribe that tears down the listener', () => {

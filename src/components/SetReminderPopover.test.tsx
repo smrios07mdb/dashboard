@@ -150,7 +150,7 @@ describe('SetReminderPopover — settings.timezone (chunk 61)', () => {
     expect(toZonedInputValue(iso, NY)).toBe('2026-11-01T01:30')
 
     expect(fromZonedInputValue('2026-03-08T02:30', NY)).toBe(
-      '2026-03-08T06:30:00.000Z',
+      '2026-03-08T07:30:00.000Z',
     )
     expect(fromZonedInputValue('', NY)).toBeNull()
     expect(fromZonedInputValue('nope', NY)).toBeNull()
@@ -165,5 +165,20 @@ describe('SetReminderPopover — settings.timezone (chunk 61)', () => {
     const iso = fromZonedInputValue('2026-04-05T01:45', LH)
     expect(iso).toBe('2026-04-04T14:45:00.000Z')
     expect(toZonedInputValue(iso, LH)).toBe('2026-04-05T01:45')
+  })
+
+  // Chunk 82: one Intl-only helper, so the answer no longer depends on the host.
+  // Not a regression guard from base: chunk 81's ±30/60 loop already got
+  // this one right on every host; it pins the zonedTime path to the oracle.
+  it('(6c) a repeated late-evening time resolves to the earlier instant', () => {
+    expect(fromZonedInputValue('2026-04-04T23:30', 'America/Santiago')).toBe(
+      '2026-04-05T02:30:00.000Z',
+    )
+  })
+
+  it('(6d) a skipped wall time shifts forward by the gap', () => {
+    expect(fromZonedInputValue('2026-10-04T02:15', 'Australia/Lord_Howe')).toBe(
+      '2026-10-03T15:45:00.000Z',
+    )
   })
 })

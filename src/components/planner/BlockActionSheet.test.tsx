@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import BlockActionSheet from './BlockActionSheet'
 
@@ -81,5 +81,24 @@ describe('BlockActionSheet (chunk 37)', () => {
     expect(
       screen.queryByRole('button', { name: 'Move to next open slot' }),
     ).not.toBeInTheDocument()
+  })
+
+  // Chunk 82: the Planner decides where focus goes when the sheet closes.
+  it('passes onCloseAutoFocus to the sheet content', async () => {
+    const onCloseAutoFocus = vi.fn()
+    const props = {
+      title: 'Draft launch brief',
+      rangeText: '10:00–10:45',
+      done: false,
+      onToggleDone: () => {},
+      onUnschedule: () => {},
+      onClose: () => {},
+      onCloseAutoFocus,
+    }
+    const { rerender } = render(<BlockActionSheet open {...props} />)
+    rerender(<BlockActionSheet open={false} {...props} />)
+    // Radix dispatches the unmount auto-focus on the next tick.
+    await waitFor(() => expect(onCloseAutoFocus).toHaveBeenCalledTimes(1))
+    expect(onCloseAutoFocus.mock.calls[0][0]).toBeInstanceOf(Event)
   })
 })

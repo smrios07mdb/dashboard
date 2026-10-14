@@ -5,7 +5,7 @@ import { db } from '@/db/dexie'
 import { wipeLocalCache } from '@/db/localCache'
 import { clearVerified } from '@/lib/calendarApi'
 import { supabase } from '@/lib/supabase'
-import { flushPendingDeletes } from '@/lib/taskUndo'
+import { flushPendingDeletes, parkPendingDeletes } from '@/lib/taskUndo'
 
 /*
  * Sign-out local-data hygiene (chunk 18 — AUTH-01 / PRIV-01 / PRIV-02).
@@ -43,10 +43,13 @@ export async function clearLocalDataOnSignOut(opts?: {
  * mounted by ~14 components, so the wipe (and toast) would fire once per mount.
  * A module-level listener also catches sign-outs the account-menu button can't:
  * token expiry and sign-out on another tab / device. Returns an unsubscribe.
+ * Pending task deletes are parked first, synchronously (chunk 82): their
+ * timers would otherwise commit with no session and match nothing under RLS.
  */
 export function installSignOutCleanup(): () => void {
   const { data } = supabase.auth.onAuthStateChange((event) => {
     if (event !== 'SIGNED_OUT') return
+    parkPendingDeletes()
     void clearLocalDataOnSignOut({
       onPendingPreserved: (n) =>
         toast.warning(
@@ -67,8 +70,9 @@ export function installSignOutCleanup(): () => void {
  * commit pending deletes first and only then end the session.
  *
  * The wait is capped: a hung request must not trap the user signed in. On
- * timeout the ids stay pending in localStorage and `resumePendingDeletes`
- * commits them on the next signed-in start, when RLS lets them match.
+ * timeout, a delete whose request is already in flight is not retried;
+ * anything still waiting is parked by the `SIGNED_OUT` that follows (chunk 82)
+ * and committed by `resumePendingDeletes` at the next signed-in start.
  */
 export const SIGN_OUT_FLUSH_CAP_MS = 4000
 

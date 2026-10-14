@@ -65,6 +65,7 @@ type ToastOpts = {
 }
 const toastOpts = (call = 0) => toast.mock.calls[call][1] as ToastOpts
 const stored = () => localStorage.getItem(KEY)
+const UNDO_PAST = 7000
 
 beforeEach(() => {
   localStorage.clear()
@@ -272,6 +273,60 @@ describe('taskUndo — deferred delete (chunk 72)', () => {
 
     m.deleteTasksWithUndo({ tasks: [rows[1]] })
     expect(m.withoutPendingDeletes(rows).map((t) => t.id)).toEqual(['a', 'c'])
+  })
+})
+
+// Chunk 82: any SIGNED_OUT parks the window instead of letting the timer
+// commit with no session; the next signed-in start commits the parked ids.
+describe('taskUndo — park on sign-out (chunk 82)', () => {
+  it('(13) parkPendingDeletes cancels the window without committing', async () => {
+    const m = await load()
+    m.deleteTasksWithUndo({ tasks: [mkTask('a')] })
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(m.parkPendingDeletes()).toBe(1)
+    await vi.advanceTimersByTimeAsync(10000)
+
+    expect(bulkDelete).not.toHaveBeenCalled()
+    expect(m.isPendingDelete('a')).toBe(true)
+    expect(JSON.parse(stored()!)).toEqual([{ id: 'a', at: NOW.getTime() }])
+  })
+
+  it('(14) parked ids commit on the next resume', async () => {
+    const m = await load()
+    m.deleteTasksWithUndo({ tasks: [mkTask('a')] })
+    m.parkPendingDeletes()
+    await vi.advanceTimersByTimeAsync(UNDO_PAST)
+
+    m.resumePendingDeletes()
+    expect(bulkDelete).toHaveBeenCalledTimes(1)
+    expect(bulkDelete).toHaveBeenCalledWith(['a'])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(stored()).toBeNull()
+  })
+
+  it('(15) park leaves an in-flight commit alone', async () => {
+    let resolve!: () => void
+    bulkDelete.mockReturnValue(new Promise<void>((r) => (resolve = r)))
+    const m = await load()
+    m.deleteTasksWithUndo({ tasks: [mkTask('a')] })
+
+    void m.flushPendingDeletes()
+    expect(m.parkPendingDeletes()).toBe(0)
+    m.resumePendingDeletes()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(bulkDelete).toHaveBeenCalledTimes(1)
+
+    resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(stored()).toBeNull()
+  })
+
+  it('(16) park takes the Undo toast down', async () => {
+    const m = await load()
+    m.deleteTasksWithUndo({ tasks: [mkTask('a')] })
+    m.parkPendingDeletes()
+    expect(toast.dismiss).toHaveBeenCalledWith('toast-id')
   })
 })
 

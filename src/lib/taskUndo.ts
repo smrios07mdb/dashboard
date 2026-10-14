@@ -14,6 +14,11 @@
  * awaited, before sign-out), and `resumePendingDeletes` for whatever is left
  * on the next start.
  *
+ * Any sign-out (chunk 82) parks the ids still waiting (`parkPendingDeletes`
+ * on `SIGNED_OUT`): their timers stop, so nothing commits with no session, and
+ * they stay pending and stored until `resumePendingDeletes` commits them at
+ * the next signed-in start.
+ *
  * Complete is written at once by the screen; `offerCompleteUndo` only offers
  * to put the prior `completedAt` back.
  */
@@ -212,6 +217,15 @@ export function withoutPendingDeletes<T extends { id: string }>(rows: T[]): T[] 
   return rows.filter((r) => !pending.has(r.id))
 }
 
+/** Cancel every waiting batch's timer and take its Undo toast down. */
+function stopWaiting() {
+  for (const batch of waiting) {
+    clearTimeout(batch.timer)
+    if (batch.toastId !== undefined) toast.dismiss(batch.toastId)
+  }
+  waiting.clear()
+}
+
 /**
  * Commit everything now. Fire-and-forget on `pagehide`: the ids stay pending
  * and in storage until the write resolves, so a request the unload cuts short
@@ -220,14 +234,31 @@ export function withoutPendingDeletes<T extends { id: string }>(rows: T[]): T[] 
  * matches the rows.
  */
 export function flushPendingDeletes(): Promise<void> {
-  for (const batch of waiting) {
-    clearTimeout(batch.timer)
-    if (batch.toastId !== undefined) toast.dismiss(batch.toastId)
-  }
-  waiting.clear()
+  stopWaiting()
   const ids = Array.from(pending.keys()).filter((id) => !committing.has(id))
   for (const id of ids) scheduled.add(id)
   return commit(ids)
+}
+
+/**
+ * Stop every waiting batch without committing (chunk 82, on `SIGNED_OUT`).
+ * The ids stay pending (hidden from list reads) and in storage, and leave
+ * `scheduled`, so the next `resumePendingDeletes` commits them — at once,
+ * since they are overdue. Ids whose commit is in flight are left alone.
+ * Returns the number of ids parked.
+ */
+export function parkPendingDeletes(): number {
+  stopWaiting()
+  let parked = 0
+  for (const id of pending.keys()) {
+    if (committing.has(id)) continue
+    scheduled.delete(id)
+    parked++
+  }
+  // Rewrite storage from this tab's map, so a drop in another tab cannot
+  // have erased these ids.
+  persist()
+  return parked
 }
 
 /** Commit leftovers from storage (startup). No toast; Undo is not offered. */
