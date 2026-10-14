@@ -463,6 +463,8 @@ Insights reports estimates, not tracked time (chunk 70): the headline cards lead
 - No time totals (chunk 86): list and category headers (Dashboard columns, Category and Subcategory drill-downs) show open counts only. Per-row estimates, the Today panel's `to do · Xm`, the Planner and Insights keep minutes.
 - Capture size (chunk 86): the capture dialog has `S · 15m` / `M · 30m` / `L · 1h` toggles (`CAPTURE_SIZES` in `lib/captureParse`). Precedence on save: a typed estimate > the picked size > 30 m. The size resets after each add and on close.
 - Archived purge (chunk 86): Settings → Data → Archived items deletes, on demand, every archived routine item (logs cascade) and every archived list that holds no task and no note (`repo.data.purgeArchived`, re-read server-side in the call; body in `db/archivedPurge.ts`, loaded on first use). Online-only, no outbox; lists with tasks or notes are always kept.
+- Deleting a list (chunk 87): with open tasks the dialog asks Move them to… (any live list, any category; own category first) / Mark them done / Delete them; with none, one plain confirm. Completed tasks follow Move and Delete and stay with the archived list on Mark done and on the plain confirm (`lib/deleteList`, archive only after the task step).
+- Today suggestions fit free time (chunk 87): with the calendar connected, suggestions are sized to 09:00–18:00 today in the Settings zone (`lib/workDay`), from now rounded up to 15 min, minus merged busy (`lib/freeToday`), minus the plan's open estimates; the label reads `fits Xm free`, or one line says nothing fits. Unconnected, loading or error → unsized.
 
 ---
 
