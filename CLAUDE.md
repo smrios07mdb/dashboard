@@ -99,6 +99,10 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **Dashboard row selection.** To reach a task's checkbox, walk up from the title leaf to the **nearest** ancestor holding exactly one `button[aria-label^="Mark task"]`. Walking a fixed number of levels can escape the row and toggle a sibling task (the chunk-37 re-run completed and reverted a real task this way).
 
+**After a deploy the first load serves the old bundle (chunk 77c).** The service worker answers the first navigation from cache; reload once more and confirm the `index-*.js` in `document.scripts` matches `curl -s <live>/?cb=<ts> | grep -o 'assets/index-[^"]*\.js'` before any check.
+
+**A tab in a background window reports `visibilityState: "hidden"` and drops clicks (chunk 77c).** Ask the operator to bring the window forward, then expect the first click to be swallowed as window activation — verify (e.g. the capture input has focus) before typing, or the keystrokes reach the page as shortcuts.
+
 **Busy fixtures leave an iCloud event behind.** `createEvent` has no delete counterpart until chunk 39; every smoke that follows the busy-fixture rule must end with the operator deleting the event in Calendar.app. Record the uid in the results file.
 
 **Hover action rows land one tick late.** A `TaskBlock`'s hover action row (`→`/`✓`/`×`) is not in the DOM in the same `execute_javascript` call that dispatched the hover; dispatch the hover in one call and read/click the row in the next.
