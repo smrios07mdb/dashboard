@@ -105,11 +105,29 @@ function markOffline() {
 }
 
 // The signed-in user each queued op is stamped with (chunk 84), kept current
-// by the app-wide auth listener in `installSignOutCleanup`.
-let outboxUid: string | undefined
+// by the app-wide auth listener in `installSignOutCleanup`. It is persisted
+// (chunk 85) and read back at load, so an op queued at cold start — before
+// that listener fires, or when it fires with no session (offline with an
+// expired access token) — still carries its user and replays.
+const LAST_UID_KEY = 'hup:lastUserId'
+let outboxUid: string | undefined = readLastUid()
+
+function readLastUid(): string | undefined {
+  try {
+    return localStorage.getItem(LAST_UID_KEY) ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
 export function setOutboxUser(uid: string | undefined): void {
   outboxUid = uid
+  try {
+    if (uid) localStorage.setItem(LAST_UID_KEY, uid)
+    else localStorage.removeItem(LAST_UID_KEY)
+  } catch {
+    // Storage unavailable: the in-memory stamp still holds for this session.
+  }
 }
 
 export function outboxUser(): string | undefined {

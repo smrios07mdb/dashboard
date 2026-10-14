@@ -47,12 +47,15 @@ export async function clearLocalDataOnSignOut(opts?: {
  * Pending task deletes are parked first, synchronously (chunk 82): their
  * timers would otherwise commit with no session and match nothing under RLS.
  * Every event also records the signed-in user that offline writes are stamped
- * with (chunk 84), so the outbox replays each op only for its own user.
+ * with (chunk 84), so the outbox replays each op only for its own user. An
+ * event with no session other than SIGNED_OUT (INITIAL_SESSION offline with an
+ * expired token) keeps the last-known user (chunk 85); only SIGNED_OUT clears it.
  */
 export function installSignOutCleanup(): () => void {
   const { data } = supabase.auth.onAuthStateChange((event, session) => {
-    setOutboxUser(session?.user.id)
+    if (session) setOutboxUser(session.user.id)
     if (event !== 'SIGNED_OUT') return
+    setOutboxUser(undefined)
     parkPendingDeletes()
     void clearLocalDataOnSignOut({
       onPendingPreserved: (n) =>

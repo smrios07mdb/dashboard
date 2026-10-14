@@ -240,6 +240,24 @@ describe('installSignOutCleanup', () => {
     expect(outboxUser()).toBeUndefined()
   })
 
+  it('keeps the last-known user through a session-less event; only SIGNED_OUT clears it (chunk 85)', () => {
+    installSignOutCleanup()
+    const handler = onAuthStateChangeMock.mock.calls[0][0] as (
+      event: string,
+      session: unknown,
+    ) => void
+
+    handler('SIGNED_IN', { user: { id: 'u-a' } })
+    expect(localStorage.getItem('hup:lastUserId')).toBe('u-a')
+    // Offline with an expired access token, INITIAL_SESSION carries no session.
+    handler('INITIAL_SESSION', null)
+    expect(outboxUser()).toBe('u-a')
+    expect(localStorage.getItem('hup:lastUserId')).toBe('u-a')
+    handler('SIGNED_OUT', null)
+    expect(outboxUser()).toBeUndefined()
+    expect(localStorage.getItem('hup:lastUserId')).toBeNull()
+  })
+
   it('returns an unsubscribe that tears down the listener', () => {
     const stop = installSignOutCleanup()
     stop()
