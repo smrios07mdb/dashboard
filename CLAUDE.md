@@ -101,6 +101,8 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **After a deploy the first load serves the old bundle (chunk 77c).** The service worker answers the first navigation from cache; reload once more and confirm the `index-*.js` in `document.scripts` matches `curl -s <live>/?cb=<ts> | grep -o 'assets/index-[^"]*\.js'` before any check.
 
+**A hard reload on a deep route loads the app with document status 404 (chunk 80).** `dist/404.html` is a copy of `index.html`, so `/dashboard/settings` etc. boot without the service worker; the navigation entry's `responseStatus` 404 is expected, not a failure.
+
 **A tab in a background window reports `visibilityState: "hidden"` and drops clicks (chunk 77c).** Ask the operator to bring the window forward, then expect the first click to be swallowed as window activation — verify (e.g. the capture input has focus) before typing, or the keystrokes reach the page as shortcuts.
 
 **Busy fixtures leave an iCloud event behind.** `createEvent` has no delete counterpart until chunk 39; every smoke that follows the busy-fixture rule must end with the operator deleting the event in Calendar.app. Record the uid in the results file.

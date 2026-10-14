@@ -62,6 +62,8 @@ Single-user installable PWA. Runs on iPhone, iPad, and Mac (Safari + installable
 
 GitHub Pages serves from `/dashboard/` subpath. `vite.config.ts` must set `base: '/dashboard/'`.
 
+`npm run build` copies `dist/index.html` to `dist/404.html` post-build (`scripts/spa-fallback.mjs`, chunk 80), so a deep route (`/dashboard/settings`, `/dashboard/planner`, …) boots the app without the service worker — hard reload, first visit, deep link. Pages answers those with document status 404; that is expected. `404.html` is not precached.
+
 ---
 
 ## 4. Data model (canonical)
