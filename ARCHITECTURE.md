@@ -225,6 +225,7 @@ Cache mirrors of all user-scoped Postgres tables live in Dexie (no `user_id` col
   - 5xx / network failure → increment `attempts`, exponential backoff `2^attempts` seconds capped at 5 min.
   - 4xx with `attempts >= 5` → move to "failed" bucket surfaced in Settings → Sync issues.
   - **Per user (chunk 84).** Each outbox row carries `uid`, the user signed in when it was queued (kept current by the app-wide auth listener). A drain replays only the current user's rows — RLS would make another user's delete a silent no-op and reject their insert. Another user's rows stay queued for them and are dropped after 7 days; rows with no `uid` (pre-84) are dropped unreplayed. Inserts and upserts send `user_id` from the stamp. The sync state and Sync issues count only the current user's rows. The replay engine (`db/outbox.ts`) loads on demand.
+  - **Cold start (chunk 85).** The stamp is persisted at sign-in (`localStorage['hup:lastUserId']`) and read back at load, so an op queued before the first auth event — or while `INITIAL_SESSION` has no session (offline, expired token) — still carries its user. Only `SIGNED_OUT` clears it. The app is single-user: replace-import and sample reset clear the whole outbox (won't-fix).
 - **Cross-device awareness of unsynced peers is NOT modeled in v1.** Devices see each other's changes only when both are online.
 
 **Sync indicator states:**
