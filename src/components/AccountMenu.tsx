@@ -12,8 +12,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { supabase } from '@/lib/supabase'
 import { useSession } from '@/lib/auth'
+import { signOutUser } from '@/lib/signOutCleanup'
 
 /** First letter or digit of the email, uppercased; `?` if it has none. */
 function accountInitial(email: string): string {
@@ -26,7 +26,7 @@ export default function AccountMenu() {
   const email = user?.email ?? ''
 
   async function signOut() {
-    const { error } = await supabase.auth.signOut()
+    const { error } = await signOutUser()
     if (error) {
       toast.error(error.message || 'Could not sign out. Try again.')
       return

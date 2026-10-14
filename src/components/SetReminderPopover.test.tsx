@@ -157,4 +157,13 @@ describe('SetReminderPopover — settings.timezone (chunk 61)', () => {
     expect(toZonedInputValue(null, NY)).toBe('')
     expect(toZonedInputValue('nope', NY)).toBe('')
   })
+
+  // Chunk 81: date-fns-tz picks between the two instants of a repeated wall
+  // time by the HOST zone; the app takes the earlier one on every host.
+  it('(6b) an ambiguous wall time resolves to the earlier instant', () => {
+    const LH = 'Australia/Lord_Howe'
+    const iso = fromZonedInputValue('2026-04-05T01:45', LH)
+    expect(iso).toBe('2026-04-04T14:45:00.000Z')
+    expect(toZonedInputValue(iso, LH)).toBe('2026-04-05T01:45')
+  })
 })

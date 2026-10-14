@@ -44,7 +44,7 @@ import {
   previewCounts,
   validateImport,
 } from '@/lib/import'
-import { supabase } from '@/lib/supabase'
+import { signOutUser } from '@/lib/signOutCleanup'
 import {
   TODAY_LIST_VARIANTS,
   type TodayListVariant,
@@ -305,8 +305,9 @@ function SyncIssuesSection() {
 }
 
 /**
- * Account (chunk 30, new). Email + sign out. Sign-out reuses the app's existing
- * Supabase call (the same one the header AccountMenu uses); the `<Protected>`
+ * Account (chunk 30, new). Email + sign out. Sign-out goes through
+ * `signOutUser` (the same call the header AccountMenu uses — it flushes pending
+ * task deletes first, chunk 81); the `<Protected>`
  * guard redirects to Login on the auth-state change, so we don't route manually
  * (Decision G).
  */
@@ -315,7 +316,7 @@ function AccountSection() {
   const email = user?.email ?? ''
 
   async function signOut() {
-    const { error } = await supabase.auth.signOut()
+    const { error } = await signOutUser()
     if (error) {
       toast.error(error.message || 'Could not sign out. Try again.')
     }

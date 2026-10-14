@@ -68,9 +68,21 @@ export default function ListNotesSection({
               key={n.id}
               type="button"
               data-testid="list-note-row"
-              onClick={() =>
-                task ? openTaskNotes(task.id, n.id) : navigate(`/notebook/${n.id}`)
-              }
+              onClick={(e) => {
+                if (!task) {
+                  navigate(`/notebook/${n.id}`)
+                  return
+                }
+                // The sheet is not opened from a Radix trigger, so hand it this
+                // row to return focus to (chunk 81). A row that unmounted while
+                // the sheet was open (its note deleted) leaves Radix's default.
+                const row = e.currentTarget
+                openTaskNotes(task.id, n.id, (ev) => {
+                  if (!row.isConnected) return
+                  ev.preventDefault()
+                  row.focus()
+                })
+              }}
               className={cn(
                 'grid min-h-11 w-full grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 border-b border-line px-3.5 text-left transition-colors last:border-b-0 hover:bg-bg-alt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                 touch ? 'py-[13px]' : 'py-2.5',

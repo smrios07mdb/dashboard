@@ -212,6 +212,27 @@ describe('taskUndo — deferred delete (chunk 72)', () => {
     expect(bulkDelete).toHaveBeenCalledTimes(1)
   })
 
+  // Chunk 81: sign-out awaits the flush, so it must settle with the delete.
+  it('(12) flushPendingDeletes resolves only after the delete settles', async () => {
+    let resolve!: () => void
+    bulkDelete.mockReturnValue(new Promise<void>((r) => (resolve = r)))
+    const m = await load()
+    m.deleteTasksWithUndo({ tasks: [mkTask('a')] })
+
+    const flushed = m.flushPendingDeletes()
+    expect(flushed).toBeInstanceOf(Promise)
+    let settled = false
+    void flushed.then(() => (settled = true))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe(false)
+    expect(stored()).not.toBeNull()
+
+    resolve()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe(true)
+    expect(stored()).toBeNull()
+  })
+
   it('(8) leftovers in storage are pending at load and committed on resume', async () => {
     const now = NOW.getTime()
     localStorage.setItem(

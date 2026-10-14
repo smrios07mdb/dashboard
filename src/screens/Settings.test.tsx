@@ -61,6 +61,13 @@ vi.mock('@/lib/import', async (importOriginal) => {
   return { ...actual, importData: importDataMock }
 })
 
+// Chunk 81: Account → Sign out goes through `signOutUser`.
+const { signOutUserMock } = vi.hoisted(() => ({ signOutUserMock: vi.fn() }))
+vi.mock('@/lib/signOutCleanup', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/signOutCleanup')>()
+  return { ...actual, signOutUser: signOutUserMock }
+})
+
 import { Toaster } from 'sonner'
 
 import Settings from './Settings'
@@ -231,6 +238,14 @@ describe('Settings — re-skin (chunk 30)', () => {
     // Chunk 79: the Account row is the page's one copy of the email (the
     // header `.label` under the h1 is gone).
     expect(screen.getAllByText('sam@hupo.app')).toHaveLength(1)
+  })
+
+  it('Account → Sign out calls signOutUser once (chunk 81)', async () => {
+    signOutUserMock.mockResolvedValue({ error: null })
+    const user = userEvent.setup()
+    render(<Settings />)
+    await user.click(await screen.findByRole('button', { name: /sign out/i }))
+    expect(signOutUserMock).toHaveBeenCalledTimes(1)
   })
 
   // Chunk 79 (D6): main sections numbered in render order; Developer and

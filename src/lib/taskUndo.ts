@@ -10,8 +10,9 @@
  *
  * Pending ids are filtered out of every `repo.tasks` list read
  * (`withoutPendingDeletes`) and mirrored to localStorage, so a page that dies
- * inside the window still commits: `flushPendingDeletes` on `pagehide`, and
- * `resumePendingDeletes` for whatever is left on the next start.
+ * inside the window still commits: `flushPendingDeletes` on `pagehide` (and,
+ * awaited, before sign-out), and `resumePendingDeletes` for whatever is left
+ * on the next start.
  *
  * Complete is written at once by the screen; `offerCompleteUndo` only offers
  * to put the prior `completedAt` back.
@@ -212,11 +213,13 @@ export function withoutPendingDeletes<T extends { id: string }>(rows: T[]): T[] 
 }
 
 /**
- * Commit everything now (pagehide). Fire-and-forget: the ids stay pending and
- * in storage until the write resolves, so a request the unload cuts short is
- * picked up by `resumePendingDeletes` on the next start.
+ * Commit everything now. Fire-and-forget on `pagehide`: the ids stay pending
+ * and in storage until the write resolves, so a request the unload cuts short
+ * is picked up by `resumePendingDeletes` on the next start. Awaited on
+ * sign-out (`signOutUser`, chunk 81), so the delete runs while RLS still
+ * matches the rows.
  */
-export function flushPendingDeletes(): void {
+export function flushPendingDeletes(): Promise<void> {
   for (const batch of waiting) {
     clearTimeout(batch.timer)
     if (batch.toastId !== undefined) toast.dismiss(batch.toastId)
@@ -224,7 +227,7 @@ export function flushPendingDeletes(): void {
   waiting.clear()
   const ids = Array.from(pending.keys()).filter((id) => !committing.has(id))
   for (const id of ids) scheduled.add(id)
-  void commit(ids)
+  return commit(ids)
 }
 
 /** Commit leftovers from storage (startup). No toast; Undo is not offered. */

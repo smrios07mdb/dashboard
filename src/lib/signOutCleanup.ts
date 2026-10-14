@@ -1,9 +1,11 @@
+import type { AuthError } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 
 import { db } from '@/db/dexie'
 import { wipeLocalCache } from '@/db/localCache'
 import { clearVerified } from '@/lib/calendarApi'
 import { supabase } from '@/lib/supabase'
+import { flushPendingDeletes } from '@/lib/taskUndo'
 
 /*
  * Sign-out local-data hygiene (chunk 18 — AUTH-01 / PRIV-01 / PRIV-02).
@@ -54,4 +56,36 @@ export function installSignOutCleanup(): () => void {
     })
   })
   return () => data.subscription.unsubscribe()
+}
+
+/*
+ * Sign out from the app's own buttons (chunk 81).
+ *
+ * A task deleted inside its undo window commits from `taskUndo`'s timer. If
+ * the session ends first, that delete runs with no session, matches no rows
+ * under RLS, and the task silently survives. So the account menu and Settings
+ * commit pending deletes first and only then end the session.
+ *
+ * The wait is capped: a hung request must not trap the user signed in. On
+ * timeout the ids stay pending in localStorage and `resumePendingDeletes`
+ * commits them on the next signed-in start, when RLS lets them match.
+ */
+export const SIGN_OUT_FLUSH_CAP_MS = 4000
+
+export async function signOutUser(): Promise<{ error: AuthError | null }> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      flushPendingDeletes(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, SIGN_OUT_FLUSH_CAP_MS)
+      }),
+    ])
+  } catch {
+    // `commit` already logs and toasts; a failed flush must not block sign-out.
+  } finally {
+    clearTimeout(timer)
+  }
+  const { error } = await supabase.auth.signOut()
+  return { error }
 }

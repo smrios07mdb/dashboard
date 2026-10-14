@@ -274,7 +274,12 @@ describe('subcategory drill-down Notes section (D6)', () => {
     section(NOTES)
     const rows = screen.getAllByTestId('list-note-row')
     fireEvent.click(rows[1])
-    expect(openTaskNotes).toHaveBeenCalledWith('t-open', 'n-task')
+    // Chunk 81: plus the row's refocus target (ListNotesSection.test.tsx).
+    expect(openTaskNotes).toHaveBeenCalledWith(
+      't-open',
+      'n-task',
+      expect.any(Function),
+    )
     expect(screen.getByTestId('where')).toHaveTextContent('/')
 
     fireEvent.click(rows[2])

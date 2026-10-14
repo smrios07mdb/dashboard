@@ -1,10 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 
-const { session } = vi.hoisted(() => ({
+const { session, signOutUserMock, toastErrorMock } = vi.hoisted(() => ({
   session: { email: 'sm@example.com' as string | undefined },
+  signOutUserMock: vi.fn(),
+  toastErrorMock: vi.fn(),
 }))
 
 vi.mock('@/lib/auth', () => ({
@@ -13,9 +15,9 @@ vi.mock('@/lib/auth', () => ({
   }),
 }))
 
-vi.mock('@/lib/supabase', () => ({
-  supabase: { auth: { signOut: vi.fn() } },
-}))
+// Chunk 81: Sign out goes through `signOutUser` (flush pending deletes first).
+vi.mock('@/lib/signOutCleanup', () => ({ signOutUser: signOutUserMock }))
+vi.mock('sonner', () => ({ toast: { error: toastErrorMock } }))
 
 import AccountMenu from './AccountMenu'
 
@@ -148,5 +150,45 @@ describe('AccountMenu — phone-width trigger (chunk 68)', () => {
 
     await user.click(settings)
     expect(screen.getByTestId('pathname')).toHaveTextContent('/settings')
+  })
+
+  // Chunk 81 (D1).
+  describe('Sign out', () => {
+    beforeEach(() => {
+      signOutUserMock.mockReset()
+      toastErrorMock.mockReset()
+    })
+
+    async function clickSignOut() {
+      const user = userEvent.setup()
+      render(
+        <MemoryRouter initialEntries={['/today']}>
+          <AccountMenu />
+          <LocationProbe />
+        </MemoryRouter>,
+      )
+      await user.click(
+        screen.getByRole('button', { name: 'Account: sm@example.com' }),
+      )
+      await user.click(await screen.findByRole('menuitem', { name: 'Sign out' }))
+    }
+
+    it('calls signOutUser once and navigates to / on success', async () => {
+      signOutUserMock.mockResolvedValue({ error: null })
+      await clickSignOut()
+      expect(signOutUserMock).toHaveBeenCalledTimes(1)
+      await waitFor(() =>
+        expect(screen.getByTestId('pathname')).toHaveTextContent(/^\/$/),
+      )
+      expect(toastErrorMock).not.toHaveBeenCalled()
+    })
+
+    it('toasts the error and stays put when signOutUser fails', async () => {
+      signOutUserMock.mockResolvedValue({ error: new Error('offline') })
+      await clickSignOut()
+      expect(signOutUserMock).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(toastErrorMock).toHaveBeenCalledWith('offline'))
+      expect(screen.getByTestId('pathname')).toHaveTextContent('/today')
+    })
   })
 })

@@ -55,9 +55,11 @@ function greeting(): string {
   return 'Winding down'
 }
 
-/** Reads the Today plan, not all-time completion (chunk 70). */
+/**
+ * Reads the Today plan, not all-time completion (chunk 70). Called only with a
+ * plan (`total > 0`): with none the hero is the compact line (chunk 74).
+ */
 function encourage(done: number, total: number): string {
-  if (total === 0) return 'Nothing planned yet — pick a few for today.'
   if (done === 0) return 'Nothing done yet — knock out the first one.'
   if (done >= total) return "Today's plan is cleared. Beautifully done."
   const ratio = done / total
@@ -100,9 +102,6 @@ export default function DailyHero({
   const stats = calcStats(tasks)
   const work = catProgress(tasks, subcategories, categories, 'Work')
   const personal = catProgress(tasks, subcategories, categories, 'Personal')
-  const planned = today.total > 0
-  const ratio = planned ? today.done / today.total : 0
-  const pct = Math.round(ratio * 100)
   const showStreak = streak > 0
   const showLevel = stats.xp > 0
   const name = displayName(user)
@@ -301,6 +300,10 @@ export default function DailyHero({
     )
   }
 
+  // Full layout: there is a plan, so `today.total > 0` (chunk 81).
+  const ratio = today.done / today.total
+  const pct = Math.round(ratio * 100)
+
   return (
     <div
       className="mb-6"
@@ -355,11 +358,7 @@ export default function DailyHero({
         {/* ProgressRing takes no aria-label, so the wrapper carries it. */}
         <div
           role="img"
-          aria-label={
-            planned
-              ? `Today: ${today.done} of ${today.total} planned tasks done`
-              : 'Today: nothing planned'
-          }
+          aria-label={`Today: ${today.done} of ${today.total} planned tasks done`}
           style={{ flexShrink: 0 }}
         >
           <ProgressRing value={ratio} size={88} stroke={9}>
@@ -367,14 +366,8 @@ export default function DailyHero({
               className="num display"
               style={{ fontSize: 21, fontWeight: 600, color: 'var(--ink)' }}
             >
-              {planned ? (
-                <>
-                  {pct}
-                  <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>%</span>
-                </>
-              ) : (
-                '—'
-              )}
+              {pct}
+              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>%</span>
             </span>
             <span className="label" style={{ marginTop: 2 }}>
               today
@@ -410,15 +403,10 @@ export default function DailyHero({
             </div>
           )}
           <p style={{ margin: '7px 0 0', fontSize: 13.5, color: 'var(--ink-2)' }}>
-            {encourage(today.done, today.total)}
-            {planned && (
-              <>
-                {' '}
-                <span className="num" style={{ color: 'var(--ink-3)' }}>
-                  · {today.done}/{today.total} today
-                </span>
-              </>
-            )}
+            {encourage(today.done, today.total)}{' '}
+            <span className="num" style={{ color: 'var(--ink-3)' }}>
+              · {today.done}/{today.total} today
+            </span>
           </p>
           {/* level progress sliver */}
           <div

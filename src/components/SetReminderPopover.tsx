@@ -67,13 +67,25 @@ export function toZonedInputValue(iso: string | null, tz: string): string {
   return formatInTimeZone(iso, tz, "yyyy-MM-dd'T'HH:mm")
 }
 
-/** "YYYY-MM-DDTHH:mm" wall time in `tz` → ISO string. Null on invalid input. */
+/**
+ * "YYYY-MM-DDTHH:mm" wall time in `tz` → ISO string. Null on invalid input.
+ * A wall time that occurs twice (a fall-back) is the earlier instant.
+ */
 // eslint-disable-next-line react-refresh/only-export-components -- exported for the unit tests (chunk 61)
 export function fromZonedInputValue(s: string, tz: string): string | null {
   if (!s) return null
+  const F = "yyyy-MM-dd'T'HH:mm"
   const d = fromZonedTime(s, tz)
   if (Number.isNaN(d.getTime())) return null
-  return d.toISOString()
+  // date-fns-tz picks between the two instants of a repeated wall time using
+  // the HOST zone (chunk 81). Take the earlier one, deterministically.
+  const wall = formatInTimeZone(d, tz, F)
+  let best = d
+  for (const m of [30, 60]) {
+    const c = new Date(d.getTime() - m * 60_000)
+    if (formatInTimeZone(c, tz, F) === wall) best = c
+  }
+  return best.toISOString()
 }
 
 export default function SetReminderPopover({

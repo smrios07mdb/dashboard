@@ -10,21 +10,37 @@ import type { Category, Settings, Task } from '@/db/types'
  * PRESERVE the outbox (un-synced offline edits) while warning about it.
  */
 
-const { onAuthStateChangeMock, unsubscribeMock, warningMock } = vi.hoisted(
-  () => ({
-    onAuthStateChangeMock: vi.fn(),
-    unsubscribeMock: vi.fn(),
-    warningMock: vi.fn(),
-  }),
-)
+const {
+  onAuthStateChangeMock,
+  unsubscribeMock,
+  warningMock,
+  signOutMock,
+  flushPendingDeletesMock,
+} = vi.hoisted(() => ({
+  onAuthStateChangeMock: vi.fn(),
+  unsubscribeMock: vi.fn(),
+  warningMock: vi.fn(),
+  signOutMock: vi.fn(),
+  flushPendingDeletesMock: vi.fn(),
+}))
 
 vi.mock('@/lib/supabase', () => ({
-  supabase: { auth: { onAuthStateChange: onAuthStateChangeMock } },
+  supabase: {
+    auth: { onAuthStateChange: onAuthStateChangeMock, signOut: signOutMock },
+  },
 }))
 vi.mock('sonner', () => ({ toast: { warning: warningMock } }))
+vi.mock('@/lib/taskUndo', () => ({
+  flushPendingDeletes: flushPendingDeletesMock,
+}))
 
 import { db } from '@/db/dexie'
-import { clearLocalDataOnSignOut, installSignOutCleanup } from './signOutCleanup'
+import {
+  clearLocalDataOnSignOut,
+  installSignOutCleanup,
+  SIGN_OUT_FLUSH_CAP_MS,
+  signOutUser,
+} from './signOutCleanup'
 
 const VERIFIED_AT_KEY = 'caldav:lastVerifiedAt'
 
@@ -177,5 +193,60 @@ describe('installSignOutCleanup', () => {
     const stop = installSignOutCleanup()
     stop()
     expect(unsubscribeMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Chunk 81: the two sign-out buttons commit pending task deletes first, so a
+// delete inside its undo window is not lost to RLS once the session is gone.
+describe('signOutUser', () => {
+  beforeEach(() => {
+    signOutMock.mockReset().mockResolvedValue({ error: null })
+    flushPendingDeletesMock.mockReset()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('signs out once, only after the flush resolves', async () => {
+    let resolve!: () => void
+    flushPendingDeletesMock.mockReturnValue(
+      new Promise<void>((r) => (resolve = r)),
+    )
+    const done = signOutUser()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(flushPendingDeletesMock).toHaveBeenCalledTimes(1)
+    expect(signOutMock).not.toHaveBeenCalled()
+
+    resolve()
+    await done
+    expect(signOutMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('signs out at exactly SIGN_OUT_FLUSH_CAP_MS when the flush hangs', async () => {
+    vi.useFakeTimers()
+    expect(SIGN_OUT_FLUSH_CAP_MS).toBe(4000)
+    flushPendingDeletesMock.mockReturnValue(new Promise<void>(() => {}))
+    const done = signOutUser()
+
+    await vi.advanceTimersByTimeAsync(SIGN_OUT_FLUSH_CAP_MS - 1)
+    expect(signOutMock).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(signOutMock).toHaveBeenCalledTimes(1)
+    await done
+  })
+
+  it('still signs out when the flush rejects', async () => {
+    flushPendingDeletesMock.mockRejectedValue(new Error('boom'))
+    await expect(signOutUser()).resolves.toEqual({ error: null })
+    expect(signOutMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the { error } from auth.signOut unchanged', async () => {
+    flushPendingDeletesMock.mockResolvedValue(undefined)
+    const error = new Error('network')
+    signOutMock.mockResolvedValue({ error })
+    const result = await signOutUser()
+    expect(result.error).toBe(error)
   })
 })
