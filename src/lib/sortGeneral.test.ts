@@ -85,6 +85,7 @@ describe('runSort (chunk 90 D6)', () => {
     [422, { ok: false, error: 'bad_key' }, 'Anthropic rejected the key. Replace it in Settings.', true],
     [502, { ok: false, error: 'upstream' }, "Couldn't reach the AI. Try again.", false],
     [502, { ok: false, error: 'malformed' }, 'AI response was malformed. Try again.', false],
+    [502, { ok: false, error: 'truncated' }, "Claude's answer was cut off. Try again.", false],
     [401, { ok: false, error: 'unauthorized' }, 'Your session expired — sign in again.', false],
   ])('%i %j → its triage toast', async (status, body, copy, settingsLink) => {
     fetchMock.mockReturnValue(reply(status, body))

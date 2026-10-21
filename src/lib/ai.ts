@@ -20,13 +20,15 @@ const PROXY_URL = import.meta.env.VITE_CALDAV_PROXY_URL as string | undefined
 
 const SESSION_EXPIRED = 'Your session expired — sign in again.'
 
-export type AiErrorKind = 'missing-key' | 'network' | 'auth' | 'malformed'
+export type AiErrorKind = 'missing-key' | 'network' | 'auth' | 'malformed' | 'truncated'
 
 const MESSAGES: Record<AiErrorKind, string> = {
   'missing-key': 'Add your Anthropic key in Settings.',
   network: "Couldn't reach the AI. Try again.",
   auth: 'Anthropic rejected the key. Replace it in Settings.',
   malformed: 'AI response was malformed. Try again.',
+  // Sort only: Anthropic stopped at max_tokens (proxy 502 `truncated`).
+  truncated: "Claude's answer was cut off. Try again.",
 }
 
 /** The per-task shape the model receives (snake_case per the §10 contract). */

@@ -19,7 +19,8 @@ type SortReply = { ok?: boolean; error?: string; proposed: number; kept: number;
 /**
  * `POST /api/ai/sort` with the session's JWT, mapped like triage
  * (`callAiProxy` in lib/ai): 401 → session expired, 412 → missing-key,
- * 422 → auth, 502 `malformed` → malformed, other 5xx / reject → network.
+ * 422 → auth, 502 `malformed` → malformed, 502 `truncated` → truncated,
+ * other 5xx / reject → network.
  * Kept here, not in the eager lib/ai, for the chunk-90 eager budget.
  */
 async function postSort(): Promise<SortReply> {
@@ -45,7 +46,9 @@ async function postSort(): Promise<SortReply> {
         : res.status >= 500
           ? body?.error === 'malformed'
             ? 'malformed'
-            : 'network'
+            : body?.error === 'truncated'
+              ? 'truncated'
+              : 'network'
           : body?.ok !== true
             ? 'malformed'
             : null
