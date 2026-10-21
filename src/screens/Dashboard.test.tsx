@@ -33,6 +33,7 @@ const {
   settingsGet,
   getBusyDay,
   sessionUser,
+  routingPending,
 } = vi.hoisted(() => ({
   categoriesList: vi.fn(),
   subcategoriesList: vi.fn(),
@@ -48,6 +49,8 @@ const {
   // Chunk 74: the busy fetch, and a session user for the cases that need one.
   getBusyDay: vi.fn(),
   sessionUser: { value: null as { id: string; email: string } | null },
+  // Chunk 89: pending routing proposals behind the Sort General chip.
+  routingPending: vi.fn(),
 }))
 
 // Signed out by default, as before chunk 74; the busy cases sign in.
@@ -78,6 +81,7 @@ vi.mock('@/db/repo', () => ({
       list: () => Promise.resolve([]),
       set: () => Promise.resolve(undefined),
     },
+    routing: { pending: routingPending },
   },
 }))
 
@@ -236,6 +240,7 @@ describe('Dashboard', () => {
     // Chunk 74: signed out, Today stacked, no review on record.
     getBusyDay.mockReset()
     sessionUser.value = null
+    routingPending.mockReset().mockResolvedValue([])
     useTodayListStore.setState({ todayList: 'stacked' })
     localStorage.removeItem(REVIEW_KEY)
   })
@@ -1223,5 +1228,61 @@ describe('Dashboard', () => {
     await waitFor(() => expect(actionsFor('Old one')).toBeInTheDocument())
     expect(tasksBulkDelete).not.toHaveBeenCalled()
     expect(tasksDelete).not.toHaveBeenCalled()
+  })
+})
+
+describe('Sort General chip (chunk 89)', () => {
+  const proposal = (id: string) => ({
+    id,
+    taskId: `t-${id}`,
+    title: `Task ${id}`,
+    fromSubcategoryId: 'w-gen',
+    toSubcategoryId: null,
+    newListName: null,
+    newListCategoryId: null,
+    reason: 'why',
+    createdAt: '2026-10-21T10:00:00Z',
+  })
+
+  beforeEach(() => {
+    categoriesList.mockReset().mockResolvedValue([mkCat('c-work', 'Work')])
+    subcategoriesList.mockReset().mockResolvedValue([mkSub('w-gen', 'c-work')])
+    tasksList.mockReset().mockResolvedValue([mkTask('t-a', 'w-gen')])
+    settingsGet.mockReset().mockResolvedValue(null)
+    routineLogsList.mockReset().mockResolvedValue([])
+    routineItemsList.mockReset().mockResolvedValue([])
+    getBusyDay.mockReset().mockResolvedValue({ kind: 'unconfigured' })
+    useUIStore.setState({ dashboardRefreshKey: 0 })
+    sessionUser.value = { id: 'u1', email: 'a@b.c' }
+    routingPending.mockReset()
+  })
+  afterEach(() => {
+    sessionUser.value = null
+  })
+
+  it('is hidden with no pending proposals', async () => {
+    routingPending.mockResolvedValue([])
+    renderDashboard()
+    await screen.findAllByText('t-a')
+    await waitFor(() => expect(routingPending).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /Sort General/ })).toBeNull()
+  })
+
+  it('shows the count and opens the sheet', async () => {
+    routingPending.mockResolvedValue([proposal('a'), proposal('b')])
+    renderDashboard()
+    const chip = await screen.findByRole('button', { name: 'Sort General · 2' })
+    fireEvent.click(chip)
+    expect(await screen.findByRole('dialog', { name: 'Sort General' })).toBeInTheDocument()
+  })
+
+  it('re-reads the count on a dashboard refresh (realtime)', async () => {
+    routingPending.mockResolvedValueOnce([proposal('a')]).mockResolvedValue([])
+    renderDashboard()
+    await screen.findByRole('button', { name: 'Sort General · 1' })
+    act(() => useUIStore.getState().forceDashboardRefresh())
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Sort General/ })).toBeNull(),
+    )
   })
 })

@@ -17,6 +17,7 @@
 import { supabase } from '@/lib/supabase'
 import { isOnline } from '@/lib/network'
 import { withoutPendingDeletes } from '@/lib/taskUndo'
+import type { ApplyPayload, ApplyResult, RoutingProposal } from '@/lib/sorting'
 
 import { db } from './dexie'
 import {
@@ -1585,6 +1586,64 @@ const dataRepo = {
   },
 }
 
+// ---------- routing proposals (chunk 89) ----------
+
+/*
+ * Online-only: proposals are written by the proxy and decided by
+ * `apply_routing` in one call. No Dexie mirror, no outbox path.
+ */
+type RoutingRow = {
+  id: string
+  task_id: string
+  from_subcategory_id: string
+  to_subcategory_id: string | null
+  new_list_name: string | null
+  new_list_category_id: string | null
+  reason: string
+  created_at: string
+  tasks: { title: string; subcategory_id: string; completed_at: string | null } | null
+}
+
+const routingRepo = {
+  /** Pending proposals still in their General list, oldest first (D8). */
+  async pending(): Promise<RoutingProposal[]> {
+    const { data, error } = await supabase
+      .from('routing_proposals')
+      .select('*,tasks!inner(title,subcategory_id,completed_at)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true })
+    throwIfClientError(error as SupabaseError | null)
+    return ((data ?? []) as unknown as RoutingRow[])
+      // D8 read-time filter: hide proposals whose task was completed or has
+      // left its General list (the next Approve marks them stale). Inlined —
+      // lib/sorting is the lazy sheet's module.
+      .filter(
+        (r) =>
+          r.tasks &&
+          !r.tasks.completed_at &&
+          r.tasks.subcategory_id === r.from_subcategory_id,
+      )
+      .map((r) => ({
+        id: r.id,
+        taskId: r.task_id,
+        title: r.tasks?.title ?? '',
+        fromSubcategoryId: r.from_subcategory_id,
+        toSubcategoryId: r.to_subcategory_id,
+        newListName: r.new_list_name,
+        newListCategoryId: r.new_list_category_id,
+        reason: r.reason,
+        createdAt: r.created_at,
+      }))
+  },
+
+  /** Approve: one RPC, one transaction (D7). */
+  async apply(payload: ApplyPayload): Promise<ApplyResult> {
+    const { data, error } = await supabase.rpc('apply_routing', { p: payload })
+    throwIfClientError(error as SupabaseError | null)
+    return data as ApplyResult
+  },
+}
+
 // ---------- exported namespace ----------
 
 export const repo = {
@@ -1599,4 +1658,5 @@ export const repo = {
   scheduledBlocks: scheduledBlocksRepo,
   notes: notesRepo,
   todayMarks: todayMarksRepo,
+  routing: routingRepo,
 }

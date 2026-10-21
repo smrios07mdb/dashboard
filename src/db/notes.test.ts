@@ -411,8 +411,9 @@ describe('realtime — notes', () => {
     startRealtime('u-1')
     const handler = bindings.get('notes')
     expect(handler).toBeDefined()
-    // Ten user-scoped tables on the one channel (today_marks, chunk 64).
-    expect(bindings.size).toBe(10)
+    // Ten user-scoped tables (today_marks, chunk 64) plus routing_proposals
+    // (chunk 89) on the one channel.
+    expect(bindings.size).toBe(11)
 
     await handler!({ eventType: 'INSERT', new: aRow(), old: {} })
     expect(await db.notes.get('n-1')).toMatchObject({ title: 'Kickoff' })

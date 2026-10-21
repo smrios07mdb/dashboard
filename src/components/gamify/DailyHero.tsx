@@ -1,4 +1,5 @@
 import { Flame, Sparkles } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
 
 import WhatsNextSheet from '@/components/WhatsNextSheet'
@@ -42,6 +43,8 @@ type DailyHeroProps = {
   streak: number
   /** Today's plan: rows done and rows planned (chunk 70). */
   today: { done: number; total: number }
+  /** One more chip after streak and level — the Sort General chip (chunk 89). */
+  extraChip?: ReactNode
 }
 
 // ── time-aware greeting + encouragement (ported verbatim from gamify.jsx) ──
@@ -90,6 +93,7 @@ export default function DailyHero({
   categories,
   streak,
   today,
+  extraChip,
 }: DailyHeroProps) {
   const availableMinutes = useUIStore((s) => s.availableMinutes)
   const setAvailableMinutes = useUIStore((s) => s.setAvailableMinutes)
@@ -181,6 +185,7 @@ export default function DailyHero({
           <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>xp</span>
         </span>
       )}
+      {extraChip}
     </>
   )
 

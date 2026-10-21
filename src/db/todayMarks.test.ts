@@ -342,8 +342,8 @@ describe('realtime — today_marks', () => {
     startRealtime('u-1')
     const handler = bindings.get('today_marks')
     expect(handler).toBeDefined()
-    // Ten user-scoped tables on the one channel.
-    expect(bindings.size).toBe(10)
+    // Ten user-scoped tables plus routing_proposals (chunk 89) on the one channel.
+    expect(bindings.size).toBe(11)
 
     await handler!({ eventType: 'INSERT', new: aRow(), old: {} })
     expect(await db.today_marks.get('t-1')).toMatchObject({ kind: 'pin' })

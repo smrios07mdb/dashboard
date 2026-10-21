@@ -67,6 +67,7 @@ import {
   offerCompleteUndo,
   offerMoveUndo,
 } from '@/lib/taskUndo'
+import type { RoutingProposal } from '@/lib/sorting'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useTodayListStore } from '@/state/todayList'
 import { useTodayPlan, type WriteTodayMark } from '@/state/todayPlan'
@@ -96,6 +97,28 @@ const SAVE_ERROR = 'Could not save — retry'
 
 // The review walk (chunk 74) loads on first open, like the chunk-73 dialogs.
 const ReviewSheet = lazy(() => import('@/components/ReviewSheet'))
+// Sort General (chunk 89): only the chip and its count are eager.
+const SortingSheet = lazy(() => import('@/components/SortingSheet'))
+
+/** Pending routing proposals (chunk 89), re-read on every dashboard refresh. */
+function usePendingRouting(userId: string | null) {
+  const [pending, setPending] = useState<RoutingProposal[]>([])
+  const key = useUIStore((s) => s.dashboardRefreshKey)
+  useEffect(() => {
+    if (!userId) return
+    let cancelled = false
+    repo.routing
+      .pending()
+      .then((rows) => {
+        if (!cancelled) setPending(rows)
+      })
+      .catch(() => {}) // offline or unreachable: keep the last count
+    return () => {
+      cancelled = true
+    }
+  }, [key, userId])
+  return pending
+}
 
 type DashboardData = {
   categories: Category[]
@@ -172,6 +195,10 @@ export default function Dashboard() {
   // Latched on the first open so the lazy sheet stays mounted to close.
   const [reviewUsed, setReviewUsed] = useState(false)
   if (reviewOpen && !reviewUsed) setReviewUsed(true)
+  const routing = usePendingRouting(userId)
+  const [sortOpen, setSortOpen] = useState(false)
+  const [sortUsed, setSortUsed] = useState(false)
+  if (sortOpen && !sortUsed) setSortUsed(true)
   const markReviewed = useCallback(() => {
     const now = new Date()
     storeLastReview(now)
@@ -862,7 +889,29 @@ export default function Dashboard() {
         categories={data.categories}
         streak={streak}
         today={todayFigures}
+        extraChip={
+          routing.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setSortOpen(true)}
+              className="min-h-8 rounded-full border border-line px-3 text-[12.5px] font-semibold text-ink hover:bg-bg-alt"
+            >
+              Sort General · {routing.length}
+            </button>
+          )
+        }
       />
+      {sortUsed && (
+        <Suspense fallback={null}>
+          <SortingSheet
+            open={sortOpen}
+            proposals={routing}
+            categories={data.categories}
+            subcategories={liveSubcategories}
+            onClose={() => setSortOpen(false)}
+          />
+        </Suspense>
+      )}
       <RecoveredTasks
         tasks={orphanTasks}
         subNameById={subNameById}

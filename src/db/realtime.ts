@@ -261,6 +261,14 @@ export function startRealtime(userId: string): void {
       { event: '*', schema: 'public', table: 'today_marks', filter },
       handlers.today_marks,
     )
+    .on(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      'postgres_changes' as any,
+      { event: '*', schema: 'public', table: 'routing_proposals', filter },
+      // Chunk 89: online-only, nothing to cache — a change only refreshes
+      // the dashboard, which re-reads the Sort General count.
+      scheduleDashboardRefresh,
+    )
     .subscribe()
 }
 
