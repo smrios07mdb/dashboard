@@ -99,6 +99,8 @@ const SAVE_ERROR = 'Could not save — retry'
 const ReviewSheet = lazy(() => import('@/components/ReviewSheet'))
 // Sort General (chunk 89): only the chip and its count are eager.
 const SortingSheet = lazy(() => import('@/components/SortingSheet'))
+// Chunk 90: the on-demand button and its proxy call are lazy too.
+const SortGeneralButton = lazy(() => import('@/components/SortGeneralButton'))
 
 /** Pending routing proposals (chunk 89), re-read on every dashboard refresh. */
 function usePendingRouting(userId: string | null) {
@@ -117,7 +119,7 @@ function usePendingRouting(userId: string | null) {
       cancelled = true
     }
   }, [key, userId])
-  return pending
+  return [pending, setPending] as const
 }
 
 type DashboardData = {
@@ -138,6 +140,8 @@ function useDashboardData(userId: string | null) {
   // The Settings time zone Today's day frame and the task streak run in
   // (chunks 66, 78), resolved in `load`. The default matches `tz`'s.
   const [timeZone, setTimeZone] = useState('America/New_York')
+  // Chunk 90: the Sort General button needs a saved Anthropic key.
+  const [aiOk, setAiOk] = useState(false)
   const [loading, setLoading] = useState(true)
   const dashboardRefreshKey = useUIStore((s) => s.dashboardRefreshKey)
 
@@ -158,6 +162,7 @@ function useDashboardData(userId: string | null) {
       setData({ categories, subcategories, tasks })
       setTodayMarks(marks)
       setTimeZone(tz)
+      setAiOk(settings?.aiStatus === 'ok')
       setLoading(false)
     }
     load().catch((e) => {
@@ -169,13 +174,13 @@ function useDashboardData(userId: string | null) {
     }
   }, [dashboardRefreshKey, userId])
 
-  return { data, setData, loading, todayMarks, timeZone }
+  return { data, setData, loading, todayMarks, timeZone, aiOk }
 }
 
 export default function Dashboard() {
   const { user } = useSession()
   const userId = user?.id ?? null
-  const { data, setData, loading, todayMarks, timeZone } =
+  const { data, setData, loading, todayMarks, timeZone, aiOk } =
     useDashboardData(userId)
   // The hero's task streak (chunk 78, ARCH §11): every task held, in any
   // subcategory. Derived in render, so completing a task (or Undo) moves the
@@ -195,10 +200,17 @@ export default function Dashboard() {
   // Latched on the first open so the lazy sheet stays mounted to close.
   const [reviewUsed, setReviewUsed] = useState(false)
   if (reviewOpen && !reviewUsed) setReviewUsed(true)
-  const routing = usePendingRouting(userId)
+  const [routing, setRouting] = usePendingRouting(userId)
   const [sortOpen, setSortOpen] = useState(false)
   const [sortUsed, setSortUsed] = useState(false)
   if (sortOpen && !sortUsed) setSortUsed(true)
+  // Sort General on demand (chunk 90). `done` (from the press) runs when the
+  // sheet closes, for the `remaining` toast.
+  const sortDone = useRef<() => void>(undefined)
+  const closeSort = () => {
+    setSortOpen(false)
+    sortDone.current?.() // once-only: a later close is a no-op
+  }
   const markReviewed = useCallback(() => {
     const now = new Date()
     storeLastReview(now)
@@ -742,6 +754,12 @@ export default function Dashboard() {
     () => data.subcategories.filter((s) => !s.archivedAt),
     [data.subcategories],
   )
+  // Chunk 90: an open task in a live list named General (ARCH §10 D1).
+  const hasGeneral = liveTasks.some(
+    (t) =>
+      !t.completedAt &&
+      /^\s*general\s*$/i.test(subNameById[t.subcategoryId]),
+  )
 
   // Chunk 88: one DndContext over both columns, so a task drags from Work to
   // Personal. 5px activation keeps grip clicks from starting drags; the touch
@@ -890,7 +908,7 @@ export default function Dashboard() {
         streak={streak}
         today={todayFigures}
         extraChip={
-          routing.length > 0 && (
+          routing.length > 0 ? (
             <button
               type="button"
               onClick={() => setSortOpen(true)}
@@ -898,6 +916,19 @@ export default function Dashboard() {
             >
               Sort General · {routing.length}
             </button>
+          ) : (
+            aiOk &&
+            hasGeneral && (
+              <Suspense fallback={null}>
+                <SortGeneralButton
+                  onSorted={(r) => {
+                    setRouting(r.rows)
+                    sortDone.current = r.done
+                    setSortOpen(true)
+                  }}
+                />
+              </Suspense>
+            )
           )
         }
       />
@@ -908,7 +939,7 @@ export default function Dashboard() {
             proposals={routing}
             categories={data.categories}
             subcategories={liveSubcategories}
-            onClose={() => setSortOpen(false)}
+            onClose={closeSort}
           />
         </Suspense>
       )}

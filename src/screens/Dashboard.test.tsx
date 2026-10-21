@@ -53,6 +53,11 @@ const {
   routingPending: vi.fn(),
 }))
 
+// Chunk 90: the Sort General button's lazy module (its own tests cover the
+// proxy call, the error toasts and "Nothing to sort").
+const { runSort } = vi.hoisted(() => ({ runSort: vi.fn() }))
+vi.mock('@/lib/sortGeneral', () => ({ runSort }))
+
 // Signed out by default, as before chunk 74; the busy cases sign in.
 vi.mock('@/lib/auth', () => ({
   useSession: () => ({ user: sessionUser.value, session: null, loading: false }),
@@ -1285,4 +1290,136 @@ describe('Sort General chip (chunk 89)', () => {
       expect(screen.queryByRole('button', { name: /Sort General/ })).toBeNull(),
     )
   })
+})
+
+describe('Sort General button (chunk 90 D6)', () => {
+  const GENERAL = { ...mkSub('w-gen', 'c-work'), name: 'General' }
+  const proposal = (id: string) => ({
+    id,
+    taskId: 't-a',
+    title: 'Task a',
+    fromSubcategoryId: 'w-gen',
+    toSubcategoryId: null,
+    newListName: null,
+    newListCategoryId: null,
+    reason: 'why',
+    createdAt: '2026-10-21T10:00:00Z',
+  })
+  const button = () => screen.findByRole('button', { name: /^(Sort General|Sorting…)$/ })
+  function renderWithToaster() {
+    return render(
+      <MemoryRouter>
+        <Toaster />
+        <Dashboard />
+      </MemoryRouter>,
+    )
+  }
+
+  beforeEach(() => {
+    categoriesList.mockReset().mockResolvedValue([mkCat('c-work', 'Work')])
+    subcategoriesList.mockReset().mockResolvedValue([GENERAL])
+    tasksList.mockReset().mockResolvedValue([mkTask('t-a', 'w-gen')])
+    settingsGet
+      .mockReset()
+      .mockResolvedValue({ timezone: 'America/New_York', aiStatus: 'ok' })
+    routineLogsList.mockReset().mockResolvedValue([])
+    routineItemsList.mockReset().mockResolvedValue([])
+    getBusyDay.mockReset().mockResolvedValue({ kind: 'unconfigured' })
+    useUIStore.setState({ dashboardRefreshKey: 0 })
+    sessionUser.value = { id: 'u1', email: 'a@b.c' }
+    routingPending.mockReset().mockResolvedValue([])
+    runSort.mockReset()
+    useSyncStore.setState({ state: 'synced', lastSyncAt: null })
+  })
+  afterEach(() => {
+    sessionUser.value = null
+    vi.restoreAllMocks()
+  })
+
+  it('pending > 0 → the count chip, not the button', async () => {
+    routingPending.mockResolvedValue([proposal('a')])
+    renderDashboard()
+    expect(await screen.findByRole('button', { name: 'Sort General · 1' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Sort General' })).toBeNull()
+  })
+
+  it('pending = 0 with an open General task and a saved key → Sort General', async () => {
+    renderDashboard()
+    expect(await button()).toBeEnabled()
+    expect(screen.queryByText('Needs a connection')).toBeNull()
+  })
+
+  it('no open task in a General list → nothing', async () => {
+    subcategoriesList.mockResolvedValue([{ ...GENERAL, name: 'Inbox' }])
+    renderDashboard()
+    await screen.findAllByText('t-a')
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /Sort General/ })).toBeNull()
+  })
+
+  it('a completed General task does not count', async () => {
+    tasksList.mockResolvedValue([
+      mkTask('t-a', 'w-gen', { completedAt: '2026-10-20T10:00:00Z' }),
+    ])
+    renderDashboard()
+    await waitFor(() => expect(tasksList).toHaveBeenCalled())
+    await act(async () => {})
+    expect(screen.queryByRole('button', { name: /Sort General/ })).toBeNull()
+  })
+
+  it.each(['unconfigured', 'auth_failed'])('ai_status %s → nothing, no error', async (aiStatus) => {
+    settingsGet.mockResolvedValue({ timezone: 'America/New_York', aiStatus })
+    renderDashboard()
+    await screen.findAllByText('t-a')
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /Sort General/ })).toBeNull()
+    expect(screen.queryByText(/Settings/)).toBeNull()
+  })
+
+  it('offline → disabled, "Needs a connection"', async () => {
+    // lib/network mirrors navigator.onLine into the sync store.
+    useSyncStore.setState({ state: 'offline' })
+    renderDashboard()
+    expect(await button()).toBeDisabled()
+    expect(screen.getByText('Needs a connection')).toBeInTheDocument()
+    expect(runSort).not.toHaveBeenCalled()
+  })
+
+  it('tap → Sorting…, disabled → the sheet opens on success', async () => {
+    let resolve!: (v: unknown) => void
+    runSort.mockReturnValue(new Promise((r) => (resolve = r)))
+    renderDashboard()
+    fireEvent.click(await button())
+    const busy = await screen.findByRole('button', { name: 'Sorting…' })
+    expect(busy).toBeDisabled()
+    fireEvent.click(busy)
+    expect(runSort).toHaveBeenCalledTimes(1)
+    await act(async () => resolve({ rows: [proposal('a'), proposal('b')], done: vi.fn() }))
+    expect(await screen.findByRole('dialog', { name: 'Sort General' })).toBeInTheDocument()
+  })
+
+  it('nothing proposed (runSort → null) → no sheet, the button is back', async () => {
+    runSort.mockResolvedValue(null)
+    renderDashboard()
+    fireEvent.click(await button())
+    await waitFor(() => expect(runSort).toHaveBeenCalled())
+    expect(await screen.findByRole('button', { name: 'Sort General' })).toBeEnabled()
+    expect(screen.queryByRole('dialog', { name: 'Sort General' })).toBeNull()
+  })
+
+  it('remaining → the press done() runs once, when the sheet closes (Not now)', async () => {
+    const done = vi.fn()
+    runSort.mockResolvedValue({ rows: [proposal('a')], done })
+    renderWithToaster()
+    fireEvent.click(await button())
+    const dialog = await screen.findByRole('dialog', { name: 'Sort General' })
+    expect(done).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Not now' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Sort General' })).toBeNull(),
+    )
+    expect(done).toHaveBeenCalledTimes(1)
+  })
+
+
 })
