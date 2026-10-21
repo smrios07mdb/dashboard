@@ -171,13 +171,31 @@ notes                                 -- chunk 58 / migration 16
   -- indexes (user_id, updated_at desc), (task_id), (subcategory_id);
   -- insert/update RLS with-check also asserts a non-null task_id /
   -- subcategory_id belongs to auth.uid() (FK checks bypass RLS)
+routing_proposals                     -- chunk 89 / migration 21
+  id, user_id,
+  run_id uuid not null,                             -- one per propose call
+  task_id uuid not null references tasks(id) on delete cascade,
+  from_subcategory_id uuid not null references subcategories(id) on delete cascade,
+  to_subcategory_id uuid null references subcategories(id) on delete set null,
+  new_list_name text null,                          -- 1–40 chars trimmed
+  new_list_category_id uuid null references categories(id) on delete cascade,
+  reason text not null,                             -- 1–280 chars
+  status text not null default 'pending'
+    check (status in ('pending','approved','kept','stale')),
+  final_subcategory_id uuid null references subcategories(id) on delete set null,
+  created_at timestamptz not null default now(),
+  decided_at timestamptz null,
+  check (not (to_subcategory_id is not null and new_list_name is not null)),
+  check ((new_list_name is null) = (new_list_category_id is null))
+  -- unique (task_id) where status = 'pending'; index (user_id, status);
+  -- RLS select/update own only — inserts are the proxy's service role
 ```
 
 **RLS policies:** every table has `select / insert / update / delete` policies enforcing `auth.uid() = user_id` (or the `user_id` derived from the joined row for log tables).
 
 **Signup trigger:** `AFTER INSERT ON auth.users` → inserts `('Work')` and `('Personal')` rows into `categories` and a default row into `settings` for the new `user_id`.
 
-**Realtime publication.** All nine user-scoped tables (`categories`, `subcategories`, `tasks`, `routine_items`, `routine_logs`, `settings`, `push_subscriptions`, `scheduled_blocks`, `notes`) are members of the `supabase_realtime` publication with `REPLICA IDENTITY FULL`. The `FULL` identity is required so DELETE events carry `user_id` for the realtime RLS filter — without it, deletes silently drop on the client side. Any future schema migration that adds a new user-scoped table must include both `alter publication supabase_realtime add table public.<name>;` and `alter table public.<name> replica identity full;` in the same migration.
+**Realtime publication.** All eleven user-scoped tables (`categories`, `subcategories`, `tasks`, `routine_items`, `routine_logs`, `settings`, `push_subscriptions`, `scheduled_blocks`, `notes`, `today_marks` (chunk 64), `routing_proposals` (chunk 89)) are members of the `supabase_realtime` publication with `REPLICA IDENTITY FULL`. The `FULL` identity is required so DELETE events carry `user_id` for the realtime RLS filter — without it, deletes silently drop on the client side. Any future schema migration that adds a new user-scoped table must include both `alter publication supabase_realtime add table public.<name>;` and `alter table public.<name> replica identity full;` in the same migration.
 
 **Task priority (chunk 33, canonical for the planner series):** `tasks.priority` ∈ {1, 2, 3, null}, enforced by `08_priority_check.sql` — P1 Urgent / P2 Soon / P3 Whenever. `null` means "no priority set": renders no chip, sorts after P3, and is never coerced to 3. List sorting (`src/lib/taskSort.ts`) is a single global preference (localStorage `hupo.taskSort`, default `priority`) shared by every list. Tie-breaks: `priority` → `due_at` asc (nulls last) → `created_at` asc; `due` → `due_at` asc (nulls last) → priority → `created_at`; `estimate` → `estimate_minutes` asc → priority → `created_at`. Sort applies within the open set only — completed-row placement is whatever each list already does. Since chunk 76, P1 and P2 also mark a task near term for the horizon filter (lib/horizon).
 
@@ -190,6 +208,8 @@ notes                                 -- chunk 58 / migration 16
 **Notes (chunk 58).** A note is freeform or attached to exactly one task **or** one subcategory (`num_nonnulls(task_id, subcategory_id) <= 1`); a task or a subcategory may hold many notes. The title is optional. **Detach memo — server-side, never in the client.** Two `BEFORE DELETE` triggers, `tasks_notes_detach_memo` and `subcategories_notes_detach_memo`, stamp `detached_label` (the task's `title` / the subcategory's `name`) and `detached_at = now()` on every note pointing at the row being deleted; the FK's `on delete set null` then clears the link. The memo lives in the trigger because deletes also arrive by cascade, bulk delete, merge and import, where no client code runs per row. The memo functions (`notes_memo_task_delete`, `notes_memo_subcategory_delete`) are `security definer` with `search_path = ''`, so the memo is written whichever role issues the delete and is not subject to the caller's RLS. `set_updated_at` bumps `updated_at` on those notes — accepted: a detach is a change to the note. Archiving a subcategory (`archived_at`) is not a delete and changes nothing about its notes. Attaching a note clears `detached_label` / `detached_at`. **Client:** `notes` follows the `scheduled_blocks` shape at every touchpoint — Dexie v6 store, outbox registry entry, `applyServerEcho` case, one realtime handler, `repo.notes` through `writeRow` and the offline path; the sync model (§6) is unchanged. **Export/import:** `notes` is in the payload after `scheduled_blocks`, **optional on read** (absent → `[]`), `EXPORT_VERSION` stays `1`. Replace-import and "Wipe my data" delete `notes` **first**, so the triggers write no memos for a wipe; Replace re-inserts notes after `tasks` — since chunk 62 both happen inside `import_replace` (migration 19, §10), in the same order; Merge upserts on `id`. In both modes an incoming note whose `task_id` / `subcategory_id` is neither in the file's own rows nor live is written with that id `null`, `detached_label` left as the file has it (since chunk 62 Replace checks the file alone: the account is emptied in the same transaction, so no other row could be live). **`tasks.notes` was a separate, older field** (the task dialog's note), untouched by chunk 58: it was copied into this model in chunk 59 and the column was dropped in chunk 60.
 
 **`tasks.notes` is gone (chunks 59–60).** Historical note. Chunk 59 took the column off the client and **migration 17** (`17_copy_task_notes.sql`) copied every non-blank value into one untitled note on its task (dedupe: same task + same trimmed body). **Migration 18** (`18_drop_tasks_notes.sql`, chunk 60) re-ran that insert, verified no value was left uncopied and dropped the column, in one transaction under a `share row exclusive` lock on `tasks` and without `cascade`; it is idempotent. **Migration 17 must not be re-run** — it names a column that no longer exists. A cached Dexie task row that still carries a `notes` property is ignored (no Dexie version bump).
+
+**Routing proposals (chunk 89).** Written by the proxy for tasks sitting in a General list (§10, "General sorting"); decided by the user through `public.apply_routing(jsonb)`. No-op keep = both destinations null; a New list is named by `new_list_name` + `new_list_category_id` and created only on Approve. Online-only on the client: no Dexie mirror, no outbox entry; realtime only refreshes the dashboard. A task delete cascades its proposals. **Not exported:** `routing_proposals` is a review queue, not data worth restoring; `EXPORT_TABLES` does not include it and import never touches it.
 
 **Client-only tables (Dexie):**
 
@@ -367,6 +387,19 @@ The proxy returns `{ ok: true, data }` with Anthropic's Messages JSON **unmodifi
 
 **Security posture.** The key is no longer visible in browser network traffic or the DOM after the one `POST /api/ai/key`. `api.anthropic.com` is no longer in the CSP's `connect-src` (chunk 55 D6), so an injected script cannot reach Anthropic at all. The remaining CSP (chunk 17, SRV-01: a build-time `<meta http-equiv="Content-Security-Policy">` injected by a `build`-only Vite plugin so dev is unconstrained) restricts `connect-src` to Supabase — including `wss://*.supabase.co` for Realtime — and the CalDAV proxy, and blocks inline/cross-origin scripts. `style-src` retains `'unsafe-inline'` for recharts' inline styles (§12) pending deployed-console confirmation that dropping it is safe. See `docs/security.md`.
 
+### General sorting (chunk 89)
+
+A **Claude scheduled task** (cloud, on the user's Claude subscription — no Anthropic key involved) sorts open tasks sitting in a list named `General`. The cloud runner reaches `*.vercel.app` but not `*.supabase.co`, so it talks only to the proxy; the app applies approvals with the user's own session.
+
+- **Auth.** Vercel env `ROUTER_TOKEN` (32 random bytes, base64url) and `ROUTER_USER_ID`. `/api/route/*` require `Authorization: Bearer <ROUTER_TOKEN>` (constant-time compare over SHA-256 digests; wrong or missing → 401, env unset → 503) and act only on that user's rows through the service-role client.
+- **Candidates (D1).** Open tasks in a live subcategory named `General` (trimmed, case-insensitive) in either category, created at least 10 minutes ago, with no proposal in status `pending`, `approved` or `kept`. Oldest first, at most 100.
+- **Targets (D2).** Every live non-General list of either category, each with up to 8 recent task titles (open, or completed within 90 days).
+- **`GET /api/route/inbox`** → `{ ok, tasks: [{ task_id, title, category_name, from_subcategory_id, estimate_minutes, due_at, priority, created_at }], targets: [{ subcategory_id, name, category_name, examples }], categories: [{ id, name }] }`.
+- **`POST /api/route/propose`** with `{ proposals: [{ task_id, subcategory_id | null, new_list: { name, category: 'Work' | 'Personal' } | null, reason }] }` (zod strict, 1–100, unique `task_id`, not both destinations). Non-candidates are `skipped: not_candidate`; a target that is not a D2 target is `skipped: bad_target`. New-list names are trimmed and merged case-insensitively within a category; a name matching a live list in that category becomes that list; `General` falls back to keep. A new list needs at least 2 tasks in the run and at most 3 new lists are kept (largest first); the rest fall back to keep (`kept_fallback`). All rows share one `run_id` and status `pending`. Returns `{ ok, run_id, results: [{ task_id, status: 'proposed' | 'kept_fallback' | 'skipped', detail? }] }`. The proxy never moves a task or creates a list.
+- **Review (D6).** A `Sort General · N` chip in the Tasks tab's hero (hidden at 0) opens the lazy `SortingSheet`: one group per destination — existing lists (category, then list order), `NEW` lists (name editable inline), then `Keep in General` (always present). Cards move by drag (`@dnd-kit`, the Dashboard's sensors and `TaskDragOverlay`) or by their `Move to…` menu, which can add any live non-General list as a group; `×` keeps a task in General; an emptied New group disappears; `+ New list` adds an empty one. Desktop: right-side sheet; touch: full-height bottom sheet. **Not now** closes and leaves every proposal pending.
+- **Approve (D7).** One call to `public.apply_routing(p jsonb)` (migration 21, `security invoker`, one transaction) with `{ new_lists: [{ key, name, category_id }], items: [{ proposal_id, to: { subcategory_id } | { new_list_key } | null }] }`. It validates everything first (names 1–40, not `General`, no live list of that name in the category; every proposal the caller's and `pending`; targets live) and raises on any violation, so nothing applies. It creates each New list at the end of its category, moves each task still open in its `from` list (`approved`), records Keep as `kept`, marks a task that changed since as `stale`, stamps `final_subcategory_id` and `decided_at`, then marks any other pending proposal whose task left General as `stale`. Returns `{ moved, kept, stale, created_lists }`; the app toasts `Moved X · kept Y` (+ `· Z changed since`). Online-only: offline, Approve is disabled with `Needs a connection`.
+- **Decide once (D8).** `approved` and `kept` tasks are never proposed again — moving one back into General by hand sticks. `stale` frees the task to be proposed again. Pending proposals whose task was completed or moved out of General are hidden from the sheet and the count at read time (`repo.routing.pending`).
+
 ---
 
 ## 11. Streak calculation rule (tasks)
@@ -502,6 +535,8 @@ Insights reports estimates, not tracked time (chunk 70): the headline cards lead
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role — never exposed to client |
 | `SUPABASE_JWKS_URL` | `${SUPABASE_URL}/auth/v1/.well-known/jwks.json` |
 | `CALDAV_ENCRYPTION_KEY` | 32-byte base64 for AES-GCM password wrap |
+| `ROUTER_TOKEN` | Bearer for `/api/route/*` (chunk 89; 32 random bytes, base64url) |
+| `ROUTER_USER_ID` | The one user `/api/route/*` acts on (chunk 89) |
 
 **Supabase project secrets (for Edge Function):**
 | Secret | Purpose |
