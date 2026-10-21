@@ -399,11 +399,12 @@ Insights reports estimates, not tracked time (chunk 70): the headline cards lead
 - Long-press is NOT used for navigation (conflicts with iOS Safari).
 
 **Drag affordance:**
-- Cross-subcategory drag enabled on Dashboard and Category drill-down (desktop only).
-- **Drop target (chunk 63):** a task drop counts only when the pointer is inside a subcategory header (`taskDragCollision`: `pointerWithin` over `subdrop:` droppables). Anywhere else, including the other category's column, is a no-op.
-- **Changing category:** each Dashboard column is its own `DndContext`, so a task moves across categories only through Move to…; the subcategory reorder keeps `rectIntersection`.
+- **Contexts (chunk 88):** the Dashboard has one `DndContext` over both columns, so tasks drag across categories; the Category drill-down has one context. The Today rail is outside it.
+- **Drop target (chunk 88):** the whole list section (`subdrop:<id>`), pointer-based (`taskDragCollision`: `pointerWithin`); gaps, category headers and the space between columns are no-ops.
+- **Ghost and reorder (chunk 88):** task drags render a `DragOverlay` ghost (portalled to `body`); list reorder stays inside its own category (`subs:<categoryId>`, `rectIntersection`).
+- **Touch (chunk 88):** drag by the grip (≥ 44 px, `touch-action: none`); ⋯ → Move to… stays everywhere and is the keyboard path.
+- **Feedback (chunk 88):** every move toasts `Moved to …` with Undo.
 - Subcategory drill-down uses bulk-select + "Move to..." picker (no drag).
-- Mobile/touch uses three-dot menu "Move to..." cascading picker everywhere.
 - Detect touch via `matchMedia('(hover: none)')` and conditionally attach drag handlers.
 
 **Responsive breakpoints:**
