@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useDroppable } from '@dnd-kit/core'
 import { ChevronDown } from 'lucide-react'
 
 import AddTaskInline from '@/components/AddTaskInline'
@@ -10,6 +11,7 @@ import type { Category, Subcategory, Task } from '@/db/types'
 import { isRecentCompletion } from '@/lib/completedAge'
 import { subColor } from '@/lib/gamify'
 import { filterByHorizon, type HorizonFilter } from '@/lib/horizon'
+import { isTaskDragId } from '@/lib/taskDragCollision'
 import { compareTasks, type TaskSortKey } from '@/lib/taskSort'
 import { browserTimezone } from '@/lib/userTimezone'
 import { cn } from '@/lib/utils'
@@ -22,6 +24,10 @@ import { cn } from '@/lib/utils'
  * inline. The section receives `dragHandleProps` from CategoryColumn's
  * sortable wrapper and forwards them to SubcategoryHeader so the grip
  * icon there carries the drag listeners.
+ *
+ * Chunk 88: the whole section — header, rows and add-task row — is the drop
+ * target for task drags (`subdrop:<id>`), and lights up while a task from
+ * another list is over it. Dropping on its own list shows nothing.
  *
  * Tasks render incomplete-only by default; a "N COMPLETED" expander
  * reveals the completed rows in-place. The filter lives here, not in
@@ -127,6 +133,17 @@ export default function SubcategorySection({
 }: SubcategorySectionProps) {
   const [showCompleted, setShowCompleted] = useState(false)
   const hue = subColor(subcategory.id)
+  // Chunk 88: the drop target is the whole list (was the header, chunk 9).
+  // Same id and data; the screen's onDragEnd reads them via resolveTaskDrop.
+  const { isOver, active, setNodeRef: setDropRef } = useDroppable({
+    id: `subdrop:${subcategory.id}`,
+    data: { type: 'subcategory', subcategoryId: subcategory.id },
+  })
+  const dropFrom = (
+    active?.data.current as { currentSubcategoryId?: string } | undefined
+  )?.currentSubcategoryId
+  const dropHere =
+    isOver && isTaskDragId(active?.id) && dropFrom !== subcategory.id
   // Notes on the list and on any of its tasks, completed ones included.
   const noteCount = useListNotes(
     subcategory.id,
@@ -230,7 +247,13 @@ export default function SubcategorySection({
   )
 
   return (
-    <section className="border-t border-line first:border-t-0">
+    <section
+      ref={setDropRef}
+      className={cn(
+        'border-t border-line transition-colors first:border-t-0',
+        dropHere && 'bg-accent-soft ring-1 ring-inset ring-[hsl(var(--ring))]',
+      )}
+    >
       <SubcategoryHeader
         subcategory={subcategory}
         incompleteCount={shownOpen.length}

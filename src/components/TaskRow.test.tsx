@@ -276,10 +276,64 @@ describe('TaskRow — quiet row (chunk 71)', () => {
     )
   })
 
-  it('(8) touch: the chip reaches 44pt and there is no grip', () => {
+  // Chunk 88 (D5): touch keeps the grip; it was hidden before.
+  it('(8) touch: the chip reaches 44pt and the grip shows', () => {
     touchMock.value = true
     row({ dueAt: TWO_DAYS_LATE })
     expect(chips()[0]).toHaveClass('before:size-11')
+    expect(
+      screen.getByRole('button', { name: 'Drag to move "Atlas launch"' }),
+    ).toBeInTheDocument()
+  })
+
+  it('(chunk 88) touch: the grip is a 44pt drag source that blocks scrolling only on itself', async () => {
+    touchMock.value = true
+    const onDragStart = vi.fn()
+    render(
+      <MemoryRouter>
+        <NotesContext.Provider
+          value={{ notes: [], report: () => undefined, openTaskNotes: vi.fn() }}
+        >
+          <DndContext onDragStart={onDragStart}>
+            <TaskRow
+              task={BASE}
+              categories={[]}
+              subcategories={[]}
+              onComplete={vi.fn()}
+              onEditTitle={vi.fn()}
+              onEditMinutes={vi.fn()}
+              onDelete={vi.fn()}
+              onMoveToSubcategory={vi.fn()}
+              onSetReminder={vi.fn()}
+              onSetDue={vi.fn()}
+              onSetPriority={vi.fn()}
+              timeZone="America/New_York"
+            />
+          </DndContext>
+        </NotesContext.Provider>
+      </MemoryRouter>,
+    )
+    const grip = screen.getByRole('button', {
+      name: 'Drag to move "Atlas launch"',
+    })
+    expect(grip).toHaveClass('touch-none', 'select-none', 'before:size-11')
+    expect(grip.tabIndex).toBe(-1)
+    // The row itself keeps native scrolling.
+    expect(screen.getByRole('group', { name: 'Atlas launch' })).not.toHaveClass(
+      'touch-none',
+    )
+    // The drag listeners are attached: a primary press starts a drag.
+    fireEvent.pointerDown(grip, { isPrimary: true, button: 0 })
+    expect(onDragStart).toHaveBeenCalledTimes(1)
+    // End the drag, and let dnd-kit drop its 50ms click guard on `document`,
+    // or it swallows the next test's clicks.
+    fireEvent.pointerUp(document, { isPrimary: true, button: 0 })
+    await new Promise((r) => setTimeout(r, 60))
+  })
+
+  it('(chunk 88) touch: no grip when drag is off', () => {
+    touchMock.value = true
+    row({}, { dragEnabled: false })
     expect(
       screen.queryByRole('button', { name: 'Drag to move "Atlas launch"' }),
     ).toBeNull()

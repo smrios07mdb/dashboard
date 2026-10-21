@@ -11,6 +11,33 @@ vi.mock('@/components/DeleteSubcategoryDialog', () => ({
   },
 }))
 
+// Chunk 88: a test can hold the list's droppable "over" with a given drag.
+const drop = vi.hoisted(() => ({
+  over: null as null | { activeId: string; currentSubcategoryId?: string },
+  ids: [] as string[],
+}))
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>()
+  return {
+    ...actual,
+    useDroppable: (args: Parameters<typeof actual.useDroppable>[0]) => {
+      drop.ids.push(String(args.id))
+      const real = actual.useDroppable(args)
+      if (!drop.over) return real
+      return {
+        ...real,
+        isOver: true,
+        active: {
+          id: drop.over.activeId,
+          data: {
+            current: { currentSubcategoryId: drop.over.currentSubcategoryId },
+          },
+        },
+      } as unknown as ReturnType<typeof actual.useDroppable>
+    },
+  }
+})
+
 import SubcategorySection from './SubcategorySection'
 import type { Category, Subcategory, Task } from '@/db/types'
 import type { HorizonFilter } from '@/lib/horizon'
@@ -283,5 +310,51 @@ describe('SubcategorySection — delete-list counts (chunk 87)', () => {
       cat('c-work', 'Work'),
       cat('c-personal', 'Personal'),
     ])
+  })
+})
+
+// Chunk 88 (D2): the whole list is the drop target, and it lights up only
+// when the drop would move the task.
+describe('SubcategorySection — whole-list drop target (chunk 88)', () => {
+  afterEach(() => {
+    drop.over = null
+    drop.ids = []
+  })
+
+  const HIGHLIGHT = [
+    'bg-accent-soft',
+    'ring-1',
+    'ring-inset',
+    'ring-[hsl(var(--ring))]',
+  ]
+
+  function renderSection() {
+    const { container } = render(
+      <SubcategorySection {...baseProps([task('t1'), task('t2')])} />,
+      { wrapper: MemoryRouter },
+    )
+    const section = container.querySelector('section')!
+    return { section, header: section.querySelector('header')! }
+  }
+
+  it('registers one subdrop droppable for the list', () => {
+    renderSection()
+    expect(drop.ids.filter((id) => id === 'subdrop:s1').length).toBeGreaterThan(0)
+  })
+
+  it('a task from another list over it highlights the section, not the header', () => {
+    drop.over = { activeId: 'task:x', currentSubcategoryId: 's-other' }
+    const { header, section } = renderSection()
+    expect(section).toHaveClass(...HIGHLIGHT)
+    expect(header).not.toHaveClass('bg-accent-soft')
+    // The section holds the task rows, so a drop on a row lands here.
+    expect(section).toContainElement(screen.getByRole('group', { name: 't1' }))
+  })
+
+  it('its own task over it shows no highlight', () => {
+    drop.over = { activeId: 'task:t1', currentSubcategoryId: 's1' }
+    const { header, section } = renderSection()
+    expect(section).not.toHaveClass('bg-accent-soft')
+    expect(header).not.toHaveClass('bg-accent-soft')
   })
 })

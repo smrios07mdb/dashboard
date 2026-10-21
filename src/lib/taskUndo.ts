@@ -27,12 +27,13 @@
  * commits only ids this session has scheduled, never another user's.
  *
  * Complete is written at once by the screen; `offerCompleteUndo` only offers
- * to put the prior `completedAt` back.
+ * to put the prior `completedAt` back. A move (chunk 88) works the same way:
+ * `offerMoveUndo` offers to put the prior `subcategoryId` back.
  */
 import { toast } from 'sonner'
 
 import { repo } from '@/db/repo'
-import type { Task } from '@/db/types'
+import type { Category, Subcategory, Task } from '@/db/types'
 import { useUIStore } from '@/state/uiStore'
 
 export const UNDO_MS = 6000
@@ -212,6 +213,59 @@ export function offerCompleteUndo(opts: {
             refresh()
           } catch (e) {
             console.error('Undo complete failed', e)
+            toast.error(SAVE_ERROR)
+          }
+        })()
+      },
+    },
+  })
+}
+
+/**
+ * Where a move went, for its toast (chunk 88): `Category › List` when it
+ * crosses categories, else just `List`.
+ */
+export function moveLabel(
+  fromSubId: string,
+  toSubId: string,
+  subcategories: Subcategory[],
+  categories: Category[],
+): string {
+  const to = subcategories.find((s) => s.id === toSubId)
+  if (!to) return 'list'
+  const from = subcategories.find((s) => s.id === fromSubId)
+  if (from && from.categoryId === to.categoryId) return to.name
+  const cat = categories.find((c) => c.id === to.categoryId)
+  return cat ? `${cat.name} › ${to.name}` : to.name
+}
+
+/** Toast "Moved to …" with Undo after a successful move (chunk 88). */
+export function offerMoveUndo(opts: {
+  /** The task as it was before the move. */
+  before: Task
+  toLabel: string
+  onRestored?: (task: Task) => void
+}): void {
+  const { before, toLabel, onRestored } = opts
+  let used = false
+  toast(`Moved to ${toLabel}`, {
+    duration: UNDO_MS,
+    action: {
+      label: 'Undo',
+      onClick: () => {
+        if (used) return
+        used = true
+        void (async () => {
+          try {
+            // An archived previous list is still written back; the task then
+            // surfaces in the Recovered card.
+            const restored = await repo.tasks.update(before.id, {
+              subcategoryId: before.subcategoryId,
+            })
+            onRestored?.(restored)
+            refresh()
+          } catch (e) {
+            console.error('Undo move failed', e)
             toast.error(SAVE_ERROR)
           }
         })()

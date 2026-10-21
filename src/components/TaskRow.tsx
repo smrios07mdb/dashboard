@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
 import { Bell, GripVertical } from 'lucide-react'
 
 import { Sun } from '@/components/icons'
@@ -43,10 +42,13 @@ import { dueLabel, reminderLabel, type WhenTone } from '@/lib/whenLabel'
  * with no chip) renders anchor-only in its own grid slot, and only while
  * open. Open state for all three pickers lives here.
  *
- * On desktop (`!useIsTouchDevice()`), the row is a `useDraggable` source. A
- * small grip handle appears between the checkbox and title; the rest of the
- * row stays click-friendly so inline title/minutes edit still works. Touch
- * devices hide the grip and rely on the three-dot menu's Move-to picker.
+ * The row is a `useDraggable` source (`dragEnabled`). A small grip handle
+ * appears between the checkbox and title; the rest of the row stays
+ * click-friendly so inline title/minutes edit still works. Chunk 88: touch
+ * drags by the grip too — its hit area is 44pt and it alone is
+ * `touch-action: none`, so the row still scrolls. ⋯ → Move to… stays on every
+ * device. While a task drags, the screen's DragOverlay shows a ghost
+ * (TaskDragGhost) and this row stays put at 40% opacity.
  *
  * Why a dedicated grip handle and not row-level drag listeners: the
  * row contains buttons (checkbox, title, chips, minutes, sun, menu)
@@ -222,7 +224,7 @@ export default function TaskRow({
   timeZone,
 }: TaskRowProps) {
   const isTouch = useIsTouchDevice()
-  const canDrag = dragEnabled && !isTouch
+  const canDrag = dragEnabled
   const completed = !!task.completedAt
   const [reminderOpen, setReminderOpen] = useState(false)
   // Priority picker open state lives here (two entry points: the chip
@@ -318,11 +320,16 @@ export default function TaskRow({
     listeners,
     setNodeRef,
     node,
-    transform,
     isDragging,
   } = useDraggable({
     id: `task:${task.id}`,
-    data: { taskId: task.id, currentSubcategoryId: task.subcategoryId },
+    // `title` / `subcategoryId` feed the drag ghost (chunk 88).
+    data: {
+      taskId: task.id,
+      currentSubcategoryId: task.subcategoryId,
+      title: task.title,
+      subcategoryId: task.subcategoryId,
+    },
     disabled: !canDrag,
   })
 
@@ -373,8 +380,8 @@ export default function TaskRow({
     .join(' ')
 
   const style = {
-    transform: CSS.Translate.toString(transform),
-    opacity: isDragging ? 0.5 : undefined,
+    // No own transform (chunk 88): the DragOverlay ghost moves instead.
+    opacity: isDragging ? 0.4 : undefined,
     gridTemplateColumns,
     // Priority-1 rows carry a 3px destructive left edge; every row reserves
     // the 3px (transparent otherwise) so toggling priority/completion never
@@ -465,10 +472,13 @@ export default function TaskRow({
           // that no KeyboardSensor serves (chunk 77).
           tabIndex={-1}
           onClick={(e) => e.stopPropagation()}
-          // 14px column and visual; the ::before widens the target to 24px.
+          // 14px column and visual; the ::before widens the target to 24px,
+          // 44pt on touch (chunk 88), where the grip alone takes the gesture.
           className={cn(
             HIT_AREA,
             'inline-flex h-6 w-3.5 cursor-grab items-center justify-center rounded-sm text-ink-3/70 before:size-6 hover:bg-bg-alt hover:text-ink active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            isTouch &&
+              'touch-none select-none before:size-11 [-webkit-touch-callout:none]',
           )}
         >
           <GripVertical className="size-3" aria-hidden />

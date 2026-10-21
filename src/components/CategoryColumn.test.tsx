@@ -1,6 +1,24 @@
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
+import { DndContext } from '@dnd-kit/core'
+import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
+
+// Chunk 88: count every DndContext mounted, the wrapper's included.
+const dnd = vi.hoisted(() => ({ mounts: 0 }))
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dnd-kit/core')>()
+  const { createElement, useEffect } = await import('react')
+  return {
+    ...actual,
+    DndContext: (props: Parameters<typeof actual.DndContext>[0]) => {
+      useEffect(() => {
+        dnd.mounts++
+      }, [])
+      return createElement(actual.DndContext, props)
+    },
+  }
+})
 
 import CategoryColumn, { type CategoryColumnProps } from './CategoryColumn'
 
@@ -11,6 +29,14 @@ import CategoryColumn, { type CategoryColumnProps } from './CategoryColumn'
  */
 
 const category = { id: 'cat-work', name: 'Work', userId: 'u1' }
+
+function Wrapper({ children }: { children: ReactNode }) {
+  return (
+    <MemoryRouter>
+      <DndContext>{children}</DndContext>
+    </MemoryRouter>
+  )
+}
 
 function renderColumn(overrides: Partial<CategoryColumnProps> = {}) {
   const onDrillDown = vi.fn()
@@ -43,8 +69,9 @@ function renderColumn(overrides: Partial<CategoryColumnProps> = {}) {
     onMoveSubcategory: vi.fn(),
     ...overrides,
   } as CategoryColumnProps
-  // TaskMenu → BlockTimeSheet calls useNavigate() once rows render.
-  render(<CategoryColumn {...props} />, { wrapper: MemoryRouter })
+  // TaskMenu → BlockTimeSheet calls useNavigate() once rows render. Chunk 88:
+  // the column renders inside its screen's DndContext.
+  render(<CategoryColumn {...props} />, { wrapper: Wrapper })
   const name = screen.getByRole('heading', { level: 2, name: props.category.name })
   const header = name.closest('header') as HTMLElement
   return { onDrillDown, name, header }
@@ -192,5 +219,23 @@ describe('CategoryColumn horizon (chunk 76)', () => {
     fireEvent.doubleClick(screen.getByRole('radio', { name: 'Near' }))
     fireEvent.keyDown(screen.getByRole('radio', { name: 'All' }), { key: 'Enter' })
     expect(onDrillDown).not.toHaveBeenCalled()
+  })
+})
+
+// Chunk 88 (D1): the Dashboard owns the one DndContext over both columns.
+describe('CategoryColumn — no DndContext of its own (chunk 88)', () => {
+  it('mounts only the parent context, even with lists to sort', () => {
+    dnd.mounts = 0
+    const sub = {
+      id: 'sw1',
+      name: 'General',
+      categoryId: 'cat-work',
+      sortOrder: 0,
+      userId: 'u1',
+      archivedAt: null,
+    }
+    renderColumn({ subcategories: [sub], allSubcategories: [sub] })
+    expect(screen.getByText('General')).toBeInTheDocument()
+    expect(dnd.mounts).toBe(1)
   })
 })

@@ -7,8 +7,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * mocked; timers are fake.
  */
 
-const { bulkDelete, markComplete, bulkUpdate, toast, forceDashboardRefresh } =
-  vi.hoisted(() => {
+const {
+  bulkDelete,
+  markComplete,
+  bulkUpdate,
+  update,
+  toast,
+  forceDashboardRefresh,
+} = vi.hoisted(() => {
     const toast = Object.assign(
       vi.fn<(...args: unknown[]) => string>(() => 'toast-id'),
       { error: vi.fn(), dismiss: vi.fn() },
@@ -17,20 +23,22 @@ const { bulkDelete, markComplete, bulkUpdate, toast, forceDashboardRefresh } =
       bulkDelete: vi.fn(),
       markComplete: vi.fn(),
       bulkUpdate: vi.fn(),
+      // Chunk 88: Undo for a move.
+      update: vi.fn(),
       toast,
       forceDashboardRefresh: vi.fn(),
     }
   })
 
 vi.mock('@/db/repo', () => ({
-  repo: { tasks: { bulkDelete, markComplete, bulkUpdate } },
+  repo: { tasks: { bulkDelete, markComplete, bulkUpdate, update } },
 }))
 vi.mock('sonner', () => ({ toast }))
 vi.mock('@/state/uiStore', () => ({
   useUIStore: { getState: () => ({ forceDashboardRefresh }) },
 }))
 
-import type { Task } from '@/db/types'
+import type { Category, Task } from '@/db/types'
 
 const KEY = 'hup:pendingTaskDeletes'
 const NOW = new Date('2026-10-13T16:00:00.000Z')
@@ -74,6 +82,7 @@ beforeEach(() => {
   bulkDelete.mockReset().mockResolvedValue(undefined)
   markComplete.mockReset()
   bulkUpdate.mockReset()
+  update.mockReset()
   toast.mockClear()
   toast.error.mockClear()
   toast.dismiss.mockClear()
@@ -475,3 +484,68 @@ describe('taskUndo — parked deletes are per user (chunk 83)', () => {
   })
 })
 
+
+// Chunk 88 (D6): every move says where it went and offers Undo.
+describe('taskUndo — move undo (chunk 88)', () => {
+  it('toasts "Moved to …" with Undo, and Undo puts the old list back once', async () => {
+    const before = mkTask('a') // in s1
+    const restored = { ...before }
+    update.mockResolvedValue(restored)
+    const m = await load()
+    const onRestored = vi.fn()
+    m.offerMoveUndo({ before, toLabel: 'Personal › General', onRestored })
+
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast.mock.calls[0][0]).toBe('Moved to Personal › General')
+    expect(toastOpts().duration).toBe(6000)
+    expect(toastOpts().action.label).toBe('Undo')
+    expect(update).not.toHaveBeenCalled()
+
+    toastOpts().action.onClick()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(update).toHaveBeenCalledTimes(1)
+    expect(update).toHaveBeenCalledWith('a', { subcategoryId: 's1' })
+    expect(onRestored).toHaveBeenCalledWith(restored)
+    expect(forceDashboardRefresh).toHaveBeenCalled()
+
+    // One-shot: a second click writes nothing.
+    toastOpts().action.onClick()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed Undo write toasts the save error and restores nothing', async () => {
+    update.mockRejectedValue(new Error('nope'))
+    const m = await load()
+    const onRestored = vi.fn()
+    m.offerMoveUndo({ before: mkTask('a'), toLabel: 'General', onRestored })
+
+    toastOpts().action.onClick()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(onRestored).not.toHaveBeenCalled()
+  })
+
+  it('names the category only when the move crosses categories', async () => {
+    const m = await load()
+    const cats: Category[] = [
+      { id: 'cw', name: 'Work', userId: 'u1' },
+      { id: 'cp', name: 'Personal', userId: 'u1' },
+    ]
+    const sub = (id: string, name: string, categoryId: string) => ({
+      id,
+      name,
+      categoryId,
+      sortOrder: 0,
+      userId: 'u1',
+      archivedAt: null,
+    })
+    const subs = [
+      sub('w1', 'General', 'cw'),
+      sub('w2', 'Ops', 'cw'),
+      sub('p1', 'General', 'cp'),
+    ]
+    expect(m.moveLabel('w1', 'p1', subs, cats)).toBe('Personal › General')
+    expect(m.moveLabel('w1', 'w2', subs, cats)).toBe('Ops')
+  })
+})

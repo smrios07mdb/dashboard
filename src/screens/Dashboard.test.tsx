@@ -22,6 +22,7 @@ import {
 const {
   categoriesList,
   subcategoriesList,
+  subcategoriesReorder,
   tasksList,
   tasksUpdate,
   tasksMarkComplete,
@@ -35,6 +36,7 @@ const {
 } = vi.hoisted(() => ({
   categoriesList: vi.fn(),
   subcategoriesList: vi.fn(),
+  subcategoriesReorder: vi.fn(),
   tasksList: vi.fn(),
   tasksUpdate: vi.fn(),
   tasksMarkComplete: vi.fn(),
@@ -57,7 +59,7 @@ vi.mock('@/lib/busyCache', () => ({ getBusyDay }))
 vi.mock('@/db/repo', () => ({
   repo: {
     categories: { list: categoriesList },
-    subcategories: { list: subcategoriesList },
+    subcategories: { list: subcategoriesList, reorder: subcategoriesReorder },
     tasks: {
       list: tasksList,
       update: tasksUpdate,
@@ -86,18 +88,42 @@ vi.mock('@/components/TodayRoutines', () => ({
 }))
 
 // Chunk 63: record what each DndContext is given, render the real one.
-const { dndCollisionProps } = vi.hoisted(() => ({
+// Chunk 88: a probe inside each one records, by context, the droppables it
+// holds and its latest onDragEnd, so a test can find the context holding
+// both columns' lists without changing the DOM.
+const { dndCollisionProps, dndContexts } = vi.hoisted(() => ({
   dndCollisionProps: [] as unknown[],
+  dndContexts: new Map<
+    string,
+    { droppables: string[]; onDragEnd?: (e: unknown) => void }
+  >(),
 }))
 
 vi.mock('@dnd-kit/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dnd-kit/core')>()
-  const { createElement } = await import('react')
+  const { createElement, useEffect, useId } = await import('react')
+  function Probe({ onDragEnd }: { onDragEnd?: (e: unknown) => void }) {
+    const id = useId()
+    const { droppableContainers } = actual.useDndContext()
+    const droppables = [...droppableContainers.keys()].map(String)
+    useEffect(() => {
+      dndContexts.set(id, { droppables, onDragEnd })
+    })
+    useEffect(() => () => void dndContexts.delete(id), [id])
+    return null
+  }
   return {
     ...actual,
     DndContext: (props: Parameters<typeof actual.DndContext>[0]) => {
       dndCollisionProps.push(props.collisionDetection)
-      return createElement(actual.DndContext, props)
+      return createElement(
+        actual.DndContext,
+        props,
+        createElement(Probe, {
+          onDragEnd: props.onDragEnd as ((e: unknown) => void) | undefined,
+        }),
+        props.children,
+      )
     },
   }
 })
@@ -190,6 +216,7 @@ describe('Dashboard', () => {
   beforeEach(() => {
     categoriesList.mockReset()
     subcategoriesList.mockReset()
+    subcategoriesReorder.mockReset().mockResolvedValue(undefined)
     tasksList.mockReset()
     tasksUpdate.mockReset()
     tasksMarkComplete.mockReset()
@@ -779,11 +806,107 @@ describe('Dashboard', () => {
     const { findAllByText } = renderDashboard()
     await findAllByText('Add subcategory')
 
-    // One DndContext per rendered column.
-    expect(dndCollisionProps.length).toBeGreaterThanOrEqual(2)
+    // Chunk 88: one context over both columns (each render records it).
+    expect(dndCollisionProps.length).toBeGreaterThanOrEqual(1)
     for (const recorded of dndCollisionProps) {
       expect(recorded).toBe(taskDragCollision)
     }
+  })
+
+  // ---------- chunk 88: one DndContext over both columns ----------
+
+  async function renderTwoColumns() {
+    categoriesList.mockResolvedValue([
+      mkCat('cat-work', 'Work'),
+      mkCat('cat-personal', 'Personal'),
+    ])
+    subcategoriesList.mockResolvedValue([
+      mkSub('sw1', 'cat-work'),
+      mkSub('sw2', 'cat-work'),
+      mkSub('sp1', 'cat-personal'),
+    ])
+    tasksList.mockResolvedValue([mkTask('t1', 'sw1')])
+    const utils = renderDashboard()
+    await utils.findAllByText('Add subcategory')
+    // Contexts that hold any list's drop target.
+    const listContexts = () =>
+      [...dndContexts.values()].filter((c) =>
+        c.droppables.some((d) => d.startsWith('subdrop:')),
+      )
+    await waitFor(() =>
+      expect(
+        listContexts().some(
+          (c) =>
+            c.droppables.includes('subdrop:sw1') &&
+            c.droppables.includes('subdrop:sp1'),
+        ),
+      ).toBe(true),
+    )
+    return { contexts: listContexts(), shared: listContexts()[0] }
+  }
+
+  it('puts both columns in one DndContext (chunk 88)', async () => {
+    const { contexts } = await renderTwoColumns()
+    expect(contexts).toHaveLength(1)
+    for (const id of ['subdrop:sw1', 'subdrop:sw2', 'subdrop:sp1']) {
+      expect(contexts[0].droppables).toContain(id)
+    }
+  })
+
+  it('moves a Work task dropped on a Personal list (chunk 88)', async () => {
+    const { shared } = await renderTwoColumns()
+    const onDragEnd = shared.onDragEnd!
+    tasksUpdate.mockResolvedValue(mkTask('t1', 'sp1'))
+    await act(async () => {
+      onDragEnd({
+        active: {
+          id: 'task:t1',
+          data: { current: { taskId: 't1', currentSubcategoryId: 'sw1' } },
+        },
+        over: {
+          id: 'subdrop:sp1',
+          data: { current: { type: 'subcategory', subcategoryId: 'sp1' } },
+        },
+      })
+    })
+    expect(tasksUpdate).toHaveBeenCalledTimes(1)
+    expect(tasksUpdate).toHaveBeenCalledWith('t1', { subcategoryId: 'sp1' })
+  })
+
+  it('never reorders a Work list into Personal (chunk 88)', async () => {
+    const { shared } = await renderTwoColumns()
+    const onDragEnd = shared.onDragEnd!
+    await act(async () => {
+      onDragEnd({
+        active: {
+          id: 'sw1',
+          data: { current: { sortable: { containerId: 'subs:cat-work' } } },
+        },
+        over: {
+          id: 'sp1',
+          data: { current: { sortable: { containerId: 'subs:cat-personal' } } },
+        },
+      })
+    })
+    expect(subcategoriesReorder).not.toHaveBeenCalled()
+    // The same handler still reorders inside Work.
+    await act(async () => {
+      onDragEnd({
+        active: {
+          id: 'sw1',
+          data: { current: { sortable: { containerId: 'subs:cat-work' } } },
+        },
+        over: {
+          id: 'sw2',
+          data: { current: { sortable: { containerId: 'subs:cat-work' } } },
+        },
+      })
+    })
+    expect(subcategoriesReorder).toHaveBeenCalledTimes(1)
+    expect(subcategoriesReorder).toHaveBeenCalledWith([
+      { id: 'sw2', sortOrder: 0 },
+      { id: 'sw1', sortOrder: 1 },
+    ])
   })
 
   // ---------- chunk 72: undo for delete and complete ----------

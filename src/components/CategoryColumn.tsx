@@ -1,12 +1,4 @@
 import {
-  DndContext,
-  PointerSensor,
-  TouchSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
   SortableContext,
   useSortable,
   verticalListSortingStrategy,
@@ -21,7 +13,7 @@ import TaskSortControl from '@/components/TaskSortControl'
 import type { Category, Subcategory, Task } from '@/db/types'
 import { catColor, catInk } from '@/lib/cat'
 import { filterByHorizon, type HorizonFilter } from '@/lib/horizon'
-import { isTaskDragId, taskDragCollision } from '@/lib/taskDragCollision'
+import type { MoveTaskFn } from '@/lib/taskDragCollision'
 import type { TaskSortKey } from '@/lib/taskSort'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { browserTimezone } from '@/lib/userTimezone'
@@ -31,8 +23,10 @@ import { browserTimezone } from '@/lib/userTimezone'
  *
  * Renders the category header (open count, controls) plus a card listing each
  * subcategory section. Chunk 8 adds:
- *   - DndContext + SortableContext scoped per column (within-category
- *     reorder only; cross-category drag is chunk 9's job)
+ *   - a SortableContext per column (`subs:<categoryId>`) for list reorder.
+ *     Chunk 88: the DndContext is the Dashboard's, one over both columns, so
+ *     tasks drag across categories; list reorder stays inside its own column
+ *     (taskDragCollision scopes it to this container)
  *   - AddSubcategoryInline at the bottom of the column
  *   - Per-sub touch/desktop reorder fallbacks via the header's menu
  *
@@ -60,10 +54,7 @@ export type CategoryColumnProps = {
   onEditTitle: (id: string, title: string) => void | Promise<void>
   onEditMinutes: (id: string, minutes: number) => void | Promise<void>
   onDeleteTask: (id: string) => void | Promise<void>
-  onMoveTaskToSubcategory: (
-    taskId: string,
-    targetSubcategoryId: string,
-  ) => void | Promise<void>
+  onMoveTaskToSubcategory: MoveTaskFn
   onSetTaskReminder: (
     id: string,
     remindAt: string | null,
@@ -94,10 +85,6 @@ export type CategoryColumnProps = {
   onMergeSubcategory: (
     sourceId: string,
     targetId: string,
-  ) => void | Promise<void>
-  onReorderSubcategories: (
-    categoryId: string,
-    orderedIds: string[],
   ) => void | Promise<void>
   onMoveSubcategory: (id: string, direction: 'up' | 'down') => void
   /**
@@ -134,7 +121,6 @@ export default function CategoryColumn({
   onRenameSubcategory,
   onDeleteSubcategory,
   onMergeSubcategory,
-  onReorderSubcategories,
   onMoveSubcategory,
   todaySet,
   onToggleToday,
@@ -151,58 +137,7 @@ export default function CategoryColumn({
   )
   const accent = catColor(category.name)
 
-  // 5px activation distance prevents accidental drags from clicks on
-  // the grip handle. Touch sensor stays inert because the handle is
-  // hidden on touch devices.
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: { delay: 200, tolerance: 5 },
-    }),
-  )
-
   const subIds = subcategories.map((s) => s.id)
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over) return
-
-    // Task drag → drop on a SubcategoryHeader's useDroppable. Active
-    // id is prefixed `task:<uuid>`; the drop target's data carries
-    // `{ type: 'subcategory', subcategoryId }`.
-    if (isTaskDragId(active.id)) {
-      const data = active.data.current as
-        | { taskId?: string; currentSubcategoryId?: string }
-        | undefined
-      const target = over.data.current as
-        | { type?: string; subcategoryId?: string }
-        | undefined
-      const taskId = data?.taskId
-      const targetSubId = target?.subcategoryId
-      const currentSubId = data?.currentSubcategoryId
-      if (
-        taskId &&
-        targetSubId &&
-        target?.type === 'subcategory' &&
-        targetSubId !== currentSubId
-      ) {
-        void onMoveTaskToSubcategory(taskId, targetSubId)
-      }
-      return
-    }
-
-    // Subcategory sortable reorder (chunk-8 behavior).
-    if (active.id === over.id) return
-    const oldIndex = subIds.indexOf(String(active.id))
-    const newIndex = subIds.indexOf(String(over.id))
-    if (oldIndex === -1 || newIndex === -1) return
-    const next = [...subIds]
-    const [moved] = next.splice(oldIndex, 1)
-    next.splice(newIndex, 0, moved)
-    void onReorderSubcategories(category.id, next)
-  }
 
   return (
     <div>
@@ -287,51 +222,46 @@ export default function CategoryColumn({
             No subcategories yet.
           </div>
         ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={taskDragCollision}
-            onDragEnd={handleDragEnd}
+          <SortableContext
+            id={`subs:${category.id}`}
+            items={subIds}
+            strategy={verticalListSortingStrategy}
           >
-            <SortableContext
-              items={subIds}
-              strategy={verticalListSortingStrategy}
-            >
-              {subcategories.map((sub, index) => (
-                <SortableSubSection
-                  key={sub.id}
-                  subcategory={sub}
-                  allCategories={allCategories}
-                  allSubcategories={allSubcategories}
-                  tasks={tasksBySub[sub.id] ?? []}
-                  otherSubsInCategory={subcategories.filter(
-                    (s) => s.id !== sub.id,
-                  )}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < subcategories.length - 1}
-                  isTouch={isTouch}
-                  onDrillDown={(id) => onDrillDown('subcategory', id)}
-                  onCreateTask={onCreateTask}
-                  onCompleteTask={onCompleteTask}
-                  onEditTitle={onEditTitle}
-                  onEditMinutes={onEditMinutes}
-                  onDeleteTask={onDeleteTask}
-                  onMoveTaskToSubcategory={onMoveTaskToSubcategory}
-                  onSetTaskReminder={onSetTaskReminder}
-                  onSetTaskDue={onSetTaskDue}
-                  onSetTaskPriority={onSetTaskPriority}
-                  sortKey={sortKey}
-                  horizon={horizon}
-                  onRenameSubcategory={onRenameSubcategory}
-                  onDeleteSubcategory={onDeleteSubcategory}
-                  onMergeSubcategory={onMergeSubcategory}
-                  onMoveSubcategory={onMoveSubcategory}
-                  todaySet={todaySet}
-                  onToggleToday={onToggleToday}
-                  timeZone={timeZone}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
+            {subcategories.map((sub, index) => (
+              <SortableSubSection
+                key={sub.id}
+                subcategory={sub}
+                allCategories={allCategories}
+                allSubcategories={allSubcategories}
+                tasks={tasksBySub[sub.id] ?? []}
+                otherSubsInCategory={subcategories.filter(
+                  (s) => s.id !== sub.id,
+                )}
+                canMoveUp={index > 0}
+                canMoveDown={index < subcategories.length - 1}
+                isTouch={isTouch}
+                onDrillDown={(id) => onDrillDown('subcategory', id)}
+                onCreateTask={onCreateTask}
+                onCompleteTask={onCompleteTask}
+                onEditTitle={onEditTitle}
+                onEditMinutes={onEditMinutes}
+                onDeleteTask={onDeleteTask}
+                onMoveTaskToSubcategory={onMoveTaskToSubcategory}
+                onSetTaskReminder={onSetTaskReminder}
+                onSetTaskDue={onSetTaskDue}
+                onSetTaskPriority={onSetTaskPriority}
+                sortKey={sortKey}
+                horizon={horizon}
+                onRenameSubcategory={onRenameSubcategory}
+                onDeleteSubcategory={onDeleteSubcategory}
+                onMergeSubcategory={onMergeSubcategory}
+                onMoveSubcategory={onMoveSubcategory}
+                todaySet={todaySet}
+                onToggleToday={onToggleToday}
+                timeZone={timeZone}
+              />
+            ))}
+          </SortableContext>
         )}
         <AddSubcategoryInline
           onCreate={({ name }) =>
@@ -362,10 +292,7 @@ type SortableSubSectionProps = {
   onEditTitle: (id: string, title: string) => void | Promise<void>
   onEditMinutes: (id: string, minutes: number) => void | Promise<void>
   onDeleteTask: (id: string) => void | Promise<void>
-  onMoveTaskToSubcategory: (
-    taskId: string,
-    targetSubcategoryId: string,
-  ) => void | Promise<void>
+  onMoveTaskToSubcategory: MoveTaskFn
   onSetTaskReminder: (
     id: string,
     remindAt: string | null,

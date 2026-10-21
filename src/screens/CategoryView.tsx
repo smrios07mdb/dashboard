@@ -21,6 +21,7 @@ import Breadcrumbs from '@/components/Breadcrumbs'
 import type { DeleteListChoice } from '@/components/DeleteSubcategoryDialog'
 import HorizonControl from '@/components/HorizonControl'
 import SubcategorySection from '@/components/SubcategorySection'
+import { TaskDragOverlay } from '@/components/TaskDragGhost'
 import TaskSortControl from '@/components/TaskSortControl'
 import { repo } from '@/db/repo'
 import type { Category, Subcategory, Task } from '@/db/types'
@@ -32,13 +33,23 @@ import {
   type HorizonFilter,
 } from '@/lib/horizon'
 import { deleteList, DELETE_LIST_TOAST } from '@/lib/deleteList'
-import { isTaskDragId, taskDragCollision } from '@/lib/taskDragCollision'
+import {
+  isTaskDragId,
+  resolveTaskDrop,
+  taskDragCollision,
+  type MoveTaskFn,
+} from '@/lib/taskDragCollision'
 import {
   loadTaskSortKey,
   storeTaskSortKey,
   type TaskSortKey,
 } from '@/lib/taskSort'
-import { deleteTasksWithUndo, offerCompleteUndo } from '@/lib/taskUndo'
+import {
+  deleteTasksWithUndo,
+  moveLabel,
+  offerCompleteUndo,
+  offerMoveUndo,
+} from '@/lib/taskUndo'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 import { useUIStore } from '@/state/uiStore'
@@ -319,20 +330,29 @@ export default function CategoryView() {
     [data.tasks, setData, upsertTask],
   )
 
-  const onMoveTaskToSubcategory = useCallback(
-    async (id: string, targetSubcategoryId: string) => {
+  // Every move toasts where it went, with Undo (chunk 88; as the Dashboard).
+  const onMoveTaskToSubcategory = useCallback<MoveTaskFn>(
+    async (id, targetSubcategoryId) => {
+      const before = data.tasks.find((t) => t.id === id)
       try {
         const updated = await repo.tasks.update(id, {
           subcategoryId: targetSubcategoryId,
         })
         upsertTask(updated)
-        toast('Task moved')
+        const toLabel = moveLabel(
+          before?.subcategoryId ?? '',
+          targetSubcategoryId,
+          data.subcategories,
+          data.categories,
+        )
+        if (before) offerMoveUndo({ before, toLabel, onRestored: upsertTask })
+        else toast(`Moved to ${toLabel}`)
       } catch (e) {
         console.error('Move task failed', e)
         toast.error(SAVE_ERROR)
       }
     },
-    [upsertTask],
+    [data.tasks, data.subcategories, data.categories, upsertTask],
   )
 
   const onSetTaskReminder = useCallback(
@@ -529,31 +549,13 @@ export default function CategoryView() {
   const subIds = subcategories.map((s) => s.id)
 
   function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over) return
-
-    if (isTaskDragId(active.id)) {
-      const data = active.data.current as
-        | { taskId?: string; currentSubcategoryId?: string }
-        | undefined
-      const target = over.data.current as
-        | { type?: string; subcategoryId?: string }
-        | undefined
-      const taskId = data?.taskId
-      const targetSubId = target?.subcategoryId
-      const currentSubId = data?.currentSubcategoryId
-      if (
-        taskId &&
-        targetSubId &&
-        target?.type === 'subcategory' &&
-        targetSubId !== currentSubId
-      ) {
-        void onMoveTaskToSubcategory(taskId, targetSubId)
-      }
+    const drop = resolveTaskDrop(event)
+    if (drop) {
+      void onMoveTaskToSubcategory(drop.taskId, drop.toSubId, { viaDrag: true })
       return
     }
-
-    if (active.id === over.id) return
+    const { active, over } = event
+    if (!over || isTaskDragId(active.id) || active.id === over.id) return
     const oldIndex = subIds.indexOf(String(active.id))
     const newIndex = subIds.indexOf(String(over.id))
     if (oldIndex === -1 || newIndex === -1) return
@@ -611,6 +613,7 @@ export default function CategoryView() {
             onDragEnd={handleDragEnd}
           >
             <SortableContext
+              id={`subs:${categoryId}`}
               items={subIds}
               strategy={verticalListSortingStrategy}
             >
@@ -647,6 +650,7 @@ export default function CategoryView() {
                 />
               ))}
             </SortableContext>
+            <TaskDragOverlay />
           </DndContext>
         )}
         <AddSubcategoryInline
@@ -684,10 +688,7 @@ type SortableSubSectionProps = {
   onEditTitle: (id: string, title: string) => void | Promise<void>
   onEditMinutes: (id: string, minutes: number) => void | Promise<void>
   onDeleteTask: (id: string) => void | Promise<void>
-  onMoveTaskToSubcategory: (
-    taskId: string,
-    targetSubcategoryId: string,
-  ) => void | Promise<void>
+  onMoveTaskToSubcategory: MoveTaskFn
   onSetTaskReminder: (
     id: string,
     remindAt: string | null,

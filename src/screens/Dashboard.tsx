@@ -7,6 +7,14 @@ import {
   useRef,
   useState,
 } from 'react'
+import {
+  DndContext,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
 import { Flame } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -20,6 +28,7 @@ import DailyHero from '@/components/gamify/DailyHero'
 import ReconnectBanner from '@/components/ReconnectBanner'
 import RecoveredTasks from '@/components/RecoveredTasks'
 import ReviewPrompt from '@/components/ReviewPrompt'
+import { TaskDragOverlay } from '@/components/TaskDragGhost'
 import TodayPanel from '@/components/TodayPanel'
 import TodayRoutines from '@/components/TodayRoutines'
 import { repo } from '@/db/repo'
@@ -39,6 +48,12 @@ import {
   storeLastReview,
 } from '@/lib/review'
 import { deleteList, DELETE_LIST_TOAST } from '@/lib/deleteList'
+import {
+  isTaskDragId,
+  resolveTaskDrop,
+  taskDragCollision,
+  type MoveTaskFn,
+} from '@/lib/taskDragCollision'
 import { resolveToday } from '@/lib/today'
 import {
   loadTaskSortKey,
@@ -46,7 +61,12 @@ import {
   type TaskSortKey,
 } from '@/lib/taskSort'
 import { taskStreak } from '@/lib/taskStreak'
-import { deleteTasksWithUndo, offerCompleteUndo } from '@/lib/taskUndo'
+import {
+  deleteTasksWithUndo,
+  moveLabel,
+  offerCompleteUndo,
+  offerMoveUndo,
+} from '@/lib/taskUndo'
 import { useIsTouchDevice } from '@/lib/useIsTouchDevice'
 import { useTodayListStore } from '@/state/todayList'
 import { useTodayPlan, type WriteTodayMark } from '@/state/todayPlan'
@@ -426,20 +446,30 @@ export default function Dashboard() {
     [markReviewed, onDeleteTasks],
   )
 
-  const onMoveTaskToSubcategory = useCallback(
-    async (id: string, targetSubcategoryId: string) => {
+  // Every move — drag or ⋯ → Move to… — toasts where it went, with Undo
+  // (chunk 88). `viaDrag` is accepted and ignored (MoveTaskFn).
+  const onMoveTaskToSubcategory = useCallback<MoveTaskFn>(
+    async (id, targetSubcategoryId) => {
+      const before = data.tasks.find((t) => t.id === id)
       try {
         const updated = await repo.tasks.update(id, {
           subcategoryId: targetSubcategoryId,
         })
         upsertTask(updated)
-        toast('Task moved')
+        const toLabel = moveLabel(
+          before?.subcategoryId ?? '',
+          targetSubcategoryId,
+          data.subcategories,
+          data.categories,
+        )
+        if (before) offerMoveUndo({ before, toLabel, onRestored: upsertTask })
+        else toast(`Moved to ${toLabel}`)
       } catch (e) {
         console.error('Move task failed', e)
         toast.error(SAVE_ERROR)
       }
     },
-    [upsertTask],
+    [data.tasks, data.subcategories, data.categories, upsertTask],
   )
 
   const onSetTaskReminder = useCallback(
@@ -686,6 +716,35 @@ export default function Dashboard() {
     [data.subcategories],
   )
 
+  // Chunk 88: one DndContext over both columns, so a task drags from Work to
+  // Personal. 5px activation keeps grip clicks from starting drags; the touch
+  // sensor serves the grip on phones (200ms hold).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  )
+
+  function handleDragEnd(event: DragEndEvent) {
+    const drop = resolveTaskDrop(event)
+    if (drop) {
+      void onMoveTaskToSubcategory(drop.taskId, drop.toSubId, { viaDrag: true })
+      return
+    }
+    // List reorder, inside the dragged list's own category only.
+    const { active, over } = event
+    if (!over || isTaskDragId(active.id) || active.id === over.id) return
+    const moved = liveSubcategories.find((s) => s.id === active.id)
+    if (!moved) return
+    const ids = (subsByCat[moved.categoryId] ?? []).map((s) => s.id)
+    const oldIndex = ids.indexOf(String(active.id))
+    const newIndex = ids.indexOf(String(over.id))
+    if (oldIndex === -1 || newIndex === -1) return
+    const next = [...ids]
+    next.splice(oldIndex, 1)
+    next.splice(newIndex, 0, moved.id)
+    onReorderSubcategories(moved.categoryId, next)
+  }
+
   if (loading) {
     return (
       <div className="text-[13px] text-muted-foreground">Loading…</div>
@@ -742,41 +801,47 @@ export default function Dashboard() {
     // narrow this grid independently of the window. No `grid-cols-*` utility
     // here: it would be emitted after `.category-grid` and override it.
     <div className="category-cols min-w-0">
-      <div className="category-grid grid gap-6 sm:gap-8">
-        {data.categories.map((cat) => (
-          <CategoryColumn
-            key={cat.id}
-            category={cat}
-            allCategories={data.categories}
-            allSubcategories={liveSubcategories}
-            subcategories={subsByCat[cat.id] ?? []}
-            tasksBySub={tasksBySub}
-            onDrillDown={onDrillDown}
-            onCreateTask={onCreateTask}
-            onCompleteTask={onCompleteTask}
-            onEditTitle={onEditTitle}
-            onEditMinutes={onEditMinutes}
-            onDeleteTask={onDeleteTask}
-            onMoveTaskToSubcategory={onMoveTaskToSubcategory}
-            onSetTaskReminder={onSetTaskReminder}
-            onSetTaskDue={onSetTaskDue}
-            onSetTaskPriority={onSetTaskPriority}
-            sortKey={sortKey}
-            onChangeSortKey={onChangeSortKey}
-            horizon={horizon}
-            onChangeHorizon={onChangeHorizon}
-            onCreateSubcategory={onCreateSubcategory}
-            onRenameSubcategory={onRenameSubcategory}
-            onDeleteSubcategory={onDeleteSubcategory}
-            onMergeSubcategory={onMergeSubcategory}
-            onReorderSubcategories={onReorderSubcategories}
-            onMoveSubcategory={onMoveSubcategory}
-            todaySet={todaySet}
-            onToggleToday={toggleToday}
-            timeZone={timeZone}
-          />
-        ))}
-      </div>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={taskDragCollision}
+        onDragEnd={handleDragEnd}
+      >
+        <div className="category-grid grid gap-6 sm:gap-8">
+          {data.categories.map((cat) => (
+            <CategoryColumn
+              key={cat.id}
+              category={cat}
+              allCategories={data.categories}
+              allSubcategories={liveSubcategories}
+              subcategories={subsByCat[cat.id] ?? []}
+              tasksBySub={tasksBySub}
+              onDrillDown={onDrillDown}
+              onCreateTask={onCreateTask}
+              onCompleteTask={onCompleteTask}
+              onEditTitle={onEditTitle}
+              onEditMinutes={onEditMinutes}
+              onDeleteTask={onDeleteTask}
+              onMoveTaskToSubcategory={onMoveTaskToSubcategory}
+              onSetTaskReminder={onSetTaskReminder}
+              onSetTaskDue={onSetTaskDue}
+              onSetTaskPriority={onSetTaskPriority}
+              sortKey={sortKey}
+              onChangeSortKey={onChangeSortKey}
+              horizon={horizon}
+              onChangeHorizon={onChangeHorizon}
+              onCreateSubcategory={onCreateSubcategory}
+              onRenameSubcategory={onRenameSubcategory}
+              onDeleteSubcategory={onDeleteSubcategory}
+              onMergeSubcategory={onMergeSubcategory}
+              onMoveSubcategory={onMoveSubcategory}
+              todaySet={todaySet}
+              onToggleToday={toggleToday}
+              timeZone={timeZone}
+            />
+          ))}
+        </div>
+        <TaskDragOverlay />
+      </DndContext>
     </div>
   )
 
