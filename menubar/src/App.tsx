@@ -17,6 +17,14 @@ import {
 } from './native'
 import { createRefresher } from './refresher'
 import SignIn from './SignIn'
+import {
+  nextTheme,
+  readTheme,
+  saveTheme,
+  THEME_LABEL,
+  watchSystemTheme,
+  type ThemeChoice,
+} from './theme'
 import TodayList from './TodayList'
 import type { TodayView } from './todayView'
 
@@ -69,6 +77,15 @@ export default function App() {
   const userId = user?.id ?? null
   const today = useToday(userId)
   const popRef = useRef<HTMLDivElement | null>(null)
+  const [theme, setTheme] = useState<ThemeChoice>(readTheme)
+
+  useEffect(() => watchSystemTheme(theme), [theme])
+
+  function cycleTheme() {
+    const next = nextTheme(theme)
+    saveTheme(next)
+    setTheme(next)
+  }
 
   // Signed out: the tray shows no count.
   useEffect(() => {
@@ -115,6 +132,15 @@ export default function App() {
           Open dashboard
         </button>
         <span className="mb-sp" />
+        <button
+          type="button"
+          className="mb-foot-btn"
+          onClick={cycleTheme}
+          aria-label={`Theme: ${THEME_LABEL[theme]}. Change theme`}
+          title="Auto follows macOS"
+        >
+          Theme: {THEME_LABEL[theme]}
+        </button>
         {userId ? (
           <button
             type="button"

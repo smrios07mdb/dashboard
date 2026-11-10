@@ -4,57 +4,60 @@
  * The one sanctioned dark theme in this repo: the PWA stays light-only and
  * never loads this file. Values are the design's, ported from
  * `hupomnemata_handoff/menubar/prototype/hupomnemata-menu-bar.html`
- * (`.mac[data-mode="dark"]`). It follows the system (`prefers-color-scheme`);
- * there is no toggle.
+ * (`.mac[data-mode="dark"]`). It applies when `<html data-mode="dark">`,
+ * which `theme.ts` sets from the footer's Theme choice (Auto follows the
+ * system's `prefers-color-scheme`; chunk 91b).
  *
  * `html:root` outranks the `:root` and `[data-catpalette]` blocks in
  * `src/index.css`. The shadcn slots stay HSL triplets (that file's
  * convention 1); each carries the design hex it was computed from.
  */
-@media (prefers-color-scheme: dark) {
-  html:root {
-    color-scheme: dark;
+html:root[data-mode="light"] {
+  color-scheme: light;
+}
 
-    /* Surfaces */
-    --bg: #17151c;
-    --bg-alt: #2a2733;
-    --surface: #1f1c26;
-    --surface-2: #26232e;
-    --line: rgba(236, 233, 241, 0.08);
-    --line-strong: rgba(236, 233, 241, 0.16);
+html:root[data-mode="dark"] {
+  color-scheme: dark;
 
-    /* Ink scale */
-    --ink: #ece9f1;
-    --ink-2: #aaa5b5;
-    --ink-3: #8f8a9b;
-    --ink-4: #4a4655;
+  /* Surfaces */
+  --bg: #17151c;
+  --bg-alt: #2a2733;
+  --surface: #1f1c26;
+  --surface-2: #26232e;
+  --line: rgba(236, 233, 241, 0.08);
+  --line-strong: rgba(236, 233, 241, 0.16);
 
-    /* Focal accent */
-    --accent-soft: rgba(111, 211, 171, 0.12);
-    --accent-ink: #6fd3ab;
+  /* Ink scale */
+  --ink: #ece9f1;
+  --ink-2: #aaa5b5;
+  --ink-3: #8f8a9b;
+  --ink-4: #4a4655;
 
-    /* Categories and status */
-    --work: #3fcf96;
-    --personal: #ff7a55;
-    --work-ink: #3fcf96;
-    --personal-ink: #ff7a55;
-    --warn: #f0b24a;
-    --destructive-soft: rgba(255, 122, 85, 0.15); /* --p1-soft */
+  /* Focal accent */
+  --accent-soft: rgba(111, 211, 171, 0.12);
+  --accent-ink: #6fd3ab;
 
-    /* Menubar-only tokens */
-    --mb-track: rgba(236, 233, 241, 0.09); /* --ring-track */
-    --mb-shadow: 0 0 0 0.5px rgba(236, 233, 241, 0.16);
+  /* Categories and status */
+  --work: #3fcf96;
+  --personal: #ff7a55;
+  --work-ink: #3fcf96;
+  --personal-ink: #ff7a55;
+  --warn: #f0b24a;
+  --destructive-soft: rgba(255, 122, 85, 0.15); /* --p1-soft */
 
-    /* shadcn slots (HSL triplets) */
-    --background: 257 14% 10%; /* --bg         #17151c */
-    --foreground: 263 22% 93%; /* --ink        #ece9f1 */
-    --primary: 156 53% 63%; /* --accent     #6fd3ab */
-    --primary-foreground: 155 37% 10%; /* --on-accent #10231b */
-    --accent: 156 53% 63%; /* --accent     #6fd3ab */
-    --accent-foreground: 155 37% 10%; /* --on-accent #10231b */
-    --destructive: 11 100% 73%; /* --p1         #ff8c73 */
-    --ring: 156 53% 63%; /* --accent     #6fd3ab */
-    --border: 262 10% 17%; /* --line over --surface */
-    --input: 261 9% 25%; /* --line-strong over --surface */
-  }
+  /* Menubar-only tokens */
+  --mb-track: rgba(236, 233, 241, 0.09); /* --ring-track */
+  --mb-shadow: 0 0 0 0.5px rgba(236, 233, 241, 0.16);
+
+  /* shadcn slots (HSL triplets) */
+  --background: 257 14% 10%; /* --bg         #17151c */
+  --foreground: 263 22% 93%; /* --ink        #ece9f1 */
+  --primary: 156 53% 63%; /* --accent     #6fd3ab */
+  --primary-foreground: 155 37% 10%; /* --on-accent #10231b */
+  --accent: 156 53% 63%; /* --accent     #6fd3ab */
+  --accent-foreground: 155 37% 10%; /* --on-accent #10231b */
+  --destructive: 11 100% 73%; /* --p1         #ff8c73 */
+  --ring: 156 53% 63%; /* --accent     #6fd3ab */
+  --border: 262 10% 17%; /* --line over --surface */
+  --input: 261 9% 25%; /* --line-strong over --surface */
 }

@@ -20,11 +20,15 @@ import './menubar.css'
 import { installSignOutCleanup } from '@/lib/signOutCleanup'
 
 import App from './App'
+import { applyTheme, readTheme } from './theme'
 
 // The PWA's sign-out hygiene, unchanged: wipe the cache mirror on SIGNED_OUT
 // (ARCHITECTURE §14) and keep the outbox user stamp current.
 const stopSignOutCleanup = installSignOutCleanup()
 if (import.meta.hot) import.meta.hot.dispose(() => stopSignOutCleanup())
+
+// Set the mode before the first paint so a forced theme never flashes.
+applyTheme(readTheme())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
