@@ -1,5 +1,6 @@
 /*
- * Menu bar popover (chunk 91): sign-in by code, then the Today list.
+ * Menu bar popover (chunk 91): sign-in by code, then two tabs — the Today
+ * list and the scratchpad (chunk 93), which ⌥H opens from anywhere.
  */
 import {
   type CSSProperties,
@@ -9,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
+import { flushSync } from 'react-dom'
 import { Toaster } from 'sonner'
 
 import { repo } from '@/db/repo'
@@ -18,17 +20,30 @@ import { offerCompleteUndo } from '@/lib/taskUndo'
 import { startSyncRunner } from '@/lib/syncRunner'
 
 import { createCheckOff, type CheckOff, type CheckOffState } from './checkOff'
-
+import { createHotkeys } from './hotkeys'
 import { loadToday } from './loadToday'
 import {
   hidePopover,
   openDashboard,
+  popoverIsShown,
   quitApp,
+  registerShortcut,
   setPopoverHeight,
   setTrayTitle,
+  showPopover,
+  unregisterShortcut,
   watchPopover,
 } from './native'
+import PopoverTabs from './PopoverTabs'
+import { saveTab } from './prefs'
 import { createRefresher } from './refresher'
+import Scratchpad from './ScratchpadTab'
+import {
+  NO_LIST,
+  sendScratch,
+  type ScratchLists,
+  type ScratchResult,
+} from './scratchpad'
 import SignIn from './SignIn'
 import {
   nextTheme,
@@ -41,9 +56,20 @@ import {
 import TodayList from './TodayList'
 import { applyOptimistic, type TodayView } from './todayView'
 
-type TodayState = { view: TodayView | null; offline: boolean; failed: boolean }
+type TodayState = {
+  view: TodayView | null
+  offline: boolean
+  failed: boolean
+  /** The last load's lists, for the scratchpad (chunk 93). */
+  lists: ScratchLists | null
+}
 
-const NOT_LOADED: TodayState = { view: null, offline: false, failed: false }
+const NOT_LOADED: TodayState = {
+  view: null,
+  offline: false,
+  failed: false,
+  lists: null,
+}
 
 type Loaded = { userId: string } & TodayState
 
@@ -68,12 +94,12 @@ function createSession(userId: string, onLoaded: (l: Loaded) => void) {
   let last: Loaded = { userId, ...NOT_LOADED }
   const refresher = createRefresher(async () => {
     try {
-      const { view, offline } = await loadToday(
+      const { view, offline, lists } = await loadToday(
         userId,
         checkOff.getState().kept,
       )
       if (cancelled) return
-      last = { userId, view, offline, failed: false }
+      last = { userId, view, offline, failed: false, lists }
       onLoaded(last)
       setTrayTitle(view.trayTitle)
     } catch (e) {
@@ -86,6 +112,7 @@ function createSession(userId: string, onLoaded: (l: Loaded) => void) {
   return {
     userId,
     checkOff,
+    refresh: () => refresher.refresh(),
     /** Restartable (StrictMode runs effects twice): stop pauses, never disposes. */
     start() {
       cancelled = false
@@ -110,6 +137,25 @@ const IDLE: CheckOffState = {
 const idleSubscribe = () => () => {}
 const idleState = () => IDLE
 
+/**
+ * The scratchpad hotkey (D6): hide the popover if it is shown; otherwise
+ * switch to Scratchpad and focus the pad (committed synchronously, before
+ * the window appears), then ask the shell to show it under the tray icon.
+ */
+async function toggleScratchpad(bump: () => void) {
+  try {
+    if (await popoverIsShown()) {
+      hidePopover()
+      return
+    }
+    saveTab('scratchpad')
+    flushSync(bump)
+    await showPopover()
+  } catch (e) {
+    console.error('menubar: hotkey toggle failed', e)
+  }
+}
+
 export default function App() {
   const { user, loading } = useSession()
   const userId = user?.id ?? null
@@ -128,6 +174,37 @@ export default function App() {
     loaded && loaded.userId === userId ? loaded : NOT_LOADED
   const popRef = useRef<HTMLDivElement | null>(null)
   const [theme, setTheme] = useState<ThemeChoice>(readTheme)
+  // Bumped by the hotkey: forces the Scratchpad tab and focuses the pad.
+  const [forceScratch, setForceScratch] = useState(0)
+  const [hotkeys] = useState(() =>
+    createHotkeys(
+      { register: registerShortcut, unregister: unregisterShortcut },
+      {
+        scratchpad: () =>
+          void toggleScratchpad(() => setForceScratch((n) => n + 1)),
+      },
+    ),
+  )
+  const hk = useSyncExternalStore(hotkeys.subscribe, hotkeys.getState)
+
+  useEffect(() => {
+    void hotkeys.start()
+    return () => void hotkeys.stop()
+  }, [hotkeys])
+
+  async function send(text: string): Promise<ScratchResult> {
+    if (!session || !today.lists) {
+      return { leftover: text, sent: 0, result: NO_LIST }
+    }
+    const r = await sendScratch(
+      text,
+      { ...today.lists, userId: session.userId, now: new Date() },
+      (input) => repo.tasks.create(input),
+    )
+    // A `p1` or `today` line belongs in Today at once; the tray follows.
+    if (r.sent > 0) void session.refresh()
+    return r
+  }
 
   useEffect(() => watchSystemTheme(theme), [theme])
 
@@ -160,7 +237,8 @@ export default function App() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') hidePopover()
+      // The pad handles its own Esc (and marks it handled).
+      if (e.key === 'Escape' && !e.defaultPrevented) hidePopover()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -185,12 +263,28 @@ export default function App() {
           <p className="mb-empty">Loading…</p>
         </div>
       ) : userId ? (
-        <TodayList
-          view={view}
-          offline={today.offline}
-          failed={today.failed}
-          saveFailed={co.failed}
-          onToggle={(row) => void session?.checkOff.toggle(row.task)}
+        <PopoverTabs
+          todayCount={view ? `${view.done}/${view.total}` : null}
+          forceScratch={forceScratch}
+          today={
+            <TodayList
+              view={view}
+              offline={today.offline}
+              failed={today.failed}
+              saveFailed={co.failed}
+              onToggle={(row) => void session?.checkOff.toggle(row.task)}
+            />
+          }
+          scratchpad={
+            <Scratchpad
+              lists={today.lists}
+              userId={userId}
+              send={send}
+              hotkeyError={hk.failed.scratchpad ?? null}
+              focusSeq={forceScratch}
+              onHide={hidePopover}
+            />
+          }
         />
       ) : (
         <SignIn />

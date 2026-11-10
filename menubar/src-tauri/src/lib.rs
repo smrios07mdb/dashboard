@@ -3,7 +3,9 @@
 //! One tray icon, one frameless popover window. The web view (`menubar/src`)
 //! owns everything the user reads; this file owns what only the shell can do:
 //! the tray and its title, showing / hiding / placing / sizing the window,
-//! opening the dashboard and quitting.
+//! opening the dashboard and quitting. The global hotkey (chunk 93) is
+//! registered from the web view through `tauri-plugin-global-shortcut`; the
+//! shell only places and shows the window for it (`show_popover`).
 //!
 //! Commands are named in `menubar/src/native.ts` — keep the two in step.
 
@@ -12,7 +14,8 @@ use std::time::{Duration, Instant};
 
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Rect, WebviewWindow, WindowEvent,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, PhysicalSize, Rect, WebviewWindow,
+    WindowEvent,
 };
 
 const TRAY_ID: &str = "main";
@@ -27,6 +30,8 @@ const MAX_HEIGHT: f64 = 560.0;
 const GAP: f64 = 4.0;
 /// Keep the popover this far from a screen edge, in points.
 const EDGE: f64 = 8.0;
+/// The menu bar's height, in points — only for the no-tray-rect fallback.
+const MENU_BAR: f64 = 24.0;
 
 /// A click on the tray icon while the popover is open reaches us as a blur
 /// (which hides it) followed by the click. Without this the click would
@@ -36,6 +41,9 @@ const REOPEN_GUARD: Duration = Duration::from_millis(300);
 #[derive(Default)]
 struct Popover {
     hidden_by_blur_at: Mutex<Option<Instant>>,
+    /// The tray icon's rect from the last click — the hotkey's fallback when
+    /// the tray API gives none.
+    last_tray_rect: Mutex<Option<Rect>>,
 }
 
 fn window(app: &AppHandle) -> Option<WebviewWindow> {
@@ -102,6 +110,46 @@ fn toggle(app: &AppHandle, tray: &Rect) {
     }
 }
 
+/// Where the popover goes when no click says: the tray icon's rect, else the
+/// last rect a click gave, else the top-right corner of the main display.
+fn tray_rect(app: &AppHandle, w: &WebviewWindow) -> Option<Rect> {
+    if let Some(rect) = app
+        .tray_by_id(TRAY_ID)
+        .and_then(|t| t.rect().ok().flatten())
+    {
+        return Some(rect);
+    }
+    if let Some(rect) = app
+        .state::<Popover>()
+        .last_tray_rect
+        .lock()
+        .ok()
+        .and_then(|r| *r)
+    {
+        return Some(rect);
+    }
+    let m = w.primary_monitor().ok().flatten()?;
+    let scale = m.scale_factor();
+    let right = m.position().x as f64 + m.size().width as f64 - EDGE * scale;
+    Some(Rect {
+        position: PhysicalPosition::new(right, m.position().y as f64).into(),
+        size: PhysicalSize::new(0.0, MENU_BAR * scale).into(),
+    })
+}
+
+/// Show the popover under the tray icon without a click (the hotkey, D6).
+/// Already shown: it only takes focus.
+#[tauri::command]
+fn show_popover(app: AppHandle) -> Result<(), String> {
+    let w = window(&app).ok_or("no window")?;
+    if w.is_visible().unwrap_or(false) {
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    let rect = tray_rect(&app, &w).ok_or("no tray rect")?;
+    show(&app, &rect);
+    Ok(())
+}
+
 /// The tray title: the open Today count. Anything but a short number is
 /// dropped — the web view is the only caller, but the bar is not its to fill.
 #[tauri::command]
@@ -160,6 +208,7 @@ pub fn run() {
             set_tray_title,
             set_popover_height,
             hide_popover,
+            show_popover,
             popover_is_shown,
             open_dashboard,
             quit_app
@@ -182,6 +231,12 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
+            // The scratchpad hotkey (chunk 93). Bindings are registered from
+            // the web view (`menubar/src/hotkeys.ts`), never chosen here.
+            #[cfg(desktop)]
+            app.handle()
+                .plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
+
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(tauri::include_image!("icons/tray.png"))
                 .icon_as_template(true)
@@ -195,7 +250,11 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        toggle(tray.app_handle(), &rect);
+                        let app = tray.app_handle();
+                        if let Ok(mut last) = app.state::<Popover>().last_tray_rect.lock() {
+                            *last = Some(rect);
+                        }
+                        toggle(app, &rect);
                     }
                 })
                 .build(app)?;

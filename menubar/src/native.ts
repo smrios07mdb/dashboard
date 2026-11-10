@@ -7,6 +7,10 @@
  */
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import {
+  register as registerGlobal,
+  unregister as unregisterGlobal,
+} from '@tauri-apps/plugin-global-shortcut'
 
 /** The live PWA — the fallback target when there is no shell to open it. */
 export const DASHBOARD_URL = 'https://smrios07mdb.github.io/dashboard/'
@@ -34,6 +38,43 @@ export function setPopoverHeight(height: number): void {
 
 export function hidePopover(): void {
   call('hide_popover')
+}
+
+/** Whether the popover is on screen; in a browser, the tab's visibility. */
+export async function popoverIsShown(): Promise<boolean> {
+  if (!inTauri()) return document.visibilityState === 'visible'
+  return invoke<boolean>('popover_is_shown')
+}
+
+/**
+ * Show the popover under the tray icon without a click (the hotkey, chunk
+ * 93). The shell finds the icon's rect itself.
+ */
+export async function showPopover(): Promise<void> {
+  if (!inTauri()) return
+  await invoke('show_popover')
+}
+
+/**
+ * Register a global shortcut (chunk 93, `tauri-plugin-global-shortcut`).
+ * `onPress` runs on key down only. A registration left by an earlier load of
+ * this web view is dropped first, so a reload does not read as "taken".
+ * Rejects when the system refuses the shortcut. Outside Tauri: nothing.
+ */
+export async function registerShortcut(
+  accel: string,
+  onPress: () => void,
+): Promise<void> {
+  if (!inTauri()) return
+  await unregisterGlobal(accel).catch(() => {})
+  await registerGlobal(accel, (event) => {
+    if (event.state === 'Pressed') onPress()
+  })
+}
+
+export async function unregisterShortcut(accel: string): Promise<void> {
+  if (!inTauri()) return
+  await unregisterGlobal(accel)
 }
 
 export function openDashboard(): void {

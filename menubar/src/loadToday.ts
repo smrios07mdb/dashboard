@@ -7,9 +7,15 @@
 import { repo } from '@/db/repo'
 import { syncStore } from '@/db/syncStore'
 
+import type { ScratchLists } from './scratchpad'
 import { buildTodayView, type TodayView } from './todayView'
 
-export type TodayLoad = { view: TodayView; offline: boolean }
+export type TodayLoad = {
+  view: TodayView
+  offline: boolean
+  /** The same read's lists and zone, for the scratchpad (chunk 93). */
+  lists: ScratchLists
+}
 
 export async function loadToday(
   userId: string,
@@ -33,5 +39,10 @@ export async function loadToday(
       keep,
     }),
     offline: syncStore.getState().state === 'offline',
+    lists: {
+      categories,
+      subcategories: subcategories.filter((s) => s.archivedAt === null),
+      timeZone,
+    },
   }
 }
