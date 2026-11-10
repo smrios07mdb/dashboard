@@ -33,7 +33,7 @@ body::before {
 .mb-pop {
   width: 340px;
   max-width: 100%;
-  max-height: 560px;
+  max-height: 704px; /* the shell's MAX_HEIGHT (raised from 560 in chunk 95) */
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -579,6 +579,146 @@ body::before {
   color: var(--ink-2);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+/* ---- sound (chunk 95) — the prototype's .now / .presets / .auto ---- */
+.mb-sound {
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+.mb-now {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: 9px 0 11px;
+}
+.mb-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  flex: none;
+  background:
+    radial-gradient(circle at 30% 30%, var(--ring-a), transparent 55%),
+    radial-gradient(circle at 75% 70%, var(--break), transparent 60%),
+    hsl(var(--accent));
+}
+.mb-np {
+  flex: 1;
+  min-width: 0;
+}
+.mb-np b {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mb-np small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A state line, not a track: it may take two lines. */
+.mb-np-msg b {
+  white-space: normal;
+  line-height: 1.25;
+}
+.mb-np-link {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.mb-tp {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.mb-ib {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+}
+.mb-ib:hover:not(:disabled) {
+  background: var(--bg-alt);
+}
+.mb-ib-big,
+.mb-ib-big:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--surface);
+}
+.mb-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mb-pre {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  font-size: 12px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-2);
+}
+.mb-pre[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+.mb-auto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 11px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.mb-sw {
+  width: 26px;
+  height: 15px;
+  border-radius: 8px;
+  background: var(--line-strong);
+  position: relative;
+  flex: none;
+}
+.mb-sw::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.mb-auto[aria-checked='true'] .mb-sw {
+  background: hsl(var(--accent));
+}
+.mb-auto[aria-checked='true'] .mb-sw::after {
+  left: auto;
+  right: 2px;
+}
+.mb-ib:disabled,
+.mb-pre:disabled,
+.mb-auto:disabled {
+  opacity: 0.4;
+}
+.mb-ib:focus-visible,
+.mb-pre:focus-visible,
+.mb-auto:focus-visible,
+.mb-np-link:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
 /* ---- footer ---- */

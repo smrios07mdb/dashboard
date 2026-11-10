@@ -14,6 +14,7 @@ import {
 
 import type { PomodoroSnapshot, PomodoroTask } from './pomodoro'
 import type { PomodoroConfig } from './pomodoroPrefs'
+import type { SpotifyState } from './sound'
 
 /** The live PWA — the fallback target when there is no shell to open it. */
 export const DASHBOARD_URL = 'https://smrios07mdb.github.io/dashboard/'
@@ -178,4 +179,44 @@ export function watchPomodoro(
     stopped = true
     off?.()
   }
+}
+
+/*
+ * Sound (chunk 95). The shell drives Spotify on this Mac (`sound.rs`) with
+ * its own fixed AppleScript; nothing here carries script text. Each Spotify
+ * call answers the fresh state. Outside Tauri: `null`, and nothing is sent.
+ */
+function spotify(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<SpotifyState | null> {
+  if (!inTauri()) return Promise.resolve(null)
+  return invoke<SpotifyState>(command, args)
+}
+
+/** A read: never launches Spotify. */
+export const spotifyState = () => spotify('spotify_state')
+export const spotifyPlayPause = () => spotify('spotify_play_pause')
+export const spotifyNext = () => spotify('spotify_next')
+export const spotifyPrevious = () => spotify('spotify_previous')
+/** Play a playlist now (may launch Spotify). The shell validates the URI. */
+export const spotifyPlayPreset = (uri: string) =>
+  spotify('spotify_play_preset', { uri })
+
+/** Play on focus or not, and the preset's playlist (`null` = Silence). */
+export async function soundConfigure(
+  auto: boolean,
+  uri: string | null,
+): Promise<void> {
+  if (!inTauri()) return
+  try {
+    await invoke('sound_configure', { auto, uri })
+  } catch (e) {
+    console.error('menubar: sound_configure failed', e)
+  }
+}
+
+/** System Settings → Privacy & Security → Automation (a fixed URL). */
+export function openAutomationSettings(): void {
+  call('open_automation_settings')
 }

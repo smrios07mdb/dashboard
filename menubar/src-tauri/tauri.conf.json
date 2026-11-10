@@ -45,7 +45,8 @@
     ],
     "macOS": {
       "minimumSystemVersion": "12.0",
-      "signingIdentity": "-"
+      "signingIdentity": "Hupomnemata Local Signing",
+      "entitlements": "Entitlements.plist"
     }
   }
 }

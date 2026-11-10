@@ -5,5 +5,8 @@
   <!-- Menu bar agent: no Dock icon, no app switcher entry, from launch (chunk 91, D7). -->
   <key>LSUIElement</key>
   <true/>
+  <!-- Shown in the macOS Automation prompt the first time the app controls Spotify (chunk 95, D2). -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Hupomnemata plays and pauses Spotify for your focus sessions.</string>
 </dict>
 </plist>

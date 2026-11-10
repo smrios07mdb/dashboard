@@ -296,6 +296,29 @@ pub fn configure(state: &State, config: Config) -> State {
     s
 }
 
+/// What a state change asks of the music (chunk 95, D9).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MusicAction {
+    Play,
+    Pause,
+}
+
+fn focus_running(s: &State) -> bool {
+    s.phase == Phase::Focus && !s.paused
+}
+
+/// Play on focus, pause on break: "focus running" going false → true is
+/// `Play`, true → false is `Pause`. That one rule covers start, resume,
+/// pause, a natural focus end, skip to break, stop, and a focus end noticed
+/// after sleep. Anything else — a break ending, extend, configure — is none.
+pub fn music_edge(prev: &State, next: &State) -> Option<MusicAction> {
+    match (focus_running(prev), focus_running(next)) {
+        (false, true) => Some(MusicAction::Play),
+        (true, false) => Some(MusicAction::Pause),
+        _ => None,
+    }
+}
+
 /// The idle tray title: a number of up to four digits, else nothing — the
 /// web view is the only sender, but the bar is not its to fill.
 pub fn valid_idle_title(title: &str) -> String {
@@ -407,7 +430,7 @@ pub fn ring_rgba(size: u32, fraction: f32) -> Vec<u8> {
     out
 }
 
-fn json_string(s: &str) -> String {
+pub(crate) fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for ch in s.chars() {
@@ -511,7 +534,7 @@ impl Pomodoro {
         f: impl FnOnce(&State, SystemTime) -> Result<State, String>,
     ) -> Result<Response, String> {
         let now = SystemTime::now();
-        let (json, changed, rejected) = {
+        let (json, changed, rejected, music) = {
             let mut g = self.lock();
             let base = advance(&g.state, now);
             let (next, rejected) = match f(&base, now) {
@@ -519,12 +542,15 @@ impl Pomodoro {
                 Err(e) => (base, Some(e)),
             };
             let changed = next != g.state;
+            let music = music_edge(&g.state, &next);
             if changed {
                 g.state = next;
                 g.generation += 1;
             }
-            (snapshot_json(&g.state, now), changed, rejected)
+            (snapshot_json(&g.state, now), changed, rejected, music)
         };
+        // After the lock is gone: the music is another thread's work.
+        send_music(app, music);
         if changed {
             self.wake.notify_all();
             let _ = app.emit_str("pomodoro", json.clone());
@@ -548,6 +574,16 @@ impl Pomodoro {
             g.generation += 1;
         }
         self.wake.notify_all();
+    }
+}
+
+/// Hand a music edge to `sound.rs`, which only queues it (chunk 95, D9).
+/// Never called while the pomodoro lock is held.
+fn send_music(app: &AppHandle, action: Option<MusicAction>) {
+    if let Some(action) = action {
+        if let Some(sound) = app.try_state::<crate::sound::Sound>() {
+            sound.edge(action);
+        }
     }
 }
 
@@ -645,18 +681,21 @@ pub fn spawn_loop(app: AppHandle, tray_id: &'static str) -> std::io::Result<()> 
             let mut shown_icon = TrayIcon::Mark;
             loop {
                 let now = SystemTime::now();
-                let (title, icon, event, generation) = {
+                let (title, icon, event, music, generation) = {
                     let mut g = pomo.lock();
                     let next = advance(&g.state, now);
                     let event = (next != g.state).then(|| snapshot_json(&next, now));
+                    let music = music_edge(&g.state, &next);
                     g.state = next;
                     (
                         tray_title(&g.state, now),
                         tray_icon(&g.state, now),
                         event,
+                        music,
                         g.generation,
                     )
                 };
+                send_music(&app, music);
                 if let Some(json) = event {
                     let _ = app.emit_str("pomodoro", json);
                 }
@@ -716,6 +755,88 @@ mod tests {
             cycle_pos: pos,
             ..State::default()
         }
+    }
+
+    // ---- music_edge (chunk 95, D9) ----
+
+    #[test]
+    fn music_plays_when_focus_starts_from_idle() {
+        let idle = State::default();
+        assert_eq!(music_edge(&idle, &focus_at_zero()), Some(MusicAction::Play));
+    }
+
+    #[test]
+    fn music_pauses_on_pause_and_plays_on_resume() {
+        let focus = focus_at_zero();
+        let paused = pause(&focus, at(MIN)).unwrap();
+        assert_eq!(music_edge(&focus, &paused), Some(MusicAction::Pause));
+        let resumed = resume(&paused, at(2 * MIN)).unwrap();
+        assert_eq!(music_edge(&paused, &resumed), Some(MusicAction::Play));
+    }
+
+    #[test]
+    fn music_pauses_when_focus_ends_in_a_short_break() {
+        let focus = focus_at_zero();
+        // A natural end, and a skip.
+        let natural = advance(&focus, at(25 * MIN));
+        assert_eq!(natural.phase, Phase::ShortBreak);
+        assert_eq!(music_edge(&focus, &natural), Some(MusicAction::Pause));
+        let skipped = skip(&focus, at(MIN)).unwrap();
+        assert_eq!(skipped.phase, Phase::ShortBreak);
+        assert_eq!(music_edge(&focus, &skipped), Some(MusicAction::Pause));
+    }
+
+    #[test]
+    fn music_pauses_when_focus_ends_in_a_long_break() {
+        let focus = start(&with_pos(4), None, at(0)).unwrap();
+        let long = advance(&focus, at(25 * MIN));
+        assert_eq!(long.phase, Phase::LongBreak);
+        assert_eq!(music_edge(&focus, &long), Some(MusicAction::Pause));
+    }
+
+    #[test]
+    fn music_pauses_on_stop_and_on_a_focus_end_noticed_after_sleep() {
+        let focus = focus_at_zero();
+        assert_eq!(music_edge(&focus, &stop(&focus)), Some(MusicAction::Pause));
+        // Slept through the focus end and the whole break: straight to idle.
+        let woke = advance(&focus, at(31 * MIN));
+        assert_eq!(woke.phase, Phase::Idle);
+        assert_eq!(music_edge(&focus, &woke), Some(MusicAction::Pause));
+    }
+
+    #[test]
+    fn music_ignores_a_break_ending() {
+        let brk = advance(&focus_at_zero(), at(25 * MIN));
+        let idle = advance(&brk, at(30 * MIN));
+        assert_eq!(idle.phase, Phase::Idle);
+        assert_eq!(music_edge(&brk, &idle), None);
+        assert_eq!(music_edge(&brk, &skip(&brk, at(26 * MIN)).unwrap()), None);
+        assert_eq!(music_edge(&brk, &stop(&brk)), None);
+        // Pausing and resuming a break is not focus either.
+        let paused = pause(&brk, at(26 * MIN)).unwrap();
+        assert_eq!(music_edge(&brk, &paused), None);
+        assert_eq!(music_edge(&paused, &resume(&paused, at(27 * MIN)).unwrap()), None);
+    }
+
+    #[test]
+    fn music_plays_when_focus_starts_from_a_break() {
+        let brk = advance(&focus_at_zero(), at(25 * MIN));
+        let focus = start(&brk, None, at(26 * MIN)).unwrap();
+        assert_eq!(music_edge(&brk, &focus), Some(MusicAction::Play));
+    }
+
+    #[test]
+    fn music_ignores_extend_and_configure() {
+        let focus = focus_at_zero();
+        assert_eq!(music_edge(&focus, &extend(&focus).unwrap()), None);
+        let paused = pause(&focus, at(MIN)).unwrap();
+        assert_eq!(music_edge(&paused, &extend(&paused).unwrap()), None);
+        let config = Config::validated(50, 10, 20, 2, true).unwrap();
+        assert_eq!(music_edge(&focus, &configure(&focus, config)), None);
+        let idle = State::default();
+        assert_eq!(music_edge(&idle, &configure(&idle, config)), None);
+        assert_eq!(music_edge(&idle, &idle), None);
+        assert_eq!(music_edge(&focus, &focus), None);
     }
 
     // ---- advance ----

@@ -35,9 +35,15 @@ vi.mock('./native', () => {
     'registerShortcut',
     'unregisterShortcut',
     'showPopover',
+    'spotifyState',
+    'spotifyPlayPause',
+    'spotifyNext',
+    'spotifyPrevious',
+    'spotifyPlayPreset',
+    'soundConfigure',
   ]
   for (const n of names) h.native[n] = vi.fn(nothing)
-  for (const n of ['setTrayTitle', 'setPopoverHeight', 'hidePopover', 'openDashboard', 'quitApp']) {
+  for (const n of ['setTrayTitle', 'setPopoverHeight', 'hidePopover', 'openDashboard', 'quitApp', 'openAutomationSettings']) {
     h.native[n] = vi.fn()
   }
   return {
@@ -71,6 +77,13 @@ describe('menubar App — pomodoro wiring (chunk 94)', () => {
       expect(h.native.pomodoroConfigure).toHaveBeenCalledWith(DEFAULT_POMODORO),
     )
     expect(h.native.pomodoroStop).not.toHaveBeenCalled()
+    // Sound (chunk 95): the stored choice goes to the shell beside it, and
+    // the section sits under the tabs.
+    expect(h.native.soundConfigure).toHaveBeenCalledWith(
+      true,
+      'spotify:playlist:37i9dQZF1DX7EF8wVxBVhG',
+    )
+    expect(screen.getByText('Sound · Spotify on this Mac')).toBeInTheDocument()
     expect(h.native.registerShortcut).toHaveBeenCalledWith(
       'Alt+Shift+F',
       expect.any(Function),
@@ -87,6 +100,9 @@ describe('menubar App — pomodoro wiring (chunk 94)', () => {
     rerender(<App />)
     await waitFor(() => expect(h.native.pomodoroStop).toHaveBeenCalledTimes(1))
     expect(screen.queryByText('Focus · 25 min')).toBeNull()
+    expect(screen.queryByText('Sound · Spotify on this Mac')).toBeNull()
+    // Sign-out sends Spotify nothing (D13): the session stop is the shell's.
+    expect(h.native.spotifyPlayPause).not.toHaveBeenCalled()
     expect(h.native.setTrayTitle).toHaveBeenLastCalledWith('')
   })
 
@@ -95,5 +111,6 @@ describe('menubar App — pomodoro wiring (chunk 94)', () => {
     render(<App />)
     expect(h.native.pomodoroStop).not.toHaveBeenCalled()
     expect(h.native.pomodoroConfigure).not.toHaveBeenCalled()
+    expect(h.native.soundConfigure).not.toHaveBeenCalled()
   })
 })

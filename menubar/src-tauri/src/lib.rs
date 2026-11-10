@@ -7,11 +7,13 @@
 //! registered from the web view through `tauri-plugin-global-shortcut`; the
 //! shell only places and shows the window for it (`show_popover`). The
 //! pomodoro timer (chunk 94) lives in `pomodoro.rs`: it owns the countdown
-//! and, with it, every write to the tray.
+//! and, with it, every write to the tray. Sound (chunk 95) lives in
+//! `sound.rs`: Spotify on this Mac through `osascript`, on its own thread.
 //!
 //! Commands are named in `menubar/src/native.ts` — keep the two in step.
 
 mod pomodoro;
+mod sound;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -29,7 +31,9 @@ const DASHBOARD_URL: &str = "https://smrios07mdb.github.io/dashboard/";
 /// Popover width in points; the web view's card is the same width.
 const WIDTH: f64 = 340.0;
 const MIN_HEIGHT: f64 = 60.0;
-const MAX_HEIGHT: f64 = 560.0;
+/// Raised from 560 in chunk 95: the Sound section, a focus session and six
+/// Today rows come to 701 pt. `.mb-pop`'s `max-height` is the same value.
+const MAX_HEIGHT: f64 = 704.0;
 /// Gap between the menu bar and the popover, in points.
 const GAP: f64 = 4.0;
 /// Keep the popover this far from a screen edge, in points.
@@ -204,9 +208,14 @@ fn quit_app(app: AppHandle) {
 }
 
 pub fn run() {
+    // Sound (chunk 95): the one thread that runs `osascript`. Managed before
+    // anything can change the timer, so no pomodoro edge is lost.
+    let sound = sound::Sound::start().expect("error while starting the sound worker");
+
     tauri::Builder::default()
         .manage(Popover::default())
         .manage(pomodoro::Pomodoro::default())
+        .manage(sound)
         .invoke_handler(tauri::generate_handler![
             set_tray_title,
             set_popover_height,
@@ -222,7 +231,14 @@ pub fn run() {
             pomodoro::pomodoro_resume,
             pomodoro::pomodoro_extend,
             pomodoro::pomodoro_skip,
-            pomodoro::pomodoro_stop
+            pomodoro::pomodoro_stop,
+            sound::spotify_state,
+            sound::spotify_play_pause,
+            sound::spotify_next,
+            sound::spotify_previous,
+            sound::spotify_play_preset,
+            sound::sound_configure,
+            sound::open_automation_settings
         ])
         .on_window_event(|w, event| {
             // Hidden on blur (D7).

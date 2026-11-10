@@ -1,7 +1,7 @@
 /*
  * Menu bar popover (chunk 91): sign-in by code, then the focus header
  * (chunk 94) over two tabs — the Today list and the scratchpad (chunk 93),
- * which ⌥H opens from anywhere.
+ * which ⌥H opens from anywhere — and the Sound section (chunk 95) under them.
  */
 import {
   type CSSProperties,
@@ -41,6 +41,7 @@ import {
   setPopoverHeight,
   setTrayTitle,
   showPopover,
+  soundConfigure,
   unregisterShortcut,
   watchPomodoro,
   watchPopover,
@@ -57,6 +58,9 @@ import {
   type ScratchResult,
 } from './scratchpad'
 import SignIn from './SignIn'
+import { presetById } from './sound'
+import { readSoundPrefs } from './soundPrefs'
+import SoundSection from './SoundSection'
 import {
   nextTheme,
   readTheme,
@@ -242,8 +246,12 @@ export default function App() {
   // session ends (D11) and the tray falls back to the empty idle title.
   useEffect(() => {
     if (loading) return
-    if (userId) void pomodoro.signedIn()
-    else void pomodoro.signedOut()
+    if (userId) {
+      void pomodoro.signedIn()
+      // Sound (chunk 95, D11): play on focus or not, and the preset.
+      const sound = readSoundPrefs()
+      void soundConfigure(sound.auto, presetById(sound.preset).uri)
+    } else void pomodoro.signedOut()
   }, [loading, userId, pomodoro])
 
   useEffect(() => watchSystemTheme(theme), [theme])
@@ -340,6 +348,7 @@ export default function App() {
               />
             }
           />
+          <SoundSection />
         </>
       ) : (
         <SignIn />
