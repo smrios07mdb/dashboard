@@ -11,7 +11,10 @@ import { buildTodayView, type TodayView } from './todayView'
 
 export type TodayLoad = { view: TodayView; offline: boolean }
 
-export async function loadToday(userId: string): Promise<TodayLoad> {
+export async function loadToday(
+  userId: string,
+  keep?: ReadonlySet<string>,
+): Promise<TodayLoad> {
   const settings = await repo.settings.get(userId)
   const timeZone = settings?.timezone ?? 'America/New_York'
   const [categories, subcategories, tasks, marks] = await Promise.all([
@@ -21,7 +24,14 @@ export async function loadToday(userId: string): Promise<TodayLoad> {
     repo.todayMarks.list(),
   ])
   return {
-    view: buildTodayView({ categories, subcategories, tasks, marks, timeZone }),
+    view: buildTodayView({
+      categories,
+      subcategories,
+      tasks,
+      marks,
+      timeZone,
+      keep,
+    }),
     offline: syncStore.getState().state === 'offline',
   }
 }

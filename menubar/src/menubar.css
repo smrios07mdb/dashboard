@@ -117,6 +117,37 @@ body::before {
 .mb-row:hover {
   background: var(--surface-2);
 }
+/* Check off (chunk 92) — the prototype's .chk. */
+.mb-chk {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-4);
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.mb-chk:hover {
+  border-color: hsl(var(--primary));
+}
+.mb-chk:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.mb-chk svg {
+  opacity: 0;
+  stroke: hsl(var(--primary-foreground));
+}
+.mb-done .mb-chk {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+}
+.mb-done .mb-chk svg {
+  opacity: 1;
+}
+.mb-err {
+  color: hsl(var(--destructive));
+}
 .mb-dot {
   width: 6px;
   height: 6px;

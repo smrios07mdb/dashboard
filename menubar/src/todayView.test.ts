@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import type { Category, Subcategory, Task, TodayMark } from '@/db/types'
 
-import { buildTodayView, type TodayViewInput } from './todayView'
+import {
+  applyOptimistic,
+  buildTodayView,
+  type TodayViewInput,
+} from './todayView'
 
 // The Settings zone is fixed and every instant is absolute, so the results
 // must be identical under TZ=America/New_York, UTC and Asia/Tokyo.
@@ -196,5 +200,55 @@ describe('buildTodayView — tray title', () => {
       task({ id: 'c', priority: 1 }),
     ])
     expect(v.trayTitle).toBe('3')
+  })
+})
+
+describe('buildTodayView — session keep (chunk 92)', () => {
+  const doneP1 = task({
+    id: 'p1',
+    priority: 1,
+    completedAt: '2026-11-10T16:00:00.000Z',
+  })
+
+  function keepView(tasks: Task[], keep: Set<string>, marks: TodayMark[] = []) {
+    return buildTodayView(
+      { categories, subcategories, tasks, marks, timeZone: TZ, keep },
+      NOW,
+    )
+  }
+
+  it('a completed auto member leaves Today on a fresh load', () => {
+    expect(view([doneP1]).rows).toEqual([])
+  })
+
+  it('stays, struck, when completed in this session', () => {
+    const v = keepView([doneP1], new Set(['p1']))
+    expect(v.rows.map((r) => [r.id, r.done])).toEqual([['p1', true]])
+    expect(v.trayTitle).toBe('')
+  })
+
+  it('a remove mark still wins over keep', () => {
+    const v = keepView([doneP1], new Set(['p1']), [mark('p1', 'remove', TODAY)])
+    expect(v.rows).toEqual([])
+  })
+})
+
+describe('applyOptimistic (chunk 92)', () => {
+  it('flips the given rows and recounts, order unchanged', () => {
+    const v = view([
+      task({ id: 'a', priority: 1 }),
+      task({ id: 'b', priority: 1, dueAt: '2026-11-10T05:00:00.000Z' }),
+    ])
+    const before = v.rows.map((r) => r.id)
+    const o = applyOptimistic(v, new Map([[before[0], true]]))
+    expect(o.rows.map((r) => r.id)).toEqual(before)
+    expect(o.rows[0].done).toBe(true)
+    expect(o.rows[0].when).toBeNull()
+    expect([o.done, o.open, o.trayTitle]).toEqual([1, 1, '1'])
+  })
+
+  it('returns the same view when nothing is in flight', () => {
+    const v = view([task({ id: 'a', priority: 1 })])
+    expect(applyOptimistic(v, new Map())).toBe(v)
   })
 })

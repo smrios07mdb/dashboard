@@ -9,9 +9,9 @@
  *   - the when-chip: `lib/whenLabel`, a due date winning over a reminder and
  *     none on a completed row (the TaskRow rule).
  *
- * This is the membership the Dashboard resolves on a fresh load. The
- * Dashboard additionally keeps a task completed during the session in the
- * plan until its next load; the menu bar re-derives on every refresh.
+ * This is the membership the Dashboard resolves on a fresh load. Like the
+ * Dashboard, a task completed during the session stays in the plan, struck,
+ * until the next start: the popover passes those ids as `keep` (chunk 92).
  */
 import type { Category, Subcategory, Task, TodayMark } from '@/db/types'
 import { dateKeyIn } from '@/lib/clock'
@@ -25,10 +25,14 @@ export type TodayViewInput = {
   tasks: Task[]
   marks: TodayMark[]
   timeZone: string
+  /** Completed in this session: stay in Today though no longer auto. */
+  keep?: ReadonlySet<string>
 }
 
 export type TodayViewRow = {
   id: string
+  /** The source row — what a check-off and its Undo act on (chunk 92). */
+  task: Task
   title: string
   catName: string
   priority: 1 | 2 | 3 | null
@@ -79,6 +83,9 @@ export function buildTodayView(
   const day = dateKeyIn(now, timeZone)
   const deltas = resolveTodayDeltas(input.marks, tasks, day, new Map())
   const membership = applyTodayDeltas(autoTodayIds(tasks, timeZone, now), deltas)
+  for (const id of input.keep ?? []) {
+    if (!deltas.removed.has(id)) membership.add(id)
+  }
 
   const rows = resolveToday(
     { categories, subcategories, tasks },
@@ -88,6 +95,7 @@ export function buildTodayView(
   ).map(
     ({ task, catName }): TodayViewRow => ({
       id: task.id,
+      task,
       title: task.title,
       catName,
       priority: priorityOf(task),
@@ -97,6 +105,10 @@ export function buildTodayView(
     }),
   )
 
+  return withCounts(rows)
+}
+
+function withCounts(rows: TodayViewRow[]): TodayView {
   const done = rows.filter((r) => r.done).length
   const open = rows.length - done
   return {
@@ -106,4 +118,22 @@ export function buildTodayView(
     open,
     trayTitle: open > 0 ? String(open) : '',
   }
+}
+
+/**
+ * Show in-flight check-offs (chunk 92): each id in `optimistic` takes the
+ * done state given. Order is left alone — the refresh after the write
+ * re-sorts.
+ */
+export function applyOptimistic(
+  view: TodayView,
+  optimistic: ReadonlyMap<string, boolean>,
+): TodayView {
+  if (optimistic.size === 0) return view
+  const rows = view.rows.map((r) => {
+    const done = optimistic.get(r.id)
+    if (done === undefined || done === r.done) return r
+    return { ...r, done, when: done ? null : r.when }
+  })
+  return withCounts(rows)
 }

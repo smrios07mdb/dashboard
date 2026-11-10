@@ -1,6 +1,6 @@
 /*
- * The Today list (chunk 91, D5) — read-only this chunk. Row order is
- * `resolveToday`'s; nothing here sorts or filters.
+ * The Today list (chunk 91, D5). Row order is `resolveToday`'s; nothing
+ * here sorts or filters. Each row checks off (chunk 92) through `onToggle`.
  */
 import PriorityChip from '@/components/PriorityChip'
 import { catColor, fmtMin } from '@/lib/cat'
@@ -16,9 +16,36 @@ const WHEN_COLOR: Record<WhenTone, string> = {
   later: 'var(--ink-2)',
 }
 
-function Row({ row }: { row: TodayViewRow }) {
+function Row({
+  row,
+  onToggle,
+}: {
+  row: TodayViewRow
+  onToggle: (row: TodayViewRow) => void
+}) {
   return (
     <li className={row.done ? 'mb-row mb-done' : 'mb-row'}>
+      <button
+        type="button"
+        className="mb-chk"
+        role="checkbox"
+        aria-checked={row.done}
+        aria-label={`Mark task ${row.done ? 'not done' : 'done'}: ${row.title}`}
+        onClick={() => onToggle(row)}
+      >
+        <svg
+          width="9"
+          height="9"
+          viewBox="0 0 10 10"
+          fill="none"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M2 5.2l2 2 4-4.4" />
+        </svg>
+      </button>
       <i
         className="mb-dot"
         style={{ background: catColor(row.catName) }}
@@ -47,11 +74,16 @@ export default function TodayList({
   view,
   offline,
   failed,
+  saveFailed,
+  onToggle,
 }: {
   /** `null` until the first load lands. */
   view: TodayView | null
   offline: boolean
   failed: boolean
+  /** The last check-off write failed. */
+  saveFailed: boolean
+  onToggle: (row: TodayViewRow) => void
 }) {
   const done = view?.done ?? 0
   const total = view?.total ?? 0
@@ -77,6 +109,11 @@ export default function TodayList({
       >
         <i style={{ width: total ? `${(100 * done) / total}%` : '0%' }} />
       </div>
+      {saveFailed ? (
+        <p className="mb-note mb-err" role="alert">
+          Could not save — retry
+        </p>
+      ) : null}
       {offline ? (
         <p className="mb-note">Offline — showing the last list</p>
       ) : failed ? (
@@ -91,7 +128,7 @@ export default function TodayList({
       ) : (
         <ul className="mb-tasks">
           {view.rows.map((row) => (
-            <Row key={row.id} row={row} />
+            <Row key={row.id} row={row} onToggle={onToggle} />
           ))}
         </ul>
       )}
