@@ -1,7 +1,7 @@
 # Chunk 92 — check off from the menu bar: smoke `0920a`
 
 - **Date:** 2026-11-10
-- **Code under test:** `98232a4` + `28e71e9` on branch `chunk-92-menubar-checkoff` (base `7651462`)
+- **Code under test:** `98232a4` + `28e71e9` on branch `chunk-92-menubar-checkoff` (base `4ff9ec1`)
 - **Driver:** Claude in Chrome, Sergio's Chrome. Popover at `http://localhost:1421/` (`npm run menubar:dev`); Dashboard at the deployed app (main, unchanged by this chunk).
 - **Fixture:** one task `Smoke-0920a-P1` created in Personal › General and pinned to Today from the Dashboard, deleted from the Dashboard at the end (confirmed gone after a reload). Today was empty before and after.
 - **Result:** every check that ran passed.
