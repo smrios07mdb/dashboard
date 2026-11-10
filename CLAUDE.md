@@ -70,6 +70,15 @@ but `VITE_CALDAV_PROXY_URL` must be the real host,
 URLs before counting, so a dummy host fails 3 of its cases (observed in the
 chunk-77 gate). That is a harness fault, not a chunk failure.
 
+**Placeholders change the PWA bundle name and break native sign-in (chunk 94
+gate).** The Supabase values are baked into the bundle, so a placeholder
+`.env.local` builds `index-33VdWPqA.js` where the real one builds
+`index-m-5KO8eY.js` (both at `afe4c4e`). A base-vs-head bundle comparison must
+therefore use the same `.env.local` on both sides; compare the two builds with
+each other, not with a name recorded under a different env. A menubar app built
+with placeholders cannot sign in, so a native run needs the real `.env.local`
+(copy it into the clone, read only, before `npm run menubar:build`).
+
 ## Routine doc edits
 `PROGRESS.md` updates, decision log entries, and README additions are handled by Claude Code directly, in the same pass as the chunk's code work — committed with the chunk or as an immediate follow-up. (Until 2026-07-30 these were Cowork's lane; that handoff is retired.)
 
@@ -152,6 +161,8 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 **A reload between a placement's proxy POST and `stampUid` orphans the event (chunk 48, D-2).** The page unloads before the uid is written to the block, so the event exists with nothing claiming it and the post-reload backfill creates a second one. Confirm the block's `calendar_uid` is non-null in the DB before reloading after a placement — or force the `/busy` refresh with Force resync, which has no such window. Self-healing either way: the orphan sweep removes the stray on a later load.
 
 **`performance.getEntriesByType('resource')` survives the mount (chunk 46).** The buffer still holds the whole mount after a reload, so mount-time `/busy` and `/events` counts can be read after the fact — no race to install a `PerformanceObserver` before the app boots. This removes the main reason prod runs were awkward to instrument; keep the `PerformanceObserver` only for windows you mark *during* a run.
+
+**Native menubar runs need Accessibility and Screen Recording granted to Terminal.app (chunk 94 gate).** Both live under System Settings → Privacy & Security (not the top-level Accessibility pane); restart Terminal after granting. Without Accessibility, System Events fails with `not allowed assistive access` (`-25211` / `-1719`); without Screen Recording, `screencapture` fails with `could not create image from rect`. `get name of every process` passes on Automation alone and proves nothing — check with a UI read, e.g. `tell process "SystemUIServer" to get count of menu bars`. Drive the tray with System Events and read it with `screencapture -R`: the tray is `menu bar item 1 of menu bar 2` of process `Hupomnemata`, and its `title` carries the countdown text (`24:59`; empty when idle), so the title is readable without a screenshot and the icon needs one. The item's `position` moves between displays with the active menu bar — re-read it before every capture. An AX `click` on the tray item did not open the popover; open it with ⌥H (`key code 4 using {option down}`) and click buttons by name inside the window titled `Hupomnemata`. Read a button's name **before** clicking it — the element can be gone afterwards and the read then throws.
 
 ## Branch policy (chunk 43)
 

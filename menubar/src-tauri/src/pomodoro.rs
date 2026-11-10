@@ -748,6 +748,22 @@ mod tests {
         assert_eq!(s.phase_len_ms, 15 * MIN);
     }
 
+    /// The boundary from below: with `every = 4` only the 4th focus earns
+    /// the long break. An off-by-one (`every - 1`) fails here and above.
+    #[test]
+    fn third_focus_of_four_ends_in_a_short_break() {
+        assert_eq!(State::default().config.every, 4);
+        let third = start(&with_pos(3), None, at(0)).unwrap();
+        let third = advance(&third, at(25 * MIN));
+        assert_eq!(third.phase, Phase::ShortBreak);
+        assert_eq!(third.ends_at, at(30 * MIN));
+
+        let fourth = start(&with_pos(4), None, at(0)).unwrap();
+        let fourth = advance(&fourth, at(25 * MIN));
+        assert_eq!(fourth.phase, Phase::LongBreak);
+        assert_eq!(fourth.ends_at, at(40 * MIN));
+    }
+
     #[test]
     fn short_break_ends_idle_and_moves_the_cycle_on() {
         let s = advance(&focus_at_zero(), at(25 * MIN + 1));
