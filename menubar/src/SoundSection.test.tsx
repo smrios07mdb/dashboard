@@ -16,6 +16,7 @@ vi.mock('./native', () => {
   for (const name of [
     'spotifyState',
     'spotifyPlayPause',
+    'spotifyPause',
     'spotifyNext',
     'spotifyPrevious',
     'spotifyPlayPreset',
@@ -215,36 +216,35 @@ describe('menubar SoundSection', () => {
     expect(screen.getByText('Alpha Waves, 10 Hz')).toBeInTheDocument()
   })
 
-  it('Silence is saved and pauses a playing Spotify', async () => {
+  it('Silence is saved and pauses Spotify directly, never with the toggle', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    await setup(PLAYING)
-    await press(user, screen.getByRole('button', { name: 'Silence' }))
-    expect(readSoundPrefs()).toEqual({ auto: true, preset: 'silence' })
-    expect(h.native.soundConfigure).toHaveBeenCalledWith(true, null)
-    expect(h.native.spotifyPlayPause).toHaveBeenCalledTimes(1)
-    expect(h.native.spotifyPlayPreset).not.toHaveBeenCalled()
-    expect(pressed()).toEqual(['silence'])
-  })
-
-  it('Silence leaves a paused or closed Spotify alone', async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    for (const state of [sp({ track: 'Aria' }), sp({ status: 'not_running' })]) {
-      localStorage.clear()
-      const view = await setup(state)
-      await press(user, screen.getByRole('button', { name: 'Silence' }))
-      expect(h.native.soundConfigure).toHaveBeenLastCalledWith(true, null)
-      expect(h.native.spotifyPlayPause).not.toHaveBeenCalled()
-      view.unmount()
-    }
-  })
-
-  it('Silence decides on the state read now, not the one on screen', async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    // On screen: playing. Meanwhile Spotify was paused by hand.
     await setup(PLAYING)
     h.current = sp({ track: 'Alpha Waves, 10 Hz' })
     await press(user, screen.getByRole('button', { name: 'Silence' }))
+    expect(readSoundPrefs()).toEqual({ auto: true, preset: 'silence' })
+    expect(h.native.soundConfigure).toHaveBeenCalledWith(true, null)
+    expect(h.native.spotifyPause).toHaveBeenCalledTimes(1)
     expect(h.native.spotifyPlayPause).not.toHaveBeenCalled()
+    expect(h.native.spotifyPlayPreset).not.toHaveBeenCalled()
+    expect(pressed()).toEqual(['silence'])
+    // The pause's answer is drawn.
+    expect(screen.getByRole('button', { name: 'Play music' })).toBeInTheDocument()
+  })
+
+  it('Silence sends the same pause to a paused or closed Spotify', async () => {
+    // No read-then-toggle: a pause cannot start music, whatever happened to
+    // Spotify since the last read (chunk 95 gate, F1).
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    for (const state of [sp({ track: 'Aria' }), sp({ status: 'not_running' })]) {
+      localStorage.clear()
+      h.native.spotifyPause.mockClear()
+      const view = await setup(state)
+      await press(user, screen.getByRole('button', { name: 'Silence' }))
+      expect(h.native.soundConfigure).toHaveBeenLastCalledWith(true, null)
+      expect(h.native.spotifyPause).toHaveBeenCalledTimes(1)
+      expect(h.native.spotifyPlayPause).not.toHaveBeenCalled()
+      view.unmount()
+    }
   })
 
   it('the auto switch saves and configures', async () => {

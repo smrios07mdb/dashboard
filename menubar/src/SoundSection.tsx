@@ -13,6 +13,7 @@ import {
   openAutomationSettings,
   soundConfigure,
   spotifyNext,
+  spotifyPause,
   spotifyPlayPause,
   spotifyPlayPreset,
   spotifyPrevious,
@@ -31,6 +32,7 @@ const AFTER_MS = 300
 export type SoundBackend = {
   state: () => Promise<SpotifyState | null>
   playPause: () => Promise<SpotifyState | null>
+  pause: () => Promise<SpotifyState | null>
   next: () => Promise<SpotifyState | null>
   previous: () => Promise<SpotifyState | null>
   playPreset: (uri: string) => Promise<SpotifyState | null>
@@ -41,6 +43,7 @@ export type SoundBackend = {
 const NATIVE: SoundBackend = {
   state: spotifyState,
   playPause: spotifyPlayPause,
+  pause: spotifyPause,
   next: spotifyNext,
   previous: spotifyPrevious,
   playPreset: spotifyPlayPreset,
@@ -177,12 +180,9 @@ export default function SoundSection({
       await control(() => backend.playPreset(uri))
       return
     }
-    // Silence pauses Spotify if it is playing — decided on its state now,
-    // since the toggle would start a Spotify that was paused by hand.
-    await control(async () => {
-      const now = await backend.state()
-      return now?.status === 'ok' && now.playing ? backend.playPause() : now
-    })
+    // Silence pauses Spotify with a pause, not the toggle: a read followed
+    // by a toggle starts music if Spotify stopped in between.
+    await control(backend.pause)
   }
 
   const preset = presetById(prefs.preset)

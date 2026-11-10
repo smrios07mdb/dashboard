@@ -234,6 +234,7 @@ pub fn run() {
             pomodoro::pomodoro_stop,
             sound::spotify_state,
             sound::spotify_play_pause,
+            sound::spotify_pause,
             sound::spotify_next,
             sound::spotify_previous,
             sound::spotify_play_preset,

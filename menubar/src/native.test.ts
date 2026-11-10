@@ -20,6 +20,7 @@ import {
   openAutomationSettings,
   soundConfigure,
   spotifyNext,
+  spotifyPause,
   spotifyPlayPause,
   spotifyPlayPreset,
   spotifyPrevious,
@@ -58,6 +59,7 @@ describe('native.ts — sound commands (chunk 95)', () => {
   it('names each command as the shell does, with its exact arguments', async () => {
     await spotifyState()
     await spotifyPlayPause()
+    await spotifyPause()
     await spotifyNext()
     await spotifyPrevious()
     await spotifyPlayPreset(URI)
@@ -67,6 +69,7 @@ describe('native.ts — sound commands (chunk 95)', () => {
     expect(h.invoke.mock.calls).toEqual([
       ['spotify_state', undefined],
       ['spotify_play_pause', undefined],
+      ['spotify_pause', undefined],
       ['spotify_next', undefined],
       ['spotify_previous', undefined],
       ['spotify_play_preset', { uri: URI }],
@@ -90,6 +93,7 @@ describe('native.ts — sound commands (chunk 95)', () => {
     for (const bare of [
       'spotify_state',
       'spotify_play_pause',
+      'spotify_pause',
       'spotify_next',
       'spotify_previous',
       'open_automation_settings',
@@ -102,6 +106,7 @@ describe('native.ts — sound commands (chunk 95)', () => {
     for (const command of [
       'spotify_state',
       'spotify_play_pause',
+      'spotify_pause',
       'spotify_next',
       'spotify_previous',
       'spotify_play_preset',

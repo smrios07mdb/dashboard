@@ -37,6 +37,7 @@ vi.mock('./native', () => {
     'showPopover',
     'spotifyState',
     'spotifyPlayPause',
+    'spotifyPause',
     'spotifyNext',
     'spotifyPrevious',
     'spotifyPlayPreset',

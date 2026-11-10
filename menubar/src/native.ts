@@ -197,6 +197,8 @@ function spotify(
 /** A read: never launches Spotify. */
 export const spotifyState = () => spotify('spotify_state')
 export const spotifyPlayPause = () => spotify('spotify_play_pause')
+/** Pause, never the toggle; does not launch a closed Spotify. */
+export const spotifyPause = () => spotify('spotify_pause')
 export const spotifyNext = () => spotify('spotify_next')
 export const spotifyPrevious = () => spotify('spotify_previous')
 /** Play a playlist now (may launch Spotify). The shell validates the URI. */

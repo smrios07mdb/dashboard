@@ -292,6 +292,8 @@ pub struct SoundConfig {
 pub enum Op {
     State,
     PlayPause,
+    /// Silence: a pause, never the toggle.
+    Pause,
     Next,
     Previous,
     PlayPreset(String),
@@ -359,6 +361,7 @@ impl Worker {
         match op {
             Op::State => self.read(),
             Op::PlayPause => self.write(PLAY_PAUSE_SCRIPT),
+            Op::Pause => self.write(PAUSE_SCRIPT),
             Op::Next => self.write(NEXT_SCRIPT),
             Op::Previous => self.write(PREVIOUS_SCRIPT),
             Op::PlayPreset(uri) => self.play_track(&uri),
@@ -479,6 +482,13 @@ pub async fn spotify_state(app: AppHandle) -> Result<Response, String> {
 #[tauri::command]
 pub async fn spotify_play_pause(app: AppHandle) -> Result<Response, String> {
     ask(app, Op::PlayPause).await
+}
+
+/// Silence. A pause cannot start music, whatever Spotify did since the web
+/// view last read it; and it never launches a closed Spotify.
+#[tauri::command]
+pub async fn spotify_pause(app: AppHandle) -> Result<Response, String> {
+    ask(app, Op::Pause).await
 }
 
 #[tauri::command]
@@ -852,6 +862,27 @@ mod tests {
     }
 
     #[test]
+    fn pause_runs_the_pause_script_and_never_the_toggle() {
+        static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn runner(script: &str) -> Run {
+            LOG.lock().unwrap().push(script.to_string());
+            if script == STATE_SCRIPT {
+                Run::Ok(format!("paused{SEP}Aria{SEP}Bach\n"))
+            } else {
+                Run::Ok(String::new())
+            }
+        }
+        // Silence: auto off and no preset must not matter, unlike the edge.
+        let mut w = worker(runner, false, None);
+        let state = w.handle(Op::Pause);
+        assert_eq!(state.status, Status::Ok);
+        assert!(!state.playing);
+        // The pause, then the fresh state it answers.
+        assert_eq!(*LOG.lock().unwrap(), [PAUSE_SCRIPT, STATE_SCRIPT]);
+        assert!(!LOG.lock().unwrap().iter().any(|s| s == PLAY_PAUSE_SCRIPT));
+    }
+
+    #[test]
     fn a_failed_write_answers_its_failure_and_is_not_remembered() {
         fn runner(script: &str) -> Run {
             if script == STATE_SCRIPT {
@@ -879,6 +910,7 @@ mod tests {
         for op in [
             Op::State,
             Op::PlayPause,
+            Op::Pause,
             Op::Next,
             Op::Previous,
             Op::PlayPreset(GOOD.to_string()),
