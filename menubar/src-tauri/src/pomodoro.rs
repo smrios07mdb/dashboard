@@ -19,6 +19,8 @@ use tauri::image::Image;
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::meditation::{countdown, MedTray, Meditation};
+
 const MINUTE_MS: u64 = 60_000;
 /// `pomodoro_extend` adds this much to the current phase.
 const EXTEND_MS: u64 = 5 * MINUTE_MS;
@@ -364,6 +366,8 @@ pub enum TrayIcon {
     Cup,
     /// Paused.
     Bars,
+    /// Meditation: a session, a heads-up or a due reminder (chunk 96).
+    Orb,
 }
 
 pub fn tray_icon(state: &State, now: SystemTime) -> TrayIcon {
@@ -376,6 +380,36 @@ pub fn tray_icon(state: &State, now: SystemTime) -> TrayIcon {
             TrayIcon::Ring((elapsed * RING_STEPS as u64 / len).min(RING_STEPS as u64) as u8)
         }
         Phase::ShortBreak | Phase::LongBreak => TrayIcon::Cup,
+    }
+}
+
+/// What the tray shows (chunk 96, D9): a meditation session, over a pomodoro
+/// phase (unchanged, paused included), over a meditation heads-up, over a due
+/// reminder, over the idle count. Meditation always shows the orb.
+pub fn tray_view(state: &State, hint: Option<&MedTray>, now: SystemTime) -> (String, TrayIcon) {
+    let left = |at: u64| at.saturating_sub(epoch_ms(now));
+    match hint {
+        Some(MedTray::Running { ends_at }) => (countdown(left(*ends_at)), TrayIcon::Orb),
+        _ if state.phase != Phase::Idle => (tray_title(state, now), tray_icon(state, now)),
+        Some(MedTray::HeadsUp { due_at }) => (countdown(left(*due_at)), TrayIcon::Orb),
+        Some(MedTray::Due { label }) => (label.clone(), TrayIcon::Orb),
+        _ => (tray_title(state, now), tray_icon(state, now)),
+    }
+}
+
+/// How long the loop may sleep: while the tray counts down — a session, a
+/// running phase, or a heads-up with no phase over it — until its seconds
+/// next change; otherwise `None`, and it parks until something wakes it.
+pub fn loop_wait(state: &State, hint: Option<&MedTray>, now: SystemTime) -> Option<Duration> {
+    let to_second = |at: u64| {
+        let into_second = at.saturating_sub(epoch_ms(now)) % 1000;
+        ms(if into_second == 0 { 1000 } else { into_second } + 15)
+    };
+    match hint {
+        Some(MedTray::Running { ends_at }) => Some(to_second(*ends_at)),
+        _ if state.phase != Phase::Idle => (!state.paused).then(|| next_wake(state, now)),
+        Some(MedTray::HeadsUp { due_at }) => Some(to_second(*due_at)),
+        _ => None,
     }
 }
 
@@ -561,6 +595,29 @@ impl Pomodoro {
         }
     }
 
+    /// Wake the loop to redraw the tray: meditation changed (chunk 96, D9).
+    pub fn poke(&self) {
+        self.lock().generation += 1;
+        self.wake.notify_all();
+    }
+
+    /// Meditation starting (chunk 96, D10): a running focus is paused through
+    /// the ordinary `pause` transition, so the music edge follows as usual.
+    /// A break, a paused phase or idle is left alone. Answers whether a
+    /// focus was paused — and so whether a Pause edge went to `sound.rs`.
+    pub fn pause_focus(&self, app: &AppHandle) -> bool {
+        let mut paused = false;
+        let _ = self.change(app, |s, now| {
+            if focus_running(s) {
+                paused = true;
+                pause(s, now)
+            } else {
+                Ok(s.clone())
+            }
+        });
+        paused
+    }
+
     /// Store the open-Today count. The loop shows it when (and only when)
     /// the timer is idle.
     pub fn set_idle_title(&self, title: &str) {
@@ -653,6 +710,7 @@ fn tray_image(icon: TrayIcon) -> Image<'static> {
         TrayIcon::Mark => tauri::include_image!("icons/tray.png"),
         TrayIcon::Cup => tauri::include_image!("icons/tray-break.png"),
         TrayIcon::Bars => tauri::include_image!("icons/tray-paused.png"),
+        TrayIcon::Orb => tauri::include_image!("icons/tray-breathe.png"),
         TrayIcon::Ring(step) => Image::new_owned(
             ring_rgba(TRAY_PX, step as f32 / RING_STEPS as f32),
             TRAY_PX,
@@ -667,10 +725,11 @@ fn next_wake(state: &State, now: SystemTime) -> Duration {
     ms(if into_second == 0 { 1000 } else { into_second } + 15)
 }
 
-/// The one timer thread (std only). While a phase runs it wakes about once a
-/// second, advances the phase and writes the tray — only when the text or the
-/// icon actually changed. Paused or idle it parks on the condvar until a
-/// command wakes it: no polling.
+/// The one timer thread (std only). While a phase runs — or meditation
+/// counts down in the tray (chunk 96) — it wakes about once a second,
+/// advances the phase and writes the tray — only when the text or the icon
+/// actually changed. Otherwise it parks on the condvar until a command or
+/// meditation wakes it: no polling.
 pub fn spawn_loop(app: AppHandle, tray_id: &'static str) -> std::io::Result<()> {
     std::thread::Builder::new()
         .name("pomodoro".into())
@@ -680,20 +739,22 @@ pub fn spawn_loop(app: AppHandle, tray_id: &'static str) -> std::io::Result<()> 
             let mut shown_title = String::new();
             let mut shown_icon = TrayIcon::Mark;
             loop {
+                // Read before the hint, so a poke that lands after the hint
+                // was read is never slept through.
+                let generation = pomo.lock().generation;
                 let now = SystemTime::now();
-                let (title, icon, event, music, generation) = {
+                // Meditation's lock, taken and released before the timer's.
+                let hint = app
+                    .try_state::<Meditation>()
+                    .and_then(|m| m.tray_hint(now));
+                let (title, icon, event, music) = {
                     let mut g = pomo.lock();
                     let next = advance(&g.state, now);
                     let event = (next != g.state).then(|| snapshot_json(&next, now));
                     let music = music_edge(&g.state, &next);
                     g.state = next;
-                    (
-                        tray_title(&g.state, now),
-                        tray_icon(&g.state, now),
-                        event,
-                        music,
-                        g.generation,
-                    )
+                    let (title, icon) = tray_view(&g.state, hint.as_ref(), now);
+                    (title, icon, event, music)
                 };
                 send_music(&app, music);
                 if let Some(json) = event {
@@ -720,16 +781,14 @@ pub fn spawn_loop(app: AppHandle, tray_id: &'static str) -> std::io::Result<()> 
 
                 let g = pomo.lock();
                 if g.generation != generation {
-                    continue; // a command landed while the tray was written
+                    continue; // a command or a poke landed meanwhile
                 }
-                if g.state.phase != Phase::Idle && !g.state.paused {
-                    let wait = next_wake(&g.state, SystemTime::now());
-                    drop(pomo.wake.wait_timeout(g, wait));
-                } else {
-                    drop(
+                match loop_wait(&g.state, hint.as_ref(), SystemTime::now()) {
+                    Some(wait) => drop(pomo.wake.wait_timeout(g, wait)),
+                    None => drop(
                         pomo.wake
                             .wait_while(g, |inner| inner.generation == generation),
-                    );
+                    ),
                 }
             }
         })
@@ -1148,6 +1207,119 @@ mod tests {
             tray_icon(&pause(&b, at(26 * MIN)).unwrap(), at(26 * MIN)),
             TrayIcon::Bars
         );
+    }
+
+    // ---- tray_view (chunk 96, D9) ----
+
+    fn running() -> MedTray {
+        MedTray::Running { ends_at: epoch_ms(at(3 * MIN + 42_000)) }
+    }
+    fn heads_up() -> MedTray {
+        MedTray::HeadsUp { due_at: epoch_ms(at(4 * MIN + 59_000)) }
+    }
+    fn due() -> MedTray {
+        MedTray::Due { label: "10:30".into() }
+    }
+
+    #[test]
+    fn tray_view_without_meditation_is_the_pomodoro_tray() {
+        let idle = idle_with("4");
+        assert_eq!(tray_view(&idle, None, at(0)), ("4".into(), TrayIcon::Mark));
+        let focus = focus_at_zero();
+        assert_eq!(tray_view(&focus, None, at(0)), ("25:00".into(), TrayIcon::Ring(0)));
+    }
+
+    #[test]
+    fn tray_view_a_session_wins_over_everything() {
+        let orb = ("3:42".to_string(), TrayIcon::Orb);
+        let focus = focus_at_zero();
+        let paused = pause(&focus, at(0)).unwrap();
+        let brk = advance(&focus, at(25 * MIN));
+        for pomo in [&idle_with("4"), &focus, &paused] {
+            assert_eq!(tray_view(pomo, Some(&running()), at(0)), orb);
+        }
+        assert_eq!(
+            tray_view(&brk, Some(&MedTray::Running { ends_at: epoch_ms(at(28 * MIN)) }), at(25 * MIN)),
+            ("3:00".into(), TrayIcon::Orb)
+        );
+    }
+
+    #[test]
+    fn tray_view_a_pomodoro_phase_wins_over_a_reminder() {
+        let focus = focus_at_zero();
+        let paused = pause(&focus, at(8 * MIN + 12_000)).unwrap();
+        let brk = advance(&focus, at(25 * MIN));
+        for hint in [heads_up(), due()] {
+            assert_eq!(
+                tray_view(&focus, Some(&hint), at(0)),
+                ("25:00".into(), TrayIcon::Ring(0))
+            );
+            assert_eq!(
+                tray_view(&paused, Some(&hint), at(9 * MIN)),
+                ("16:48".into(), TrayIcon::Bars)
+            );
+            assert_eq!(
+                tray_view(&brk, Some(&hint), at(25 * MIN)),
+                ("05:00".into(), TrayIcon::Cup)
+            );
+        }
+    }
+
+    #[test]
+    fn tray_view_a_reminder_wins_over_the_idle_count() {
+        let idle = idle_with("4");
+        // Heads-up: the time until due, counting down.
+        assert_eq!(
+            tray_view(&idle, Some(&heads_up()), at(0)),
+            ("4:59".into(), TrayIcon::Orb)
+        );
+        assert_eq!(
+            tray_view(&idle, Some(&heads_up()), at(MIN)),
+            ("3:59".into(), TrayIcon::Orb)
+        );
+        // Due: the due time.
+        assert_eq!(
+            tray_view(&idle, Some(&due()), at(0)),
+            ("10:30".into(), TrayIcon::Orb)
+        );
+        assert_eq!(
+            tray_view(&idle_with(""), Some(&due()), at(0)),
+            ("10:30".into(), TrayIcon::Orb)
+        );
+    }
+
+    #[test]
+    fn the_loop_wakes_each_second_while_a_hint_counts_down() {
+        let idle = State::default();
+        // Idle and nothing from meditation: parked.
+        assert_eq!(loop_wait(&idle, None, at(0)), None);
+        // A due reminder shows a fixed time: parked.
+        assert_eq!(loop_wait(&idle, Some(&due()), at(0)), None);
+        // A heads-up or a session: until the seconds next change.
+        assert_eq!(loop_wait(&idle, Some(&heads_up()), at(0)), Some(ms(1015)));
+        assert_eq!(loop_wait(&idle, Some(&heads_up()), at(250)), Some(ms(765)));
+        assert_eq!(loop_wait(&idle, Some(&running()), at(400)), Some(ms(615)));
+        // A session counts down over a paused phase too.
+        let paused = pause(&focus_at_zero(), at(0)).unwrap();
+        assert_eq!(loop_wait(&paused, Some(&running()), at(400)), Some(ms(615)));
+        // A paused phase hides a heads-up, so nothing moves: parked.
+        assert_eq!(loop_wait(&paused, Some(&heads_up()), at(0)), None);
+        assert_eq!(loop_wait(&paused, None, at(0)), None);
+        // A running phase wakes on its own seconds, as before.
+        let focus = focus_at_zero();
+        assert_eq!(loop_wait(&focus, None, at(300)), Some(ms(715)));
+        assert_eq!(loop_wait(&focus, Some(&heads_up()), at(300)), Some(ms(715)));
+    }
+
+    #[test]
+    fn poke_bumps_the_generation_and_changes_nothing_else() {
+        let pomo = Pomodoro::default();
+        assert_eq!(pomo.lock().generation, 0);
+        pomo.poke();
+        pomo.poke();
+        let g = pomo.lock();
+        assert_eq!(g.generation, 2);
+        assert_eq!(g.state, State::default());
     }
 
     // ---- ring ----

@@ -17,21 +17,25 @@ import '@/index.css'
 import './dark.css'
 import './menubar.css'
 
-import { installSignOutCleanup } from '@/lib/signOutCleanup'
-
-import App from './App'
-import { applyTheme, readTheme } from './theme'
-
-// The PWA's sign-out hygiene, unchanged: wipe the cache mirror on SIGNED_OUT
-// (ARCHITECTURE §14) and keep the outbox user stamp current.
-const stopSignOutCleanup = installSignOutCleanup()
-if (import.meta.hot) import.meta.hot.dispose(() => stopSignOutCleanup())
+import { applyTheme, readTheme, watchSystemTheme } from './theme'
 
 // Set the mode before the first paint so a forced theme never flashes.
 applyTheme(readTheme())
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+const root = createRoot(document.getElementById('root')!)
+
+if (location.hash === '#breathe') {
+  // A breathing overlay (chunk 96, D13): only the overlay. No App, no
+  // Supabase, no sign-out cleanup, no sync runner — those live behind the
+  // other import. It still follows the theme, macOS switches included.
+  watchSystemTheme(readTheme())
+  void import('./BreatheOverlay').then(({ default: BreatheOverlay }) =>
+    root.render(
+      <StrictMode>
+        <BreatheOverlay />
+      </StrictMode>,
+    ),
+  )
+} else {
+  void import('./popover').then(({ mountPopover }) => mountPopover(root))
+}

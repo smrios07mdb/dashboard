@@ -17,6 +17,12 @@ vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
 }))
 
 import {
+  meditationConfigure,
+  meditationEnd,
+  meditationSkip,
+  meditationSnooze,
+  meditationStart,
+  meditationState,
   openAutomationSettings,
   soundConfigure,
   spotifyNext,
@@ -137,6 +143,124 @@ describe('native.ts — sound commands (chunk 95)', () => {
     expect(await spotifyPlayPreset(URI)).toBeNull()
     await soundConfigure(true, URI)
     openAutomationSettings()
+    expect(h.invoke).not.toHaveBeenCalled()
+  })
+})
+
+const MEDITATION = readFileSync(
+  resolve(process.cwd(), 'menubar/src-tauri/src/meditation.rs'),
+  'utf8',
+)
+
+/** A command's argument names as the web view must send them (camelCase). */
+function meditationArgs(command: string): string[] {
+  const m = new RegExp(
+    `#\\[tauri::command\\]\\s*pub fn ${command}\\(([^)]*)\\)`,
+  ).exec(MEDITATION)
+  if (!m) throw new Error(`no command ${command} in meditation.rs`)
+  return m[1]
+    .split(',')
+    .map((a) => a.trim().split(':')[0].trim())
+    .filter((name) => name && name !== 'app')
+    .map((name) => name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()))
+}
+
+describe('native.ts — meditation commands (chunk 96)', () => {
+  const CONFIG = {
+    due: [1_800_000_000_000, 1_800_005_400_000],
+    headsUp: 5,
+    length: 5,
+    pauseSpotify: true,
+    utcOffset: -300,
+  }
+
+  beforeEach(() => {
+    h.invoke.mockClear()
+    vi.stubGlobal('__TAURI_INTERNALS__', {})
+    return () => vi.unstubAllGlobals()
+  })
+
+  it('names each command as the shell does, with its exact arguments', async () => {
+    await meditationState()
+    await meditationConfigure(CONFIG)
+    await meditationStart()
+    await meditationSnooze(5)
+    await meditationSnooze(15)
+    await meditationSkip()
+    await meditationEnd()
+    expect(h.invoke.mock.calls).toEqual([
+      ['meditation_state', undefined],
+      ['meditation_configure', CONFIG],
+      ['meditation_start', undefined],
+      ['meditation_snooze', { minutes: 5 }],
+      ['meditation_snooze', { minutes: 15 }],
+      ['meditation_skip', undefined],
+      ['meditation_end', undefined],
+    ])
+  })
+
+  it('the argument names are the Rust signatures', async () => {
+    await meditationConfigure(CONFIG)
+    await meditationSnooze(5)
+    const sent = (command: string) =>
+      Object.keys(
+        (h.invoke.mock.calls.find((c) => c[0] === command)?.[1] ?? {}) as object,
+      )
+    expect(meditationArgs('meditation_configure')).toEqual([
+      'due',
+      'headsUp',
+      'length',
+      'pauseSpotify',
+      'utcOffset',
+    ])
+    expect(sent('meditation_configure')).toEqual(
+      meditationArgs('meditation_configure'),
+    )
+    expect(meditationArgs('meditation_snooze')).toEqual(['minutes'])
+    expect(sent('meditation_snooze')).toEqual(meditationArgs('meditation_snooze'))
+    for (const bare of [
+      'meditation_state',
+      'meditation_start',
+      'meditation_skip',
+      'meditation_end',
+    ]) {
+      expect(meditationArgs(bare)).toEqual([])
+    }
+  })
+
+  it('every meditation command is in the shell handler list', () => {
+    for (const command of [
+      'meditation_state',
+      'meditation_configure',
+      'meditation_start',
+      'meditation_snooze',
+      'meditation_skip',
+      'meditation_end',
+    ]) {
+      expect(LIB).toContain(`meditation::${command}`)
+    }
+  })
+
+  it('answers the snapshot the shell sends', async () => {
+    const snapshot = {
+      status: 'due',
+      dueAt: 1_800_000_000_000,
+      startedAt: null,
+      endsAt: null,
+      length: 5,
+      pauseSpotify: true,
+      nextDueAt: null,
+    }
+    h.invoke.mockResolvedValueOnce(snapshot)
+    expect(await meditationState()).toEqual(snapshot)
+  })
+
+  it('outside Tauri nothing is sent', async () => {
+    vi.unstubAllGlobals()
+    expect(await meditationState()).toBeNull()
+    expect(await meditationConfigure(CONFIG)).toBeNull()
+    expect(await meditationStart()).toBeNull()
+    expect(await meditationEnd()).toBeNull()
     expect(h.invoke).not.toHaveBeenCalled()
   })
 })

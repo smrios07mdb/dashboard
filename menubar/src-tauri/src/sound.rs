@@ -299,6 +299,14 @@ pub enum Op {
     PlayPreset(String),
     /// The pomodoro edge (D9).
     Edge(MusicAction),
+    /// A meditation session starts (chunk 96, D10): pause Spotify if it is
+    /// playing, and remember that this session paused it.
+    /// `after_focus_pause`: this start has just paused a running focus, so
+    /// the pomodoro's Pause edge is queued ahead of it.
+    MeditationStart { after_focus_pause: bool },
+    /// It ends (D14): play again, only if this session paused it and it is
+    /// still paused.
+    MeditationEnd,
 }
 
 pub struct Job {
@@ -313,6 +321,8 @@ struct Worker {
     config: Arc<Mutex<SoundConfig>>,
     /// The last preset this app started, to resume it instead of restarting.
     last_started: Option<String>,
+    /// The running meditation session paused Spotify (chunk 96).
+    meditation_paused: bool,
 }
 
 impl Worker {
@@ -366,7 +376,53 @@ impl Worker {
             Op::Previous => self.write(PREVIOUS_SCRIPT),
             Op::PlayPreset(uri) => self.play_track(&uri),
             Op::Edge(action) => self.edge(action),
+            Op::MeditationStart { after_focus_pause } => self.meditation_start(after_focus_pause),
+            Op::MeditationEnd => self.meditation_end(),
         }
+    }
+
+    /// Unlike the edge, this does not depend on "play on focus" or a preset.
+    fn meditation_start(&mut self, after_focus_pause: bool) -> Spotify {
+        self.meditation_paused = false;
+        // The pomodoro's Pause edge ran just before this and paused the
+        // music itself. Spotify still answers `playing` for a few hundred ms
+        // after a pause, so reading it here would pause twice and remember a
+        // pause that is the focus's — the end would then start the music
+        // under a paused focus. Nothing to pause, nothing to resume.
+        if after_focus_pause && self.edge_acts() {
+            return Spotify::only(Status::Ok);
+        }
+        let now = self.read();
+        if now.status != Status::Ok || !now.playing {
+            return now;
+        }
+        match self.run(PAUSE_SCRIPT) {
+            Ok(()) => {
+                self.meditation_paused = true;
+                self.read()
+            }
+            Err(state) => state,
+        }
+    }
+
+    /// If the music was started again in between, it is left alone.
+    fn meditation_end(&mut self) -> Spotify {
+        if !std::mem::take(&mut self.meditation_paused) {
+            return Spotify::only(Status::Ok);
+        }
+        let now = self.read();
+        if now.status == Status::Ok && !now.playing {
+            self.write(PLAY_SCRIPT)
+        } else {
+            now
+        }
+    }
+
+    /// Whether a pomodoro edge does anything: "play on focus" is on and a
+    /// preset (not Silence) is set.
+    fn edge_acts(&self) -> bool {
+        let config = self.config.lock().unwrap_or_else(|e| e.into_inner());
+        config.auto && config.uri.is_some()
     }
 
     /// Acts only when "play on focus" is on and a preset (not Silence) is set.
@@ -417,6 +473,7 @@ pub fn spawn_worker(
                 installed,
                 config,
                 last_started: None,
+                meditation_paused: false,
             };
             for job in rx {
                 let state = worker.handle(job.op);
@@ -459,6 +516,15 @@ impl Sound {
     /// The pomodoro edge: queue it and return at once.
     pub fn edge(&self, action: MusicAction) {
         let _ = self.send(Op::Edge(action), None);
+    }
+
+    /// Meditation's two edges (chunk 96): queued, never waited for.
+    pub fn meditation_start(&self, after_focus_pause: bool) {
+        let _ = self.send(Op::MeditationStart { after_focus_pause }, None);
+    }
+
+    pub fn meditation_end(&self) {
+        let _ = self.send(Op::MeditationEnd, None);
     }
 }
 
@@ -558,6 +624,7 @@ mod tests {
             installed: yes,
             config: config(auto, uri),
             last_started: None,
+            meditation_paused: false,
         }
     }
 
@@ -898,6 +965,134 @@ mod tests {
         assert_eq!(w.handle(Op::State).status, Status::NotRunning);
     }
 
+    // ---- meditation (chunk 96) ----
+
+    #[test]
+    fn meditation_start_pauses_a_playing_spotify_and_remembers_it() {
+        static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn runner(script: &str) -> Run {
+            LOG.lock().unwrap().push(script.to_string());
+            Run::Ok(format!("playing{SEP}Aria{SEP}Bach\n"))
+        }
+        // "Play on focus" off and Silence: this is not the pomodoro edge.
+        let mut w = worker(runner, false, None);
+        w.handle(Op::MeditationStart { after_focus_pause: false });
+        assert!(w.meditation_paused);
+        assert_eq!(*LOG.lock().unwrap(), [STATE_SCRIPT, PAUSE_SCRIPT, STATE_SCRIPT]);
+    }
+
+    #[test]
+    fn meditation_start_leaves_a_paused_spotify_alone() {
+        static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn runner(script: &str) -> Run {
+            LOG.lock().unwrap().push(script.to_string());
+            Run::Ok(format!("paused{SEP}Aria{SEP}Bach\n"))
+        }
+        let mut w = worker(runner, true, Some(GOOD));
+        // A flag left by an earlier session does not survive a new start.
+        w.meditation_paused = true;
+        w.handle(Op::MeditationStart { after_focus_pause: false });
+        assert!(!w.meditation_paused);
+        assert_eq!(*LOG.lock().unwrap(), [STATE_SCRIPT]);
+        // And a closed Spotify is not launched to be paused.
+        fn closed(script: &str) -> Run {
+            assert_eq!(script, STATE_SCRIPT);
+            Run::Ok(String::new())
+        }
+        let mut w = worker(closed, true, Some(GOOD));
+        assert_eq!(w.handle(Op::MeditationStart { after_focus_pause: false }).status, Status::NotRunning);
+        assert!(!w.meditation_paused);
+    }
+
+    /// Spotify still answers `playing` for a few hundred ms after a pause
+    /// (chunk 96 native run), so a start that follows the pomodoro's Pause
+    /// edge must not read it: it would pause again, remember that, and the
+    /// end would start the music under a paused focus.
+    #[test]
+    fn meditation_start_after_the_focus_edge_paused_reads_nothing() {
+        static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn runner(script: &str) -> Run {
+            LOG.lock().unwrap().push(script.to_string());
+            Run::Ok(format!("playing{SEP}Aria{SEP}Bach\n"))
+        }
+        let mut w = worker(runner, true, Some(GOOD));
+        w.meditation_paused = true;
+        w.handle(Op::MeditationStart { after_focus_pause: true });
+        assert!(!w.meditation_paused);
+        assert!(LOG.lock().unwrap().is_empty());
+    }
+
+    /// "Play on focus" off: the edge did nothing, so the music is this
+    /// session's to pause and to start again.
+    #[test]
+    fn meditation_start_after_a_focus_pause_without_auto_still_pauses() {
+        static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn runner(script: &str) -> Run {
+            LOG.lock().unwrap().push(script.to_string());
+            Run::Ok(format!("playing{SEP}Aria{SEP}Bach\n"))
+        }
+        let mut w = worker(runner, false, Some(GOOD));
+        w.handle(Op::MeditationStart { after_focus_pause: true });
+        assert!(w.meditation_paused);
+        assert_eq!(*LOG.lock().unwrap(), [STATE_SCRIPT, PAUSE_SCRIPT, STATE_SCRIPT]);
+    }
+
+    #[test]
+    fn meditation_end_plays_again_what_the_session_paused() {
+        static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn runner(script: &str) -> Run {
+            LOG.lock().unwrap().push(script.to_string());
+            Run::Ok(format!("paused{SEP}Aria{SEP}Bach\n"))
+        }
+        let mut w = worker(runner, false, None);
+        w.meditation_paused = true;
+        w.handle(Op::MeditationEnd);
+        assert!(!w.meditation_paused);
+        assert_eq!(*LOG.lock().unwrap(), [STATE_SCRIPT, PLAY_SCRIPT, STATE_SCRIPT]);
+        // Once: a second end has no flag.
+        w.handle(Op::MeditationEnd);
+        assert_eq!(LOG.lock().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn meditation_end_leaves_music_that_was_started_again() {
+        static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn runner(script: &str) -> Run {
+            LOG.lock().unwrap().push(script.to_string());
+            Run::Ok(format!("playing{SEP}Aria{SEP}Bach\n"))
+        }
+        let mut w = worker(runner, false, None);
+        w.meditation_paused = true;
+        w.handle(Op::MeditationEnd);
+        assert!(!w.meditation_paused);
+        assert_eq!(*LOG.lock().unwrap(), [STATE_SCRIPT]);
+    }
+
+    #[test]
+    fn meditation_end_without_the_flag_runs_no_script() {
+        static RUNS: Mutex<u32> = Mutex::new(0);
+        fn runner(_: &str) -> Run {
+            *RUNS.lock().unwrap() += 1;
+            Run::Ok(format!("paused{SEP}Aria{SEP}Bach\n"))
+        }
+        let mut w = worker(runner, true, Some(GOOD));
+        assert_eq!(w.handle(Op::MeditationEnd), Spotify::only(Status::Ok));
+        assert_eq!(*RUNS.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn meditation_end_does_not_launch_a_spotify_that_was_quit() {
+        static LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        fn runner(script: &str) -> Run {
+            LOG.lock().unwrap().push(script.to_string());
+            Run::Ok(String::new())
+        }
+        let mut w = worker(runner, false, None);
+        w.meditation_paused = true;
+        assert_eq!(w.handle(Op::MeditationEnd).status, Status::NotRunning);
+        assert_eq!(*LOG.lock().unwrap(), [STATE_SCRIPT]);
+    }
+
     #[test]
     fn not_installed_runs_no_script() {
         static RUNS: Mutex<u32> = Mutex::new(0);
@@ -916,6 +1111,8 @@ mod tests {
             Op::PlayPreset(GOOD.to_string()),
             Op::Edge(MusicAction::Play),
             Op::Edge(MusicAction::Pause),
+            Op::MeditationStart { after_focus_pause: false },
+            Op::MeditationEnd,
         ] {
             assert_eq!(w.handle(op).status, Status::NotInstalled);
         }

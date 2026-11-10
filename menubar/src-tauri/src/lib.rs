@@ -9,9 +9,12 @@
 //! pomodoro timer (chunk 94) lives in `pomodoro.rs`: it owns the countdown
 //! and, with it, every write to the tray. Sound (chunk 95) lives in
 //! `sound.rs`: Spotify on this Mac through `osascript`, on its own thread.
+//! Meditation (chunk 96) lives in `meditation.rs`: the reminder clock, the
+//! session and its overlay windows.
 //!
 //! Commands are named in `menubar/src/native.ts` — keep the two in step.
 
+mod meditation;
 mod pomodoro;
 mod sound;
 
@@ -31,9 +34,11 @@ const DASHBOARD_URL: &str = "https://smrios07mdb.github.io/dashboard/";
 /// Popover width in points; the web view's card is the same width.
 const WIDTH: f64 = 340.0;
 const MIN_HEIGHT: f64 = 60.0;
-/// Raised from 560 in chunk 95: the Sound section, a focus session and six
-/// Today rows come to 701 pt. `.mb-pop`'s `max-height` is the same value.
-const MAX_HEIGHT: f64 = 704.0;
+/// Raised from 560 in chunk 95 (the Sound section, a focus session and six
+/// Today rows come to 701 pt), and from 704 in chunk 96: a due meditation
+/// reminder on top of that comes to 849 pt. `.mb-pop`'s `max-height` is the
+/// same value.
+const MAX_HEIGHT: f64 = 852.0;
 /// Gap between the menu bar and the popover, in points.
 const GAP: f64 = 4.0;
 /// Keep the popover this far from a screen edge, in points.
@@ -58,7 +63,7 @@ fn window(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(WINDOW)
 }
 
-fn hide(app: &AppHandle) {
+pub(crate) fn hide(app: &AppHandle) {
     if let Some(w) = window(app) {
         if w.is_visible().unwrap_or(false) {
             let _ = w.hide();
@@ -97,6 +102,30 @@ fn show(app: &AppHandle, tray: &Rect) {
         let _ = w.show();
         let _ = w.set_focus();
         let _ = app.emit("popover-shown", ());
+    }
+}
+
+/// Drop the panel under the tray icon without taking focus (chunk 96, D6):
+/// `show`'s placement with no `set_focus`. It never becomes the key window,
+/// so the blur rule does not hide it and the keyboard stays where it was.
+/// Already shown: nothing.
+pub(crate) fn show_passive(app: &AppHandle) {
+    let Some(w) = window(app) else { return };
+    if w.is_visible().unwrap_or(false) {
+        return;
+    }
+    let Some(rect) = tray_rect(app, &w) else { return };
+    place_under(&w, &rect);
+    let _ = w.show();
+    let _ = app.emit("popover-shown", ());
+}
+
+/// Hide a panel nobody clicked into. A focused one is left to the blur rule.
+pub(crate) fn hide_unfocused(app: &AppHandle) {
+    if let Some(w) = window(app) {
+        if !w.is_focused().unwrap_or(false) {
+            hide(app);
+        }
     }
 }
 
@@ -216,6 +245,7 @@ pub fn run() {
         .manage(Popover::default())
         .manage(pomodoro::Pomodoro::default())
         .manage(sound)
+        .manage(meditation::Meditation::default())
         .invoke_handler(tauri::generate_handler![
             set_tray_title,
             set_popover_height,
@@ -239,7 +269,13 @@ pub fn run() {
             sound::spotify_previous,
             sound::spotify_play_preset,
             sound::sound_configure,
-            sound::open_automation_settings
+            sound::open_automation_settings,
+            meditation::meditation_state,
+            meditation::meditation_configure,
+            meditation::meditation_start,
+            meditation::meditation_snooze,
+            meditation::meditation_skip,
+            meditation::meditation_end
         ])
         .on_window_event(|w, event| {
             // Hidden on blur (D7).
@@ -290,6 +326,8 @@ pub fn run() {
             // The pomodoro timer (chunk 94): one thread, the only writer of
             // the tray's title and icon from here on.
             pomodoro::spawn_loop(app.handle().clone(), TRAY_ID)?;
+            // Meditation (chunk 96): the reminder clock and the session.
+            meditation::spawn_loop(app.handle().clone())?;
             Ok(())
         })
         .run(tauri::generate_context!())

@@ -24,15 +24,24 @@ function backend(fail: string[] = []) {
   return b
 }
 
-const HANDLERS = () => ({ scratchpad: vi.fn(), focus: vi.fn() })
-const DEFAULTS = { scratchpad: 'Alt+H', focus: 'Alt+Shift+F' }
+const HANDLERS = () => ({ scratchpad: vi.fn(), focus: vi.fn(), meditate: vi.fn() })
+const DEFAULTS = {
+  scratchpad: 'Alt+H',
+  focus: 'Alt+Shift+F',
+  meditate: 'Alt+Shift+M',
+}
 
 describe('hotkeys', () => {
   beforeEach(() => localStorage.clear())
 
-  it('defaults to ⌥H for the scratchpad and ⌥⇧F for focus', () => {
-    expect(DEFAULT_HOTKEYS).toEqual({ scratchpad: 'Alt+H', focus: 'Alt+Shift+F' })
+  it('defaults to ⌥H for the scratchpad, ⌥⇧F for focus and ⌥⇧M to meditate', () => {
+    expect(DEFAULT_HOTKEYS).toEqual({
+      scratchpad: 'Alt+H',
+      focus: 'Alt+Shift+F',
+      meditate: 'Alt+Shift+M',
+    })
     expect(readHotkeys()).toEqual(DEFAULTS)
+    expect(hotkeyLabel('Alt+Shift+M')).toBe('⌥⇧M')
     expect(hotkeyLabel('Alt+H')).toBe('⌥H')
     expect(hotkeyLabel('Alt+Shift+F')).toBe('⌥⇧F')
     expect(hotkeyLabel('CommandOrControl+Shift+Space')).toBe('⌘⇧Space')
@@ -52,8 +61,14 @@ describe('hotkeys', () => {
     const b = backend()
     const scratchpad = vi.fn()
     const focus = vi.fn()
-    const h = createHotkeys(b, { scratchpad, focus })
+    const meditate = vi.fn()
+    const h = createHotkeys(b, { scratchpad, focus, meditate })
     await h.start()
+    // ⌥⇧M (chunk 96, D8) registers with the rest and calls its own handler.
+    expect(b.register).toHaveBeenCalledWith('Alt+Shift+M', expect.any(Function))
+    b.presses.get('Alt+Shift+M')!()
+    expect(meditate).toHaveBeenCalledTimes(1)
+    expect(focus).not.toHaveBeenCalled()
     expect(b.register).toHaveBeenCalledWith('Alt+J', expect.any(Function))
     expect(b.register).toHaveBeenCalledWith('Alt+Shift+F', expect.any(Function))
     b.presses.get('Alt+J')!()
@@ -75,6 +90,10 @@ describe('hotkeys', () => {
     const f = createHotkeys(backend(['Alt+Shift+F']), HANDLERS())
     await f.start()
     expect(f.getState().failed).toEqual({ focus: '⌥⇧F is taken by another app' })
+
+    const m = createHotkeys(backend(['Alt+Shift+M']), HANDLERS())
+    await m.start()
+    expect(m.getState().failed).toEqual({ meditate: '⌥⇧M is taken by another app' })
   })
 
   it('stop unregisters; a stop during registration gives the key back', async () => {
@@ -97,7 +116,7 @@ describe('hotkeys', () => {
     await h.start()
     await h.rebind('scratchpad', 'Alt+K')
     expect(b.unregister).toHaveBeenCalledWith('Alt+H')
-    expect([...b.presses.keys()].sort()).toEqual(['Alt+K', 'Alt+Shift+F'])
+    expect([...b.presses.keys()].sort()).toEqual(['Alt+K', 'Alt+Shift+F', 'Alt+Shift+M'])
     expect(readHotkeys()).toEqual({ ...DEFAULTS, scratchpad: 'Alt+K' })
   })
 })

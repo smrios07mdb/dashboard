@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "breathe",
+  "description": "The breathing overlay windows (chunk 96): listening to the shell's `meditation` event, nothing else. They call two of the app's own commands (src/meditation.rs): meditation_state and meditation_end.",
+  "windows": [
+    "breathe-*"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

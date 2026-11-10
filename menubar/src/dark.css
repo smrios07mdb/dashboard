@@ -56,6 +56,10 @@ html:root[data-mode="dark"] {
   --ring-glow: rgba(132, 204, 22, 0.45);
   --break: #7fa6ff;
 
+  /* Meditation (chunk 96) */
+  --calm: #b9a2ff;
+  --calm-soft: rgba(185, 162, 255, 0.14);
+
   /* shadcn slots (HSL triplets) */
   --background: 257 14% 10%; /* --bg         #17151c */
   --foreground: 263 22% 93%; /* --ink        #ece9f1 */

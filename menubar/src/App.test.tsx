@@ -1,9 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   session: { user: null as { id: string } | null, loading: false },
   native: {} as Record<string, ReturnType<typeof vi.fn>>,
+  /** Every `watchPopover` listener, so a test can show the popover. */
+  popover: new Set<(shown: boolean) => void>(),
 }))
 
 vi.mock('@/lib/auth', () => ({ useSession: () => h.session }))
@@ -42,6 +44,12 @@ vi.mock('./native', () => {
     'spotifyPrevious',
     'spotifyPlayPreset',
     'soundConfigure',
+    'meditationState',
+    'meditationConfigure',
+    'meditationStart',
+    'meditationSnooze',
+    'meditationSkip',
+    'meditationEnd',
   ]
   for (const n of names) h.native[n] = vi.fn(nothing)
   for (const n of ['setTrayTitle', 'setPopoverHeight', 'hidePopover', 'openDashboard', 'quitApp', 'openAutomationSettings']) {
@@ -50,13 +58,22 @@ vi.mock('./native', () => {
   return {
     ...h.native,
     popoverIsShown: async () => false,
-    watchPopover: () => () => {},
+    watchPopover: (on: (shown: boolean) => void) => {
+      h.popover.add(on)
+      return () => h.popover.delete(on)
+    },
     watchPomodoro: () => () => {},
+    watchMeditation: () => () => {},
   }
 })
 
 import App from './App'
 import { DEFAULT_POMODORO } from './pomodoroPrefs'
+
+const show = () =>
+  act(() => {
+    for (const on of h.popover) on(true)
+  })
 
 describe('menubar App — pomodoro wiring (chunk 94)', () => {
   beforeEach(() => {
@@ -68,6 +85,7 @@ describe('menubar App — pomodoro wiring (chunk 94)', () => {
     }))
     localStorage.clear()
     for (const f of Object.values(h.native)) f.mockClear()
+    h.popover.clear()
   })
 
   it('signed in: sends the settings, shows the focus header, registers ⌥⇧F', async () => {
@@ -107,9 +125,78 @@ describe('menubar App — pomodoro wiring (chunk 94)', () => {
     expect(h.native.setTrayTitle).toHaveBeenLastCalledWith('')
   })
 
+  it('meditation: the schedule goes to the shell at sign-in and on every show', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await waitFor(() =>
+      expect(h.native.meditationConfigure).toHaveBeenCalledTimes(1),
+    )
+    const first = h.native.meditationConfigure.mock.calls[0][0]
+    expect(first).toMatchObject({ headsUp: 5, length: 5, pauseSpotify: true })
+    // Six a day for 14 days, less whatever of today is already past.
+    expect(first.due.length).toBeGreaterThanOrEqual(6 * 13)
+    expect(first.due.length).toBeLessThanOrEqual(6 * 14)
+    expect(first.due.every((t: number) => t > Date.now() - 1000)).toBe(true)
+    expect(first.utcOffset).toBe(-new Date().getTimezoneOffset())
+
+    show()
+    await waitFor(() =>
+      expect(h.native.meditationConfigure).toHaveBeenCalledTimes(2),
+    )
+    show()
+    await waitFor(() =>
+      expect(h.native.meditationConfigure).toHaveBeenCalledTimes(3),
+    )
+    expect(h.native.meditationEnd).not.toHaveBeenCalled()
+    expect(h.native.registerShortcut).toHaveBeenCalledWith(
+      'Alt+Shift+M',
+      expect.any(Function),
+    )
+  })
+
+  it('meditation: sign-out ends the session and clears the schedule', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    const { rerender } = render(<App />)
+    await waitFor(() => expect(h.native.meditationConfigure).toHaveBeenCalled())
+    h.native.meditationConfigure.mockClear()
+
+    h.session = { user: null, loading: false }
+    rerender(<App />)
+    await waitFor(() => expect(h.native.meditationEnd).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(h.native.meditationConfigure).toHaveBeenCalledTimes(1),
+    )
+    expect(h.native.meditationConfigure.mock.calls[0][0].due).toEqual([])
+    // Signed out, showing the popover sends no schedule.
+    show()
+    expect(h.native.meditationConfigure).toHaveBeenCalledTimes(1)
+  })
+
+  it('the reminder panel sits above the focus header', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    h.native.meditationConfigure.mockResolvedValue({
+      status: 'due',
+      dueAt: Date.now(),
+      startedAt: null,
+      endsAt: null,
+      length: 5,
+      pauseSpotify: true,
+      nextDueAt: null,
+    })
+    render(<App />)
+    const panel = await screen.findByRole('region', { name: 'Meditation reminder' })
+    const focus = screen.getByRole('region', { name: 'Focus' })
+    expect(
+      panel.compareDocumentPosition(focus) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    h.native.meditationConfigure.mockResolvedValue(null)
+  })
+
   it('while the session is loading, nothing is sent', () => {
     h.session = { user: null, loading: true }
     render(<App />)
+    expect(h.native.meditationConfigure).not.toHaveBeenCalled()
+    expect(h.native.meditationEnd).not.toHaveBeenCalled()
     expect(h.native.pomodoroStop).not.toHaveBeenCalled()
     expect(h.native.pomodoroConfigure).not.toHaveBeenCalled()
     expect(h.native.soundConfigure).not.toHaveBeenCalled()

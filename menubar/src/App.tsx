@@ -2,6 +2,7 @@
  * Menu bar popover (chunk 91): sign-in by code, then the focus header
  * (chunk 94) over two tabs — the Today list and the scratchpad (chunk 93),
  * which ⌥H opens from anywhere — and the Sound section (chunk 95) under them.
+ * A meditation reminder (chunk 96) sits above it all while one is showing.
  */
 import {
   type CSSProperties,
@@ -24,8 +25,16 @@ import { createCheckOff, type CheckOff, type CheckOffState } from './checkOff'
 import FocusHeader from './FocusHeader'
 import { createHotkeys } from './hotkeys'
 import { loadToday } from './loadToday'
+import { createMeditation } from './meditation'
+import MeditationPanel from './MeditationPanel'
 import {
   hidePopover,
+  meditationConfigure,
+  meditationEnd,
+  meditationSkip,
+  meditationSnooze,
+  meditationStart,
+  meditationState,
   openDashboard,
   pomodoroConfigure,
   pomodoroExtend,
@@ -43,6 +52,7 @@ import {
   showPopover,
   soundConfigure,
   unregisterShortcut,
+  watchMeditation,
   watchPomodoro,
   watchPopover,
 } from './native'
@@ -208,14 +218,30 @@ export default function App() {
     }),
   )
   const pomo = useSyncExternalStore(pomodoro.subscribe, pomodoro.getState)
+  // Meditation (chunk 96): the shell owns the reminder clock and the
+  // session; this computes the due times and sends commands.
+  const [meditation] = useState(() =>
+    createMeditation({
+      state: meditationState,
+      configure: meditationConfigure,
+      start: meditationStart,
+      snooze: meditationSnooze,
+      skip: meditationSkip,
+      end: meditationEnd,
+      watch: watchMeditation,
+    }),
+  )
   const [hotkeys] = useState(() =>
     createHotkeys(
       { register: registerShortcut, unregister: unregisterShortcut },
       {
         scratchpad: () =>
           void toggleScratchpad(() => setForceScratch((n) => n + 1)),
-        // Start or pause focus (D10); never opens the popover.
-        focus: () => void pomodoro.toggle(),
+        // Start or pause focus (D10); never opens the popover. While a
+        // breathing session runs it does nothing (chunk 96, D8).
+        focus: () => void meditation.unlessRunning(() => pomodoro.toggle()),
+        // A breathing session now, due or not (chunk 96, D8).
+        meditate: () => void meditation.hotkey(),
       },
     ),
   )
@@ -241,6 +267,15 @@ export default function App() {
   }
 
   useEffect(() => pomodoro.start(), [pomodoro])
+  useEffect(() => meditation.start(), [meditation])
+  // Every show sends the next 14 days of due times again (chunk 96, D2).
+  useEffect(
+    () =>
+      watchPopover((shown) => {
+        if (shown) void meditation.shown()
+      }),
+    [meditation],
+  )
 
   // Signed in: the stored settings go to the shell (D7). Signed out: any
   // session ends (D11) and the tray falls back to the empty idle title.
@@ -251,8 +286,13 @@ export default function App() {
       // Sound (chunk 95, D11): play on focus or not, and the preset.
       const sound = readSoundPrefs()
       void soundConfigure(sound.auto, presetById(sound.preset).uri)
-    } else void pomodoro.signedOut()
-  }, [loading, userId, pomodoro])
+      // Meditation (chunk 96, D2): reminders run only while signed in.
+      void meditation.signedIn()
+    } else {
+      void pomodoro.signedOut()
+      void meditation.signedOut()
+    }
+  }, [loading, userId, pomodoro, meditation])
 
   useEffect(() => watchSystemTheme(theme), [theme])
 
@@ -312,6 +352,11 @@ export default function App() {
         </div>
       ) : userId ? (
         <>
+          <MeditationPanel
+            meditation={meditation}
+            hotkey={hk.bound.meditate}
+            hotkeyError={hk.failed.meditate ?? null}
+          />
           <FocusHeader
             pomodoro={pomodoro}
             timeZone={today.lists?.timeZone ?? 'America/New_York'}

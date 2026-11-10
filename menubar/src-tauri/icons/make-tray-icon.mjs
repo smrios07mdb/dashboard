@@ -13,6 +13,10 @@
  * prototype's "Menu bar states" strip (viewBox 0 0 14 14): the break cup
  * (`tray-break.png`) and the paused bars (`tray-paused.png`). The focus ring
  * is not here — the shell draws it per step (`ring_rgba` in `pomodoro.rs`).
+ *
+ * Chunk 96 adds the meditation orb (`tray-breathe.png`), the prototype's
+ * "Breathe due" glyph: a ring at 40 % alpha around a filled dot. `inside` may
+ * answer a coverage between 0 and 1 for that.
  */
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -98,6 +102,14 @@ const insideBars = (x, y) =>
     return Math.hypot(dx, dy) <= b.r
   })
 
+// Breathe: <circle r="5.5" stroke-opacity=".4" stroke-width="1.4"/> around
+// <circle r="2.6" fill/>, both centred on 7,7.
+const insideOrb = (x, y) => {
+  const d = Math.hypot(x - 7, y - 7)
+  if (d <= 2.6) return 1
+  return Math.abs(d - 5.5) <= 0.7 ? 0.4 : 0
+}
+
 const STATES_VIEW = { x: 0, y: 0, size: 14 }
 
 function rasterise(view, inside) {
@@ -109,7 +121,7 @@ function rasterise(view, inside) {
         for (let sx = 0; sx < SS; sx++) {
           const x = view.x + ((px + (sx + 0.5) / SS) / SIZE) * view.size
           const y = view.y + ((py + (sy + 0.5) / SS) / SIZE) * view.size
-          if (inside(x, y)) hits++
+          hits += Number(inside(x, y))
         }
       }
       rgba[(py * SIZE + px) * 4 + 3] = Math.round((255 * hits) / (SS * SS))
@@ -160,3 +172,4 @@ function writePng(name, rgba) {
 writePng('tray.png', rasterise(VIEW, insideMark))
 writePng('tray-break.png', rasterise(STATES_VIEW, insideCup))
 writePng('tray-paused.png', rasterise(STATES_VIEW, insideBars))
+writePng('tray-breathe.png', rasterise(STATES_VIEW, insideOrb))

@@ -24,3 +24,8 @@ strip = true
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut = "2"
+
+# Meditation overlays (chunk 96): the window level and collection behaviour
+# only. The version Tauri already locks; no new package.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSResponder", "NSWindow"] }

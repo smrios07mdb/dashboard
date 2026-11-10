@@ -12,6 +12,7 @@ import {
   unregister as unregisterGlobal,
 } from '@tauri-apps/plugin-global-shortcut'
 
+import type { MeditationConfig, MeditationSnapshot } from './meditation'
 import type { PomodoroSnapshot, PomodoroTask } from './pomodoro'
 import type { PomodoroConfig } from './pomodoroPrefs'
 import type { SpotifyState } from './sound'
@@ -221,4 +222,57 @@ export async function soundConfigure(
 /** System Settings → Privacy & Security → Automation (a fixed URL). */
 export function openAutomationSettings(): void {
   call('open_automation_settings')
+}
+
+/*
+ * Meditation (chunk 96). The shell owns the reminder clock and the session
+ * (`meditation.rs`); each command answers its new snapshot and rejects when
+ * the shell refuses it. Outside Tauri: `null`, and nothing is sent.
+ */
+function meditation(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<MeditationSnapshot | null> {
+  if (!inTauri()) return Promise.resolve(null)
+  return invoke<MeditationSnapshot>(command, args)
+}
+
+export const meditationState = () => meditation('meditation_state')
+
+/** The due times and settings. Validated by the shell; `due: []` clears it. */
+export const meditationConfigure = (config: MeditationConfig) =>
+  meditation('meditation_configure', {
+    due: config.due,
+    headsUp: config.headsUp,
+    length: config.length,
+    pauseSpotify: config.pauseSpotify,
+    utcOffset: config.utcOffset,
+  })
+
+/** A session now, due or not. Rejected while one runs. */
+export const meditationStart = () => meditation('meditation_start')
+/** The reminder showing comes due again in 5 or 15 minutes. */
+export const meditationSnooze = (minutes: 5 | 15) =>
+  meditation('meditation_snooze', { minutes })
+export const meditationSkip = () => meditation('meditation_skip')
+/** End the session; without one, nothing happens. */
+export const meditationEnd = () => meditation('meditation_end')
+
+/** The shell's `meditation` event: one snapshot per state change. */
+export function watchMeditation(
+  onSnapshot: (s: MeditationSnapshot) => void,
+): () => void {
+  if (!inTauri()) return () => {}
+  let stopped = false
+  let off: (() => void) | null = null
+  listen<MeditationSnapshot>('meditation', (event) => onSnapshot(event.payload))
+    .then((unlisten) => {
+      if (stopped) unlisten()
+      else off = unlisten
+    })
+    .catch((e: unknown) => console.error('menubar: watchMeditation failed', e))
+  return () => {
+    stopped = true
+    off?.()
+  }
 }
