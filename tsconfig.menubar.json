@@ -1,0 +1,38 @@
+{
+  // The macOS menu bar companion (chunk 91). Deliberately NOT referenced from
+  // tsconfig.json: `npm run build` (`tsc -b`) must not typecheck menubar code.
+  // Run with `npm run menubar:typecheck`.
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.menubar.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": [
+      "vite/client",
+      "node",
+      "vitest/globals",
+      "@testing-library/jest-dom"
+    ],
+    "skipLibCheck": true,
+
+    /* Path alias — the app's own modules, shared through `@/` */
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["menubar/src", "menubar/tailwind.config.ts", "vite.menubar.config.ts"]
+}

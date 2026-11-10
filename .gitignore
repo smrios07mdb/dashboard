@@ -22,3 +22,8 @@ caldav-key.txt
 .remember/
 
 dist-verify/
+
+# macOS menu bar companion (chunk 91)
+menubar/dist/
+menubar/src-tauri/target/
+menubar/src-tauri/gen/

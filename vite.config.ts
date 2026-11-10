@@ -150,6 +150,15 @@ export default defineConfig({
     // Supabase tests run separately via `npm run test:supabase` against a
     // hosted project — they need node env + real network and shouldn't
     // get pulled into the default `npm test` discovery.
-    exclude: ['**/node_modules/**', '**/dist/**', 'supabase/**', 'infra/**'],
+    // menubar/dist and the Tauri target are build output (chunk 91); the
+    // menubar's own *.test.ts(x) files do run here.
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      'supabase/**',
+      'infra/**',
+      'menubar/dist/**',
+      'menubar/src-tauri/target/**',
+    ],
   },
 })

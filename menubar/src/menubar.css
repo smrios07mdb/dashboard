@@ -1,0 +1,247 @@
+/*
+ * Popover styles (chunk 91). Geometry from the design reference
+ * (`hupomnemata_handoff/menubar/prototype/`), colours from the live tokens:
+ * Daylight (`src/index.css`) in light, `dark.css` in dark.
+ */
+:root {
+  --mb-track: rgba(38, 32, 46, 0.08); /* prototype --ring-track */
+  --mb-shadow: 0 0 0 0.5px rgba(38, 32, 46, 0.14);
+}
+
+/* The window is frameless and transparent: the card is the only surface. */
+html,
+body {
+  background: transparent;
+  margin: 0;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+/* The PWA's canvas glow does not belong in a popover. */
+body::before {
+  display: none;
+}
+
+.mb-pop {
+  width: 340px;
+  max-width: 100%;
+  max-height: 560px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 12px;
+  box-shadow: var(--mb-shadow);
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+
+.mb-sec {
+  padding: 14px 16px;
+  min-height: 0;
+}
+
+.mb-h {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 19px;
+  line-height: 1.2;
+  margin: 0;
+}
+
+/* ---- today ---- */
+.mb-today {
+  display: flex;
+  flex-direction: column;
+}
+.mb-thead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.mb-cnt {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.mb-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mb-track);
+  overflow: hidden;
+  margin-bottom: 8px;
+  flex: none;
+}
+.mb-bar i {
+  display: block;
+  height: 100%;
+  background: hsl(var(--accent));
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+.mb-note {
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.mb-empty {
+  margin: 6px 0 2px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.mb-tasks {
+  list-style: none;
+  margin: 0 -8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.mb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  min-height: 36px;
+  flex: none;
+}
+.mb-row:hover {
+  background: var(--surface-2);
+}
+.mb-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+.mb-ttl {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mb-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--bg-alt);
+  color: var(--ink-2);
+  white-space: nowrap;
+  flex: none;
+}
+.mb-done .mb-ttl {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+.mb-done .mb-dot,
+.mb-done .mb-chip {
+  opacity: 0.5;
+}
+
+/* ---- sign-in ---- */
+.mb-form {
+  display: flex;
+  flex-direction: column;
+}
+.mb-p {
+  margin: 6px 0 14px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.mb-p strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.mb-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+.mb-input {
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0 10px;
+  font: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.mb-input::placeholder {
+  color: var(--ink-3);
+  opacity: 0.7;
+}
+.mb-input[aria-invalid='true'] {
+  border-color: hsl(var(--destructive));
+}
+.mb-code {
+  font-family: var(--font-mono);
+  letter-spacing: 0.3em;
+}
+.mb-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: hsl(var(--destructive));
+}
+.mb-btn {
+  margin-top: 12px;
+  height: 34px;
+  border-radius: 8px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+  font-size: 13px;
+}
+.mb-btn:disabled {
+  opacity: 0.5;
+}
+.mb-link {
+  margin-top: 10px;
+  align-self: flex-start;
+  font-size: 12px;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- footer ---- */
+.mb-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+.mb-sp {
+  flex: 1;
+}
+.mb-foot-btn {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.mb-foot-btn:hover {
+  background: var(--bg-alt);
+  color: var(--ink);
+}

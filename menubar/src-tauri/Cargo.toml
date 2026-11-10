@@ -1,0 +1,23 @@
+[package]
+name = "hupomnemata-menubar"
+version = "0.1.0"
+description = "Hupomnemata menu bar companion (macOS)"
+edition = "2021"
+publish = false
+
+[lib]
+name = "hupomnemata_menubar"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

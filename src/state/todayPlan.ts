@@ -129,9 +129,10 @@ export function applyTodayDeltas(
  * session's own toggles layered in. Where a task has both, the later
  * observation decides — compared as instants, never as strings (an optimistic
  * `…000Z` and PostgREST's `…+00:00` name the same moment; chunk 48 D13).
- * Empty until both marks and tasks have loaded.
+ * Empty until both marks and tasks have loaded. Exported for the menu bar
+ * companion (chunk 91), which resolves the same deltas with no local toggles.
  */
-function resolveTodayDeltas(
+export function resolveTodayDeltas(
   marks: TodayMark[] | null,
   tasks: Task[],
   day: string,
