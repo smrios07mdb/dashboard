@@ -25,6 +25,19 @@ xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 ```
 
+Once per machine, before the first `menubar:build`: make the local signing identity (chunk 95). The app is signed with a self-signed certificate so macOS remembers its permission to control Spotify across rebuilds.
+
+```sh
+bash menubar/scripts/make-signing-cert.sh    # prints "exists" if it is already there
+```
+
+It causes two macOS dialogs, each once:
+
+1. **Now:** a password dialog, "You are making changes to your Certificate Trust Settings" — it trusts the new certificate for code signing.
+2. **On the first build:** a keychain dialog, "codesign wants to sign using key…" — click **Always Allow**, or it returns on every build.
+
+The first time the app controls Spotify, macOS asks "Hupomnemata wants access to control Spotify" — click **OK**. That first control does nothing (it times out behind the prompt); the next one works.
+
 Build and install:
 
 ```sh
@@ -44,7 +57,7 @@ npm run menubar:app          # in a second terminal: the real app against that d
 npm run menubar:typecheck    # tsc for menubar/ (npm run build does not cover it)
 npm test                     # includes menubar/src/*.test.ts(x)
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo test --manifest-path menubar/src-tauri/Cargo.toml   # the shell's pomodoro timer (chunk 94)
+cargo test --manifest-path menubar/src-tauri/Cargo.toml   # the shell: pomodoro timer (chunk 94), Spotify control (chunk 95)
 node menubar/src-tauri/icons/make-tray-icon.mjs   # regenerate the tray icon from the mark
 ```
 

@@ -79,6 +79,21 @@ each other, not with a name recorded under a different env. A menubar app built
 with placeholders cannot sign in, so a native run needs the real `.env.local`
 (copy it into the clone, read only, before `npm run menubar:build`).
 
+### Gate environment: the menubar signing identity (chunk 95)
+
+`npm run menubar:build` signs with the `Hupomnemata Local Signing` identity, so
+it fails on a Mac whose login keychain does not hold it. Run
+`bash menubar/scripts/make-signing-cert.sh` once per Mac first (it opens a
+macOS password dialog; the operator answers it). The first build after that may
+stop at a keychain dialog, "codesign wants to sign using key…", until the
+operator clicks **Always Allow** — a build that sits at `Signing with identity`
+is waiting on that dialog, not hung (the chunk-95 first build waited there past
+a 10-minute tool timeout). Each Mac's certificate is its own, so the designated
+requirement's leaf hash differs per Mac; compare two builds from the same Mac.
+Two builds of the same source come out with the same `cdhash` (the build is
+reproducible), so a "rebuild keeps the permission" check needs a rebuild whose
+binary actually changed.
+
 ## Routine doc edits
 `PROGRESS.md` updates, decision log entries, and README additions are handled by Claude Code directly, in the same pass as the chunk's code work — committed with the chunk or as an immediate follow-up. (Until 2026-07-30 these were Cowork's lane; that handoff is retired.)
 
@@ -162,7 +177,7 @@ Three test-harness facts surfaced during chunk-8 smokes that future smoke passes
 
 **`performance.getEntriesByType('resource')` survives the mount (chunk 46).** The buffer still holds the whole mount after a reload, so mount-time `/busy` and `/events` counts can be read after the fact — no race to install a `PerformanceObserver` before the app boots. This removes the main reason prod runs were awkward to instrument; keep the `PerformanceObserver` only for windows you mark *during* a run.
 
-**Native menubar runs need Accessibility and Screen Recording granted to Terminal.app (chunk 94 gate).** Both live under System Settings → Privacy & Security (not the top-level Accessibility pane); restart Terminal after granting. Without Accessibility, System Events fails with `not allowed assistive access` (`-25211` / `-1719`); without Screen Recording, `screencapture` fails with `could not create image from rect`. `get name of every process` passes on Automation alone and proves nothing — check with a UI read, e.g. `tell process "SystemUIServer" to get count of menu bars`. Drive the tray with System Events and read it with `screencapture -R`: the tray is `menu bar item 1 of menu bar 2` of process `Hupomnemata`, and its `title` carries the countdown text (`24:59`; empty when idle), so the title is readable without a screenshot and the icon needs one. The item's `position` moves between displays with the active menu bar — re-read it before every capture. An AX `click` on the tray item did not open the popover; open it with ⌥H (`key code 4 using {option down}`) and click buttons by name inside the window titled `Hupomnemata`. Read a button's name **before** clicking it — the element can be gone afterwards and the read then throws.
+**Native menubar runs need Accessibility and Screen Recording granted to Terminal.app (chunk 94 gate).** Both live under System Settings → Privacy & Security (not the top-level Accessibility pane); restart Terminal after granting. Without Accessibility, System Events fails with `not allowed assistive access` (`-25211` / `-1719`); without Screen Recording, `screencapture` fails with `could not create image from rect`. `get name of every process` passes on Automation alone and proves nothing — check with a UI read, e.g. `tell process "SystemUIServer" to get count of menu bars`. Drive the tray with System Events and read it with `screencapture -R`: the tray is `menu bar item 1 of menu bar 2` of process `Hupomnemata`, and its `title` carries the countdown text (`24:59`; empty when idle), so the title is readable without a screenshot and the icon needs one. The item's `position` moves between displays with the active menu bar — re-read it before every capture. An AX `click` on the tray item did not open the popover; open it with ⌥H (`key code 4 using {option down}`) and click buttons by name inside the window titled `Hupomnemata`. Read a button's name **before** clicking it — the element can be gone afterwards and the read then throws. Address the popover as `window "Hupomnemata"`, not `window 1`: a small unnamed `AXDialog` (280×168, a text-input overlay) can sit in front of it (chunk 95). Preset buttons (`aria-pressed`) and the `role="switch"` read as `AXCheckBox`, the tabs as `AXRadioButton`. The popover hides whenever another app takes focus (launching Spotify does), so check `exists window "Hupomnemata"` and press ⌥H again before each click.
 
 ## Branch policy (chunk 43)
 
