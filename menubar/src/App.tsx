@@ -2,6 +2,7 @@
  * Menu bar popover (chunk 91): sign-in by code, then the Today list.
  */
 import {
+  type CSSProperties,
   useEffect,
   useMemo,
   useRef,
@@ -228,6 +229,8 @@ export default function App() {
         position="top-center"
         offset={8}
         closeButton
+        // sonner's default 356 px is wider than the 340 px popover.
+        style={{ '--width': '316px' } as CSSProperties}
       />
     </div>
   )
