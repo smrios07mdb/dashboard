@@ -43,6 +43,8 @@ npm run menubar:dev          # the popover in a browser, http://localhost:1421/ 
 npm run menubar:app          # in a second terminal: the real app against that dev server
 npm run menubar:typecheck    # tsc for menubar/ (npm run build does not cover it)
 npm test                     # includes menubar/src/*.test.ts(x)
+export PATH="$HOME/.cargo/bin:$PATH"
+cargo test --manifest-path menubar/src-tauri/Cargo.toml   # the shell's pomodoro timer (chunk 94)
 node menubar/src-tauri/icons/make-tray-icon.mjs   # regenerate the tray icon from the mark
 ```
 
