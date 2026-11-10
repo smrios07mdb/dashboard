@@ -58,7 +58,11 @@ New tests: 24 in 3 files (`menubar/src/todayView.test.ts` 13, `refresher.test.ts
 | S6 | After removal, popover reload shows `Nothing planned today.` again | pass |
 | S7 | Console errors on the popover tab | none |
 
-**Not run:** rows in light while signed in — Claude in Chrome cannot emulate `prefers-color-scheme`, and the system is in dark. The light palette is covered by B3 (signed out, same tokens).
+**Not run:** rows in light while signed in — Claude in Chrome cannot emulate `prefers-color-scheme`, and the system is in dark. The light palette is covered by B3 (signed out, same tokens). Chunk 91b's Theme button now makes this checkable without changing macOS.
+
+## Native, by the operator (2026-11-10)
+
+- Sergio: "menu bar works" — tray icon and popover checked on the Mac. Recorded as a pass for the tray/popover items under "Unverified"; which of them he exercised individually was not itemised.
 
 ## Unverified (cannot be observed from the shell)
 
