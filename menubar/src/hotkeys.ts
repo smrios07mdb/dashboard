@@ -1,5 +1,6 @@
 /*
- * Global hotkeys (chunk 93, D6). The one place a binding is chosen: the
+ * Global hotkeys (chunk 93, D6; focus added chunk 94). The one place a
+ * binding is chosen: the
  * table lives in `localStorage['hup:mb:hotkeys']` over `DEFAULT_HOTKEYS`, and
  * `createHotkeys` registers it through a backend (`native.ts` under Tauri).
  * A later settings panel (chunk 97) rebinds through `rebind` — the shell has
@@ -11,7 +12,11 @@
 
 export const HOTKEYS_KEY = 'hup:mb:hotkeys'
 
-export const DEFAULT_HOTKEYS = { scratchpad: 'Alt+H' } as const
+export const DEFAULT_HOTKEYS = {
+  scratchpad: 'Alt+H',
+  /** Start or pause focus (chunk 94, D10). */
+  focus: 'Alt+Shift+F',
+} as const
 
 export type HotkeyAction = keyof typeof DEFAULT_HOTKEYS
 export type HotkeyMap = Record<HotkeyAction, string>

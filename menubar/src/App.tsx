@@ -1,6 +1,7 @@
 /*
- * Menu bar popover (chunk 91): sign-in by code, then two tabs — the Today
- * list and the scratchpad (chunk 93), which ⌥H opens from anywhere.
+ * Menu bar popover (chunk 91): sign-in by code, then the focus header
+ * (chunk 94) over two tabs — the Today list and the scratchpad (chunk 93),
+ * which ⌥H opens from anywhere.
  */
 import {
   type CSSProperties,
@@ -20,11 +21,20 @@ import { offerCompleteUndo } from '@/lib/taskUndo'
 import { startSyncRunner } from '@/lib/syncRunner'
 
 import { createCheckOff, type CheckOff, type CheckOffState } from './checkOff'
+import FocusHeader from './FocusHeader'
 import { createHotkeys } from './hotkeys'
 import { loadToday } from './loadToday'
 import {
   hidePopover,
   openDashboard,
+  pomodoroConfigure,
+  pomodoroExtend,
+  pomodoroPause,
+  pomodoroResume,
+  pomodoroSkip,
+  pomodoroStart,
+  pomodoroState,
+  pomodoroStop,
   popoverIsShown,
   quitApp,
   registerShortcut,
@@ -32,8 +42,10 @@ import {
   setTrayTitle,
   showPopover,
   unregisterShortcut,
+  watchPomodoro,
   watchPopover,
 } from './native'
+import { createPomodoro } from './pomodoro'
 import PopoverTabs from './PopoverTabs'
 import { saveTab } from './prefs'
 import { createRefresher } from './refresher'
@@ -176,12 +188,30 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeChoice>(readTheme)
   // Bumped by the hotkey: forces the Scratchpad tab and focuses the pad.
   const [forceScratch, setForceScratch] = useState(0)
+  // The pomodoro (chunk 94): the shell owns the timer; this holds its last
+  // snapshot and sends commands.
+  const [pomodoro] = useState(() =>
+    createPomodoro({
+      state: pomodoroState,
+      configure: pomodoroConfigure,
+      start: pomodoroStart,
+      pause: pomodoroPause,
+      resume: pomodoroResume,
+      extend: pomodoroExtend,
+      skip: pomodoroSkip,
+      stop: pomodoroStop,
+      watch: watchPomodoro,
+    }),
+  )
+  const pomo = useSyncExternalStore(pomodoro.subscribe, pomodoro.getState)
   const [hotkeys] = useState(() =>
     createHotkeys(
       { register: registerShortcut, unregister: unregisterShortcut },
       {
         scratchpad: () =>
           void toggleScratchpad(() => setForceScratch((n) => n + 1)),
+        // Start or pause focus (D10); never opens the popover.
+        focus: () => void pomodoro.toggle(),
       },
     ),
   )
@@ -205,6 +235,16 @@ export default function App() {
     if (r.sent > 0) void session.refresh()
     return r
   }
+
+  useEffect(() => pomodoro.start(), [pomodoro])
+
+  // Signed in: the stored settings go to the shell (D7). Signed out: any
+  // session ends (D11) and the tray falls back to the empty idle title.
+  useEffect(() => {
+    if (loading) return
+    if (userId) void pomodoro.signedIn()
+    else void pomodoro.signedOut()
+  }, [loading, userId, pomodoro])
 
   useEffect(() => watchSystemTheme(theme), [theme])
 
@@ -263,29 +303,44 @@ export default function App() {
           <p className="mb-empty">Loading…</p>
         </div>
       ) : userId ? (
-        <PopoverTabs
-          todayCount={view ? `${view.done}/${view.total}` : null}
-          forceScratch={forceScratch}
-          today={
-            <TodayList
-              view={view}
-              offline={today.offline}
-              failed={today.failed}
-              saveFailed={co.failed}
-              onToggle={(row) => void session?.checkOff.toggle(row.task)}
-            />
-          }
-          scratchpad={
-            <Scratchpad
-              lists={today.lists}
-              userId={userId}
-              send={send}
-              hotkeyError={hk.failed.scratchpad ?? null}
-              focusSeq={forceScratch}
-              onHide={hidePopover}
-            />
-          }
-        />
+        <>
+          <FocusHeader
+            pomodoro={pomodoro}
+            timeZone={today.lists?.timeZone ?? 'America/New_York'}
+            hotkeyError={hk.failed.focus ?? null}
+          />
+          <PopoverTabs
+            todayCount={view ? `${view.done}/${view.total}` : null}
+            forceScratch={forceScratch}
+            today={
+              <TodayList
+                view={view}
+                offline={today.offline}
+                failed={today.failed}
+                saveFailed={co.failed}
+                onToggle={(row) => void session?.checkOff.toggle(row.task)}
+                focus={{
+                  phase: pomo.snapshot.phase,
+                  paused: pomo.snapshot.paused,
+                  taskId: pomo.snapshot.task?.id ?? null,
+                }}
+                onFocus={(row) =>
+                  void pomodoro.startFocus({ id: row.id, title: row.title })
+                }
+              />
+            }
+            scratchpad={
+              <Scratchpad
+                lists={today.lists}
+                userId={userId}
+                send={send}
+                hotkeyError={hk.failed.scratchpad ?? null}
+                focusSeq={forceScratch}
+                onHide={hidePopover}
+              />
+            }
+          />
+        </>
       ) : (
         <SignIn />
       )}

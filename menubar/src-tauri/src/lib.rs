@@ -5,9 +5,13 @@
 //! the tray and its title, showing / hiding / placing / sizing the window,
 //! opening the dashboard and quitting. The global hotkey (chunk 93) is
 //! registered from the web view through `tauri-plugin-global-shortcut`; the
-//! shell only places and shows the window for it (`show_popover`).
+//! shell only places and shows the window for it (`show_popover`). The
+//! pomodoro timer (chunk 94) lives in `pomodoro.rs`: it owns the countdown
+//! and, with it, every write to the tray.
 //!
 //! Commands are named in `menubar/src/native.ts` — keep the two in step.
+
+mod pomodoro;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -150,15 +154,13 @@ fn show_popover(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// The tray title: the open Today count. Anything but a short number is
+/// The idle tray title: the open Today count. Anything but a short number is
 /// dropped — the web view is the only caller, but the bar is not its to fill.
+/// Since chunk 94 this only stores it: the pomodoro loop writes the tray, and
+/// shows the count when no phase is on.
 #[tauri::command]
-fn set_tray_title(app: AppHandle, title: String) -> Result<(), String> {
-    let tray = app.tray_by_id(TRAY_ID).ok_or("no tray icon")?;
-    let title = title.trim();
-    let ok = !title.is_empty() && title.len() <= 4 && title.bytes().all(|b| b.is_ascii_digit());
-    tray.set_title(if ok { Some(title) } else { None })
-        .map_err(|e| e.to_string())
+fn set_tray_title(app: AppHandle, title: String) {
+    app.state::<pomodoro::Pomodoro>().set_idle_title(&title);
 }
 
 /// Size the window to the card's height, clamped.
@@ -204,6 +206,7 @@ fn quit_app(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .manage(Popover::default())
+        .manage(pomodoro::Pomodoro::default())
         .invoke_handler(tauri::generate_handler![
             set_tray_title,
             set_popover_height,
@@ -211,7 +214,15 @@ pub fn run() {
             show_popover,
             popover_is_shown,
             open_dashboard,
-            quit_app
+            quit_app,
+            pomodoro::pomodoro_state,
+            pomodoro::pomodoro_configure,
+            pomodoro::pomodoro_start,
+            pomodoro::pomodoro_pause,
+            pomodoro::pomodoro_resume,
+            pomodoro::pomodoro_extend,
+            pomodoro::pomodoro_skip,
+            pomodoro::pomodoro_stop
         ])
         .on_window_event(|w, event| {
             // Hidden on blur (D7).
@@ -258,6 +269,10 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // The pomodoro timer (chunk 94): one thread, the only writer of
+            // the tray's title and icon from here on.
+            pomodoro::spawn_loop(app.handle().clone(), TRAY_ID)?;
             Ok(())
         })
         .run(tauri::generate_context!())

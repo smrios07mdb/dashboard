@@ -12,6 +12,9 @@ import {
   unregister as unregisterGlobal,
 } from '@tauri-apps/plugin-global-shortcut'
 
+import type { PomodoroSnapshot, PomodoroTask } from './pomodoro'
+import type { PomodoroConfig } from './pomodoroPrefs'
+
 /** The live PWA — the fallback target when there is no shell to open it. */
 export const DASHBOARD_URL = 'https://smrios07mdb.github.io/dashboard/'
 
@@ -26,7 +29,11 @@ function call(command: string, args?: Record<string, unknown>): void {
   })
 }
 
-/** The tray title — the open Today count, `''` for none or signed out. */
+/**
+ * The idle tray title — the open Today count, `''` for none or signed out.
+ * Since chunk 94 the shell only stores it and shows it while no pomodoro
+ * phase is on; the tray is never written from here during one.
+ */
 export function setTrayTitle(title: string): void {
   call('set_tray_title', { title })
 }
@@ -117,5 +124,58 @@ export function watchPopover(onChange: (shown: boolean) => void): () => void {
   return () => {
     stopped = true
     for (const off of unlisten) off()
+  }
+}
+
+/*
+ * Pomodoro (chunk 94). The shell owns the timer (`pomodoro.rs`); each
+ * command answers its new snapshot and rejects when the shell refuses it.
+ * Outside Tauri there is no timer: every call answers `null`.
+ */
+function pomodoro(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<PomodoroSnapshot | null> {
+  if (!inTauri()) return Promise.resolve(null)
+  return invoke<PomodoroSnapshot>(command, args)
+}
+
+export const pomodoroState = () => pomodoro('pomodoro_state')
+
+/** Validated by the shell; applies from the next phase. */
+export const pomodoroConfigure = (config: PomodoroConfig) =>
+  pomodoro('pomodoro_configure', { ...config })
+
+/** Focus on a task, or bare (`null`). Rejected while focus is on. */
+export const pomodoroStart = (task: PomodoroTask | null) =>
+  pomodoro('pomodoro_start', {
+    task: task ? { id: task.id, title: task.title } : null,
+  })
+
+export const pomodoroPause = () => pomodoro('pomodoro_pause')
+export const pomodoroResume = () => pomodoro('pomodoro_resume')
+/** +5 minutes to the current phase. */
+export const pomodoroExtend = () => pomodoro('pomodoro_extend')
+/** Focus → its break now; a break → idle. */
+export const pomodoroSkip = () => pomodoro('pomodoro_skip')
+/** Idle from anywhere; the session is not counted. */
+export const pomodoroStop = () => pomodoro('pomodoro_stop')
+
+/** The shell's `pomodoro` event: one snapshot per state change. */
+export function watchPomodoro(
+  onSnapshot: (s: PomodoroSnapshot) => void,
+): () => void {
+  if (!inTauri()) return () => {}
+  let stopped = false
+  let off: (() => void) | null = null
+  listen<PomodoroSnapshot>('pomodoro', (event) => onSnapshot(event.payload))
+    .then((unlisten) => {
+      if (stopped) unlisten()
+      else off = unlisten
+    })
+    .catch((e: unknown) => console.error('menubar: watchPomodoro failed', e))
+  return () => {
+    stopped = true
+    off?.()
   }
 }

@@ -6,6 +6,13 @@
 :root {
   --mb-track: rgba(38, 32, 46, 0.08); /* prototype --ring-track */
   --mb-shadow: 0 0 0 0.5px rgba(38, 32, 46, 0.14);
+
+  /* Focus header (chunk 94) — the prototype's light values. */
+  --ring-a: #65d10e;
+  --ring-b: #11a06e;
+  --ring-track: rgba(38, 32, 46, 0.08);
+  --ring-glow: rgba(101, 209, 14, 0); /* glow only in dark */
+  --break: #2f6bf0;
 }
 
 /* The window is frameless and transparent: the card is the only surface. */
@@ -50,6 +57,153 @@ body::before {
   font-size: 19px;
   line-height: 1.2;
   margin: 0;
+}
+
+/* ---- focus header (chunk 94) — the prototype's .sec.focus ---- */
+.mb-focus {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.mb-focus-idle {
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 8px 12px 8px 16px;
+}
+.mb-focus-idle .mb-fbtn {
+  margin-left: auto;
+}
+/* The hotkey message takes its own line under the row. */
+.mb-focus-idle .mb-focus-warn {
+  order: 1;
+  flex-basis: 100%;
+}
+.mb-lab {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.mb-focus-warn {
+  min-width: 0;
+  font-size: 11.5px;
+  color: hsl(var(--destructive));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mb-ring {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  flex: none;
+}
+.mb-ring svg {
+  display: block;
+  width: 84px;
+  height: 84px;
+  transform: rotate(-90deg);
+  filter: drop-shadow(0 0 7px var(--ring-glow));
+}
+.mb-ring-track {
+  stroke: var(--ring-track);
+}
+.mb-ring-s1 {
+  stop-color: var(--ring-a);
+}
+.mb-ring-s2 {
+  stop-color: var(--ring-b);
+}
+.mb-ring-prog {
+  transition: stroke-dashoffset 0.3s linear;
+}
+/* Breaks are blue, and do not glow. */
+.mb-focus[data-phase='break'] .mb-ring-prog {
+  stroke: var(--break);
+}
+.mb-focus[data-phase='break'] .mb-ring svg {
+  filter: none;
+}
+.mb-ring-mid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+.mb-ring-n {
+  font-family: var(--font-display);
+  font-size: 22px;
+  line-height: 1;
+}
+.mb-ring-of {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+}
+.mb-fbody {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mb-time {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.mb-ftask {
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Four controls do not fit beside the ring in 340 px: they wrap. */
+.mb-fctl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+.mb-fbtn {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  white-space: nowrap;
+  background: var(--bg-alt);
+  color: var(--ink);
+}
+.mb-fbtn-pri {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.mb-fbtn:hover {
+  filter: brightness(0.96);
+}
+.mb-fbtn:focus-visible,
+.mb-go:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
 /* ---- today ---- */
@@ -170,6 +324,71 @@ body::before {
   color: var(--ink-2);
   white-space: nowrap;
   flex: none;
+}
+/* Focus on a task (chunk 94) — the prototype's .go, .eq and .row.cur. */
+.mb-go,
+.mb-go-gap {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+.mb-go {
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+}
+.mb-go:hover {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.mb-cur,
+.mb-cur:hover {
+  background: var(--accent-soft);
+}
+.mb-eq {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  justify-content: center;
+  height: 11px;
+  width: 22px;
+  flex: none;
+}
+.mb-eq i {
+  width: 2.5px;
+  background: hsl(var(--primary));
+  border-radius: 1px;
+  animation: mb-eq 1s ease-in-out infinite;
+}
+.mb-eq i:nth-child(2) {
+  animation-delay: 0.25s;
+}
+.mb-eq i:nth-child(3) {
+  animation-delay: 0.5s;
+}
+@keyframes mb-eq {
+  0%,
+  100% {
+    height: 3px;
+  }
+  50% {
+    height: 11px;
+  }
+}
+/* Paused: the bars stand still. */
+.mb-eq-still i {
+  animation: none;
+  height: 7px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mb-eq i {
+    animation: none;
+    height: 7px;
+  }
+  .mb-ring-prog {
+    transition: none;
+  }
 }
 .mb-done .mb-ttl {
   color: var(--ink-3);

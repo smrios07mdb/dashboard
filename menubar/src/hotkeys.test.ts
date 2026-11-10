@@ -24,49 +24,62 @@ function backend(fail: string[] = []) {
   return b
 }
 
+const HANDLERS = () => ({ scratchpad: vi.fn(), focus: vi.fn() })
+const DEFAULTS = { scratchpad: 'Alt+H', focus: 'Alt+Shift+F' }
+
 describe('hotkeys', () => {
   beforeEach(() => localStorage.clear())
 
-  it('defaults to ⌥H for the scratchpad', () => {
-    expect(DEFAULT_HOTKEYS).toEqual({ scratchpad: 'Alt+H' })
-    expect(readHotkeys()).toEqual({ scratchpad: 'Alt+H' })
+  it('defaults to ⌥H for the scratchpad and ⌥⇧F for focus', () => {
+    expect(DEFAULT_HOTKEYS).toEqual({ scratchpad: 'Alt+H', focus: 'Alt+Shift+F' })
+    expect(readHotkeys()).toEqual(DEFAULTS)
     expect(hotkeyLabel('Alt+H')).toBe('⌥H')
+    expect(hotkeyLabel('Alt+Shift+F')).toBe('⌥⇧F')
     expect(hotkeyLabel('CommandOrControl+Shift+Space')).toBe('⌘⇧Space')
   })
 
   it('uses a stored override and ignores junk', () => {
     localStorage.setItem(HOTKEYS_KEY, JSON.stringify({ scratchpad: 'Alt+J', x: 1 }))
-    expect(readHotkeys()).toEqual({ scratchpad: 'Alt+J' })
+    expect(readHotkeys()).toEqual({ ...DEFAULTS, scratchpad: 'Alt+J' })
     localStorage.setItem(HOTKEYS_KEY, '{not json')
-    expect(readHotkeys()).toEqual({ scratchpad: 'Alt+H' })
-    localStorage.setItem(HOTKEYS_KEY, JSON.stringify({ scratchpad: 3 }))
-    expect(readHotkeys()).toEqual({ scratchpad: 'Alt+H' })
+    expect(readHotkeys()).toEqual(DEFAULTS)
+    localStorage.setItem(HOTKEYS_KEY, JSON.stringify({ scratchpad: 3, focus: 'Alt+G' }))
+    expect(readHotkeys()).toEqual({ ...DEFAULTS, focus: 'Alt+G' })
   })
 
   it('registers the stored binding and calls the handler on press', async () => {
     localStorage.setItem(HOTKEYS_KEY, JSON.stringify({ scratchpad: 'Alt+J' }))
     const b = backend()
     const scratchpad = vi.fn()
-    const h = createHotkeys(b, { scratchpad })
+    const focus = vi.fn()
+    const h = createHotkeys(b, { scratchpad, focus })
     await h.start()
     expect(b.register).toHaveBeenCalledWith('Alt+J', expect.any(Function))
+    expect(b.register).toHaveBeenCalledWith('Alt+Shift+F', expect.any(Function))
     b.presses.get('Alt+J')!()
     expect(scratchpad).toHaveBeenCalledTimes(1)
+    expect(focus).not.toHaveBeenCalled()
+    b.presses.get('Alt+Shift+F')!()
+    expect(focus).toHaveBeenCalledTimes(1)
     expect(h.getState().failed).toEqual({})
   })
 
   it('surfaces a failed registration', async () => {
-    const h = createHotkeys(backend(['Alt+H']), { scratchpad: vi.fn() })
+    const h = createHotkeys(backend(['Alt+H']), HANDLERS())
     const listener = vi.fn()
     h.subscribe(listener)
     await h.start()
-    expect(h.getState().failed.scratchpad).toBe('⌥H is taken by another app')
+    expect(h.getState().failed).toEqual({ scratchpad: '⌥H is taken by another app' })
     expect(listener).toHaveBeenCalled()
+
+    const f = createHotkeys(backend(['Alt+Shift+F']), HANDLERS())
+    await f.start()
+    expect(f.getState().failed).toEqual({ focus: '⌥⇧F is taken by another app' })
   })
 
   it('stop unregisters; a stop during registration gives the key back', async () => {
     const b = backend()
-    const h = createHotkeys(b, { scratchpad: vi.fn() })
+    const h = createHotkeys(b, HANDLERS())
     await h.start()
     await h.stop()
     expect(b.unregister).toHaveBeenCalledWith('Alt+H')
@@ -80,11 +93,11 @@ describe('hotkeys', () => {
 
   it('rebind moves the key and remembers it', async () => {
     const b = backend()
-    const h = createHotkeys(b, { scratchpad: vi.fn() })
+    const h = createHotkeys(b, HANDLERS())
     await h.start()
     await h.rebind('scratchpad', 'Alt+K')
     expect(b.unregister).toHaveBeenCalledWith('Alt+H')
-    expect([...b.presses.keys()]).toEqual(['Alt+K'])
-    expect(readHotkeys()).toEqual({ scratchpad: 'Alt+K' })
+    expect([...b.presses.keys()].sort()).toEqual(['Alt+K', 'Alt+Shift+F'])
+    expect(readHotkeys()).toEqual({ ...DEFAULTS, scratchpad: 'Alt+K' })
   })
 })

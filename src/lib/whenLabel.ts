@@ -67,7 +67,7 @@ function longDate({ at, otherYear }: Frame, timeZone: string): string {
   })
 }
 
-function timeText(at: Date, timeZone: string): string {
+export function timeText(at: Date, timeZone: string): string {
   return fmt(at, timeZone, { hour: 'numeric', minute: '2-digit' })
 }
 

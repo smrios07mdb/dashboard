@@ -49,6 +49,13 @@ html:root[data-mode="dark"] {
   --mb-track: rgba(236, 233, 241, 0.09); /* --ring-track */
   --mb-shadow: 0 0 0 0.5px rgba(236, 233, 241, 0.16);
 
+  /* Focus header (chunk 94) */
+  --ring-a: #bef264;
+  --ring-b: #65d10e;
+  --ring-track: rgba(236, 233, 241, 0.09);
+  --ring-glow: rgba(132, 204, 22, 0.45);
+  --break: #7fa6ff;
+
   /* shadcn slots (HSL triplets) */
   --background: 257 14% 10%; /* --bg         #17151c */
   --foreground: 263 22% 93%; /* --ink        #ece9f1 */
