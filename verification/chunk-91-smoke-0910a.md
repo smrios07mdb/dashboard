@@ -5,7 +5,7 @@
 - **Driver (browser):** `chrome-devtools-axi`, isolated session `chunk91` (own Chrome, fresh profile). **Not Claude in Chrome**, which the prompt names: its extension was not connected (`Browser extension is not connected`, two attempts) and Sergio's Chrome was not opening.
 - **Driver (native):** shell only (`open`, `pgrep`, `lsappinfo`, `plutil`, `codesign`).
 - **Fixtures:** none created. Read-only run.
-- **Result:** every check that ran passed. The signed-in browser checks did **not run** — see "Not run".
+- **Result:** every check that ran passed. The signed-in browser checks ran on 2026-11-10 in a follow-up session — see "Signed in".
 
 ## Gates
 
@@ -43,12 +43,22 @@ New tests: 24 in 3 files (`menubar/src/todayView.test.ts` 13, `refresher.test.ts
 | N3 | Bundle id and signature | pass: `net.mdblabs.hupomnemata.menubar`, `Signature=adhoc` |
 | N4 | The web view loaded the bundle | pass by proxy: `~/Library/WebKit/net.mdblabs.hupomnemata.menubar/WebsiteData` holds a LocalStorage database for the app's origin |
 
-## Not run
+## Signed in (follow-up, 2026-11-10)
 
-- **Code sign-in end to end** (email → code → session) in the browser. It needs the 6-digit code from Sergio's mailbox; he deferred it (restarting the computer).
-- **Today rows vs the Dashboard's Today panel** (titles and order), and rows in light and dark. Depends on the sign-in above.
+- **Driver:** Claude in Chrome (extension connected this time), Sergio's Chrome. Popover at `http://localhost:1421/` (`npm run menubar:dev` on `60329aa`, same menubar code as `ba170f6`); Dashboard at the deployed app.
+- **Fixtures:** the Dashboard's 3 Suggested tasks added to Today with `Add all 3`, removed again with each row's `Remove … from Today` after the checks. No task edited or completed. Today was empty before and after.
 
-Covered by unit tests only until that run: `verifyOtp` with `type: 'email'`, no redirect option, the rejected-code message, membership and order (`todayView.test.ts`).
+| # | Check | Result |
+|---|---|---|
+| S1 | Code sign-in end to end: email → `Send code` → 6-digit code → Today view; footer gains `Sign out`. Sergio typed the email and code himself (real account) | pass |
+| S2 | Empty Today: popover `Nothing planned today.`, Dashboard `Nothing planned yet.` | pass |
+| S3 | Today with 3 rows — Dashboard: Great Husband Project, First aid kit, Send something to George tonight. Popover: same titles, same order, minutes 30m / 30m / 3h, header `0 of 3 done` | pass |
+| S4 | Refresh policy: the open popover kept the old empty list after the Dashboard change, and showed the rows after a reload (= shown). Matches D6 (load on show, every 5 min while open) | pass |
+| S5 | Rows in dark (system dark): `--surface #1f1c26`, `--ink #ece9f1`, category dot per row, mono minute chips; no horizontal overflow | pass |
+| S6 | After removal, popover reload shows `Nothing planned today.` again | pass |
+| S7 | Console errors on the popover tab | none |
+
+**Not run:** rows in light while signed in — Claude in Chrome cannot emulate `prefers-color-scheme`, and the system is in dark. The light palette is covered by B3 (signed out, same tokens).
 
 ## Unverified (cannot be observed from the shell)
 
