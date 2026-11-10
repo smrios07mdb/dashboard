@@ -1,0 +1,482 @@
+<title>Hupomnemata Menu Bar</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: two desktop fragments side by side (light, dark), each a menu bar with the popover hanging from the tray item; state strip below. */
+:root{
+  --page:#f6f4f7; --page-ink:#221f28; --page-ink2:#635f6c; --page-line:rgba(38,32,46,.12); --page-accent:#1f5142;
+  --font-ui:'Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --font-display:'Newsreader',Georgia,'Times New Roman',serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--page:#131117;--page-ink:#ece9f1;--page-ink2:#a39eae;--page-line:rgba(236,233,241,.14);--page-accent:#6fd3ab;color-scheme:dark}}
+:root[data-theme="dark"]{--page:#131117;--page-ink:#ece9f1;--page-ink2:#a39eae;--page-line:rgba(236,233,241,.14);--page-accent:#6fd3ab;color-scheme:dark}
+
+body{background:var(--page);color:var(--page-ink);font-family:var(--font-ui);font-size:14px;line-height:1.5;
+  padding-block:36px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+header h1{font-family:var(--font-display);font-weight:500;font-size:34px;line-height:1.1;margin:0 0 8px;letter-spacing:-.01em;text-wrap:balance}
+header p{margin:0;color:var(--page-ink2);max-width:62ch}
+.eyebrow{font-family:var(--font-mono);font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--page-ink2);margin:0 0 14px}
+.pair{display:flex;flex-wrap:wrap;gap:28px;justify-content:center}
+
+/* ---------- per-mock palettes (Daylight light; dark derived from it) ---------- */
+.mac{
+  --bg:#f6f4f7;--bg-alt:#eceaef;--surface:#ffffff;--surface-2:#f8f6fa;
+  --line:rgba(38,32,46,.09);--line-strong:rgba(38,32,46,.16);
+  --ink:#221f28;--ink-2:#635f6c;--ink-3:#6b6676;--ink-4:#c7c2d0;
+  --accent:#1f5142;--accent-soft:rgba(31,81,66,.10);--on-accent:#f6f4f7;
+  --work:#11a06e;--personal:#f2552f;--warn:#b26d0c;--p1:#b8462e;--p1-soft:rgba(184,70,46,.12);
+  --ring-a:#65d10e;--ring-b:#11a06e;--ring-track:rgba(38,32,46,.08);--ring-glow:rgba(101,209,14,.0);
+  --break:#2f6bf0;
+  --wall:linear-gradient(160deg,#dfe6ee 0%,#e9e2ef 45%,#dcead9 100%);
+  --bar:rgba(255,255,255,.55);--bar-ink:#221f28;--tray-on:rgba(38,32,46,.12);
+  --shadow:0 0 0 .5px rgba(38,32,46,.14),0 30px 70px -16px rgba(26,22,36,.30);
+  color:var(--ink);
+}
+.mac[data-mode="dark"]{
+  --bg:#17151c;--bg-alt:#2a2733;--surface:#1f1c26;--surface-2:#26232e;
+  --line:rgba(236,233,241,.08);--line-strong:rgba(236,233,241,.16);
+  --ink:#ece9f1;--ink-2:#aaa5b5;--ink-3:#8f8a9b;--ink-4:#4a4655;
+  --accent:#6fd3ab;--accent-soft:rgba(111,211,171,.12);--on-accent:#10231b;
+  --work:#3fcf96;--personal:#ff7a55;--warn:#f0b24a;--p1:#ff8c73;--p1-soft:rgba(255,122,85,.15);
+  --ring-a:#bef264;--ring-b:#65d10e;--ring-track:rgba(236,233,241,.09);--ring-glow:rgba(132,204,22,.45);
+  --break:#7fa6ff;
+  --wall:linear-gradient(160deg,#1a2230 0%,#261c33 50%,#13261f 100%);
+  --bar:rgba(20,18,26,.55);--bar-ink:#ece9f1;--tray-on:rgba(236,233,241,.16);
+  --shadow:0 0 0 .5px rgba(236,233,241,.16),0 30px 70px -16px rgba(0,0,0,.7);
+}
+
+.mac{width:392px;max-width:100%;border-radius:14px;background:var(--wall);overflow:hidden;padding-bottom:22px;
+  border:1px solid var(--page-line)}
+.menubar{height:28px;display:flex;align-items:center;gap:14px;padding:0 10px;background:var(--bar);color:var(--bar-ink);
+  font-size:12.5px;font-weight:500;backdrop-filter:blur(12px)}
+.menubar .apps{display:flex;gap:14px;opacity:.75;min-width:0;overflow:hidden;white-space:nowrap}
+.menubar .apps b{font-weight:600}
+.menubar .sp{flex:1}
+.menubar svg{display:block}
+.tray{display:flex;align-items:center;gap:6px;height:22px;padding:0 7px;border-radius:5px;font-family:var(--font-mono);
+  font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tray.on{background:var(--tray-on)}
+.clock{font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.pop{margin:8px 14px 0;background:var(--surface);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;position:relative}
+.sec{padding:14px 16px}
+.sec + .sec{border-top:1px solid var(--line)}
+.lab{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+
+/* focus */
+.focus{display:flex;gap:14px;align-items:center;background:var(--surface-2)}
+.ring{position:relative;width:84px;height:84px;flex:none}
+.ring svg{width:84px;height:84px;transform:rotate(-90deg);filter:drop-shadow(0 0 7px var(--ring-glow))}
+.ring .track{stroke:var(--ring-track)}
+.ring .s1{stop-color:var(--ring-a)} .ring .s2{stop-color:var(--ring-b)}
+.ring .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+.ring .n{font-family:var(--font-display);font-size:22px;line-height:1}
+.ring .of{font-family:var(--font-mono);font-size:9.5px;color:var(--ink-3);letter-spacing:.06em}
+.fbody{min-width:0;flex:1;display:flex;flex-direction:column;gap:3px}
+.time{font-family:var(--font-mono);font-weight:500;font-size:32px;line-height:1.05;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.ftask{font-family:var(--font-display);font-size:16px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fctl{display:flex;gap:6px;margin-top:7px}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn{height:26px;padding:0 10px;border-radius:7px;font-size:12px;font-weight:500;display:inline-flex;align-items:center;gap:5px;
+  background:var(--bg-alt);color:var(--ink)}
+.btn.pri{background:var(--accent);color:var(--on-accent)}
+.btn:hover{filter:brightness(.96)}
+
+/* today */
+.thead{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+.thead h2{font-family:var(--font-display);font-weight:500;font-size:19px;margin:0}
+.thead .cnt{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.bar{height:3px;border-radius:2px;background:var(--ring-track);overflow:hidden;margin-bottom:8px}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:2px;transition:width .3s}
+.busy{font-size:11.5px;color:var(--ink-2);margin-bottom:6px}
+ul.tasks{list-style:none;margin:0 -8px;padding:0;display:flex;flex-direction:column;gap:1px}
+.row{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;min-height:36px}
+.row:hover{background:var(--surface-2)}
+.row.cur{background:var(--accent-soft)}
+.chk{width:17px;height:17px;border-radius:50%;border:1.5px solid var(--ink-4);flex:none;display:grid;place-items:center}
+.chk svg{opacity:0}
+.row.done .chk{background:var(--accent);border-color:var(--accent)} .row.done .chk svg{opacity:1;stroke:var(--on-accent)}
+.ttl{flex:1;min-width:0;font-size:13.5px;line-height:1.3}
+.ttl span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row.done .ttl{color:var(--ink-3);text-decoration:line-through}
+.dot{width:6px;height:6px;border-radius:50%;flex:none}
+.dot.w{background:var(--work)} .dot.p{background:var(--personal)}
+.chip{font-family:var(--font-mono);font-size:10.5px;padding:2px 6px;border-radius:5px;background:var(--bg-alt);color:var(--ink-2);white-space:nowrap;flex:none}
+.chip.p1{background:var(--p1-soft);color:var(--p1)}
+.chip.late{color:var(--warn)}
+.row.done .chip{opacity:.5}
+.go{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;color:var(--ink-3);flex:none}
+.go:hover{background:var(--accent);color:var(--on-accent)}
+.row.done .go{visibility:hidden}
+.eq{display:flex;gap:2px;align-items:flex-end;height:11px;width:22px;justify-content:center;flex:none}
+.eq i{width:2.5px;background:var(--accent);border-radius:1px;animation:eq 1s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:.25s} .eq i:nth-child(3){animation-delay:.5s}
+@keyframes eq{0%,100%{height:3px}50%{height:11px}}
+@media (prefers-reduced-motion:reduce){.eq i{animation:none;height:7px}}
+
+/* sound */
+.now{display:flex;align-items:center;gap:11px;margin:9px 0 11px}
+.art{width:40px;height:40px;border-radius:8px;flex:none;background:
+  radial-gradient(circle at 30% 30%,var(--ring-a),transparent 55%),radial-gradient(circle at 75% 70%,var(--break),transparent 60%),var(--accent)}
+.np{flex:1;min-width:0}
+.np b{display:block;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.np small{display:block;font-size:11.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tp{display:flex;align-items:center;gap:2px;flex:none}
+.ib{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:var(--ink)}
+.ib:hover{background:var(--bg-alt)}
+.ib.big{background:var(--ink);color:var(--surface)}
+.presets{display:flex;flex-wrap:wrap;gap:6px}
+.pre{height:26px;padding:0 10px;border-radius:13px;font-size:12px;border:1px solid var(--line-strong);color:var(--ink-2)}
+.pre[aria-pressed="true"]{background:var(--accent-soft);border-color:transparent;color:var(--accent);font-weight:600}
+.auto{display:flex;align-items:center;gap:8px;margin-top:11px;font-size:11.5px;color:var(--ink-2)}
+.sw{width:26px;height:15px;border-radius:8px;background:var(--accent);position:relative;flex:none}
+.sw::after{content:"";position:absolute;right:2px;top:2px;width:11px;height:11px;border-radius:50%;background:var(--surface)}
+
+/* footer */
+.foot{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--surface-2)}
+.cap{flex:1;min-width:0;height:30px;border-radius:8px;border:1px solid var(--line-strong);background:var(--surface);display:flex;align-items:center;gap:7px;padding:0 9px;color:var(--ink-3);font-size:12.5px;white-space:nowrap;overflow:hidden}
+.cap kbd{margin-left:auto;font-family:var(--font-mono);font-size:10.5px;color:var(--ink-3);border:1px solid var(--line-strong);border-radius:4px;padding:0 4px}
+
+/* states */
+.states{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.st{display:flex;flex-direction:column;border-radius:10px;overflow:hidden;border:1px solid var(--page-line);background:var(--wall)}
+.st .menubar{justify-content:flex-end;padding:0 8px}
+.st p{flex:1;margin:0;padding:8px 10px 10px;font-size:11.5px;line-height:1.4;color:var(--ink-2);background:var(--surface)}
+.st p b{display:block;color:var(--ink);font-weight:600}
+.brk{color:var(--break)}
+.modehead{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:12px;color:var(--page-ink2)}
+.note{color:var(--page-ink2);font-size:12.5px;max-width:65ch;margin:0}
+.col{display:flex;flex-direction:column;max-width:100%}
+.stack{display:flex;flex-direction:column;gap:18px}
+
+/* ---------- added screens ---------- */
+.mac{--calm:#6a3fe0;--calm-soft:rgba(106,63,224,.10)}
+.mac[data-mode="dark"]{--calm:#b9a2ff;--calm-soft:rgba(185,162,255,.14)}
+.calm{color:var(--calm)}
+.btn.calm{background:var(--calm);color:var(--surface)}
+.btn kbd{font-family:var(--font-mono);font-size:10.5px;opacity:.75}
+.mf{display:flex;align-items:center;gap:10px;background:var(--surface-2);padding-block:10px}
+.mf .mt{font-family:var(--font-mono);font-weight:500;font-size:15px;font-variant-numeric:tabular-nums}
+.mf .ftask{flex:1;min-width:0;font-size:14.5px}
+.tabs{display:flex;gap:2px;padding:6px 12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.tab{height:32px;padding:0 10px;font-size:12.5px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px}
+.tab small{font-family:var(--font-mono);font-size:10.5px;color:var(--ink-3)}
+.tab.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 var(--accent)}
+.pad{padding-block:10px 6px}
+.pad textarea{display:block;width:100%;height:192px;border:0;padding:0;background:transparent;color:var(--ink);font:13.5px/24px var(--font-ui);resize:none;outline:none;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px);background-size:100% 24px;background-position:0 23px}
+.pc{flex:1;min-width:0;font-size:11.5px;color:var(--ink-2)}
+.wl{display:block;margin:14px 16px 0;text-align:right;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--bar-ink);opacity:.7}
+.pop.hud{width:300px;max-width:calc(100% - 28px);margin-left:auto}
+.hud .sec{display:flex;flex-direction:column;gap:11px}
+.hrow{display:flex;align-items:center;gap:11px}
+.hrow b{display:block;font-family:var(--font-display);font-weight:500;font-size:17px;line-height:1.2}
+.hrow small{display:block;font-size:11.5px;color:var(--ink-2)}
+.o{width:30px;height:30px;border-radius:50%;flex:none;background:radial-gradient(circle at 35% 30%,color-mix(in srgb,var(--calm) 45%,white),var(--calm));animation:breathe 10s ease-in-out infinite}
+.hbtn{display:flex;flex-wrap:wrap;gap:6px}
+.btn.wide{width:100%;height:34px;justify-content:center;font-size:13px}
+@keyframes breathe{0%,100%{transform:scale(.6)}40%{transform:scale(1)}}
+@keyframes win{0%,38%{opacity:1}42%,96%{opacity:0}100%{opacity:1}}
+@keyframes wout{0%,38%{opacity:0}42%,96%{opacity:1}100%{opacity:0}}
+
+.mac.scene{width:100%;background:none;border:0;padding:0;border-radius:0;overflow:visible}
+.screens{display:grid;grid-template-columns:1.8fr 1fr;gap:14px;align-items:end}
+.disp{aspect-ratio:16/10;border-radius:10px;overflow:hidden;position:relative;background:var(--wall);border:1px solid var(--page-line);max-width:100%}
+.win{position:absolute;border-radius:6px;background:var(--surface);box-shadow:var(--shadow)}
+.veil{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6%;
+  background:color-mix(in srgb,var(--bg) 84%,transparent);backdrop-filter:blur(5px)}
+.orbwrap{width:24%;aspect-ratio:1;position:relative}
+.orbwrap::before,.orbwrap::after{content:"";position:absolute;border-radius:50%;background:var(--calm);animation:breathe 10s ease-in-out infinite}
+.orbwrap::before{inset:-22%;opacity:.13;animation-delay:.35s} .orbwrap::after{inset:-48%;opacity:.07;animation-delay:.7s}
+.orb{position:absolute;inset:0;z-index:1;border-radius:50%;animation:breathe 10s ease-in-out infinite;
+  background:radial-gradient(circle at 35% 30%,color-mix(in srgb,var(--calm) 35%,white),var(--calm) 58%,color-mix(in srgb,var(--calm) 55%,var(--break)))}
+.words{position:relative;z-index:1;width:100%;height:1.3em;font-family:var(--font-display);font-size:clamp(13px,2.7vw,26px);color:var(--ink)}
+.words span{position:absolute;inset:0;text-align:center}
+.w-in{animation:win 10s linear infinite} .w-out{animation:wout 10s linear infinite}
+.left{position:absolute;bottom:6%;left:0;right:0;text-align:center;font-family:var(--font-mono);font-size:clamp(9px,1.2vw,11.5px);letter-spacing:.06em;color:var(--ink-2)}
+.disp.sm .words{font-size:clamp(10px,1.6vw,16px)} .disp.sm .left{display:none}
+@media (prefers-reduced-motion:reduce){.o,.orb,.orbwrap::before,.orbwrap::after{animation:none}.w-in{animation:none}.w-out{animation:none;opacity:0}}
+
+.set{display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;min-height:34px;font-size:13px}
+.set > span:first-child{flex:1;min-width:0}
+.set.dim{opacity:.4}
+.seg{display:inline-flex;background:var(--bg-alt);border-radius:8px;padding:2px;gap:2px}
+.seg button{height:24px;padding:0 10px;border-radius:6px;font-size:12px;color:var(--ink-2)}
+.seg button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.14)}
+.val{font-family:var(--font-mono);font-size:11.5px;padding:3px 8px;border-radius:6px;background:var(--bg-alt);color:var(--ink);white-space:nowrap}
+.val.add{background:none;border:1px dashed var(--line-strong);color:var(--ink-2)}
+.hint{margin:6px 0 2px;padding:8px 10px;border-radius:8px;background:var(--calm-soft);color:var(--ink);font-size:12px;line-height:1.4}
+.key{font-family:var(--font-mono);font-size:11.5px;padding:3px 9px;border-radius:6px;border:1px solid var(--line-strong);color:var(--ink);white-space:nowrap;min-width:64px;text-align:center}
+.key.rec{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.setlist{display:flex;flex-direction:column;margin-top:6px}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Mockup · example tasks, not your live list</p>
+    <h1>Hupomnemata in the menu bar</h1>
+    <p>Click the timer in the menu bar and the popover drops down: the focus session on top, today's plan in the middle, sound at the bottom. The countdown, checkboxes, presets and play button all respond here.</p>
+  </header>
+
+  <section>
+    <p class="eyebrow">Popover</p>
+    <div class="pair" id="pair"></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Scratchpad</p>
+    <div class="pair" id="scratch"></div>
+    <p class="note" style="margin-top:14px">Type one to-do per line. Send turns each line into a task in General, ready for Sort General on the website. Unsent text is kept on this Mac, so it works offline.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Meditation reminder</p>
+    <div class="pair" id="med"></div>
+    <p class="note" style="margin-top:14px">The panel drops from the menu bar five minutes before and again at the time. Nothing starts until you press Start.</p>
+  </section>
+
+  <section class="stack">
+    <p class="eyebrow" style="margin:0">Breathing session</p>
+    <div id="breath" class="stack"></div>
+    <p class="note">Covers every display, in sync. Spotify pauses. Esc ends it at any point.</p>
+  </section>
+
+  <section>
+    <p class="eyebrow">Settings</p>
+    <div class="pair" id="settings"></div>
+    <p class="note" style="margin-top:14px">Click a hotkey, then press the new combination. Esc cancels.</p>
+  </section>
+
+  <section class="stack">
+    <p class="eyebrow" style="margin:0">Menu bar states</p>
+    <div id="states" class="stack"></div>
+    <p class="note">Compact is for crowded or notched menu bars, where a full countdown can be pushed out of view. The idle number is open tasks left in Today.</p>
+  </section>
+</div>
+
+<template id="mock">
+  <div class="col">
+    <p class="modehead"></p>
+    <div class="mac">
+      <div class="menubar">
+        <div class="apps"><b>Excel</b><span>File</span><span>Edit</span><span>View</span></div>
+        <span class="sp"></span>
+        <div class="tray on" aria-label="Focus timer">
+          <svg width="13" height="13" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="2"/><circle class="mini" cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="34.56" transform="rotate(-90 7 7)"/></svg>
+          <span class="t">24:12</span>
+        </div>
+        <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.5a9.5 9.5 0 0 1 13 0M4 7.2a6 6 0 0 1 8 0"/><circle cx="8" cy="10" r="1" fill="currentColor" stroke="none"/></svg>
+        <span class="clock">Tue 9:46 AM</span>
+      </div>
+
+      <div class="pop">
+        <div class="sec focus">
+          <div class="ring">
+            <svg viewBox="0 0 84 84"><defs><linearGradient id="g"><stop class="s1" offset="0"/><stop class="s2" offset="1"/></linearGradient></defs>
+              <circle class="track" cx="42" cy="42" r="36" fill="none" stroke-width="7"/>
+              <circle class="prog" cx="42" cy="42" r="36" fill="none" stroke-width="7" stroke-linecap="round" stroke-dasharray="226.2"/>
+            </svg>
+            <div class="mid"><span class="n">2</span><span class="of">OF 4</span></div>
+          </div>
+          <div class="fbody">
+            <span class="lab">Focus · ends 10:03</span>
+            <span class="time t">24:12</span>
+            <span class="ftask">Draft investor Q&amp;A responses</span>
+            <div class="fctl">
+              <button class="btn pri pp" type="button">Pause</button>
+              <button class="btn" type="button">+5 min</button>
+              <button class="btn" type="button">Skip to break</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="thead"><h2>Today</h2><span class="cnt"></span></div>
+          <div class="bar"><i></i></div>
+          <div class="busy">Busy 11:00–12:00, 2:30–3:00 · 2h 15m free</div>
+          <ul class="tasks">
+            <li class="row done"><button class="chk" type="button" aria-label="Mark task"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2l2 2 4-4.4"/></svg></button><i class="dot w"></i><div class="ttl"><span>Send diligence request list</span></div><span class="chip">15m</span><button class="go" type="button" aria-label="Focus on this"><svg width="9" height="10" viewBox="0 0 9 10"><path d="M1 .8v8.4L8.2 5z" fill="currentColor"/></svg></button></li>
+            <li class="row cur"><button class="chk" type="button" aria-label="Mark task"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2l2 2 4-4.4"/></svg></button><i class="dot w"></i><div class="ttl"><span>Draft investor Q&amp;A responses</span></div><span class="chip p1">P1</span><span class="chip">50m</span><span class="eq" aria-label="Focusing"><i></i><i></i><i></i></span></li>
+            <li class="row"><button class="chk" type="button" aria-label="Mark task"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2l2 2 4-4.4"/></svg></button><i class="dot w"></i><div class="ttl"><span>Review analyst onboarding deck</span></div><span class="chip late">1d late</span><span class="chip">25m</span><button class="go" type="button" aria-label="Focus on this"><svg width="9" height="10" viewBox="0 0 9 10"><path d="M1 .8v8.4L8.2 5z" fill="currentColor"/></svg></button></li>
+            <li class="row"><button class="chk" type="button" aria-label="Mark task"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2l2 2 4-4.4"/></svg></button><i class="dot w"></i><div class="ttl"><span>Reply to counsel on comment letter</span></div><span class="chip p1">P1</span><span class="chip">30m</span><button class="go" type="button" aria-label="Focus on this"><svg width="9" height="10" viewBox="0 0 9 10"><path d="M1 .8v8.4L8.2 5z" fill="currentColor"/></svg></button></li>
+            <li class="row"><button class="chk" type="button" aria-label="Mark task"><svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5.2l2 2 4-4.4"/></svg></button><i class="dot p"></i><div class="ttl"><span>Book pediatrician check-up</span></div><span class="chip">Today</span><span class="chip">10m</span><button class="go" type="button" aria-label="Focus on this"><svg width="9" height="10" viewBox="0 0 9 10"><path d="M1 .8v8.4L8.2 5z" fill="currentColor"/></svg></button></li>
+          </ul>
+        </div>
+
+        <div class="sec">
+          <span class="lab">Sound · Spotify on this Mac</span>
+          <div class="now">
+            <div class="art"></div>
+            <div class="np"><b class="npt">Alpha Waves, 10 Hz</b><small class="nps">Binaural Focus · playlist</small></div>
+            <div class="tp">
+              <button class="ib" type="button" aria-label="Previous"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M1 1h1.8v10H1zM11 1v10L3.6 6z"/></svg></button>
+              <button class="ib big play" type="button" aria-label="Pause music"><svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path class="pi" d="M2 1h3v10H2zM7 1h3v10H7z"/></svg></button>
+              <button class="ib" type="button" aria-label="Next"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M9.2 1H11v10H9.2zM1 1v10l7.4-5z"/></svg></button>
+            </div>
+          </div>
+          <div class="presets">
+            <button class="pre" type="button" aria-pressed="true" data-t="Alpha Waves, 10 Hz" data-s="Binaural Focus · playlist">Binaural</button>
+            <button class="pre" type="button" aria-pressed="false" data-t="Goldberg Variations, Aria" data-s="Classical for Work · playlist">Classical</button>
+            <button class="pre" type="button" aria-pressed="false" data-t="Brown Noise, 60 min" data-s="Deep Work · playlist">Deep work</button>
+            <button class="pre" type="button" aria-pressed="false" data-t="Nothing playing" data-s="Timer only">Silence</button>
+          </div>
+          <div class="auto"><span class="sw" role="img" aria-label="On"></span>Play on focus, pause on break</div>
+        </div>
+
+        <div class="foot">
+          <div class="cap"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 1.5v9M1.5 6h9"/></svg>Scratchpad<kbd>⌥ Space</kbd></div>
+          <button class="ib" type="button" aria-label="Open dashboard"><svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 2H2v9h9V8M7.5 1.5h4v4M11.5 1.5L6 7"/></svg></button>
+          <button class="ib" type="button" aria-label="Settings"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h5M10.5 4H12M2 10h1.5M7 10h5"/><circle cx="8.8" cy="4" r="1.6"/><circle cx="5.2" cy="10" r="1.6"/></svg></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+(() => {
+  const pair = document.getElementById('pair'), tpl = document.getElementById('mock'), states = document.getElementById('states');
+  const ring = '<svg width="13" height="13" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="2"/><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="34.56" stroke-dashoffset="OFF" transform="rotate(-90 7 7)"/></svg>';
+  const S = [
+    ['Idle', 'No session. Open tasks left today.', ring.replace('OFF', '34.56') + '<span>4</span>', ''],
+    ['Focus', 'Counting down, ring fills.', ring.replace('OFF', '23') + '<span>16:48</span>', ''],
+    ['Break', 'Blue, so a glance tells them apart.', '<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2.5 5.5h7v3a3.5 3.5 0 0 1-7 0zM9.5 6.5h1a1.5 1.5 0 0 1 0 3h-1M5 1.5v2M7.5 1.5v2"/></svg><span>04:31</span>', 'brk'],
+    ['Paused', 'Time holds, bars replace the ring.', '<svg width="13" height="13" viewBox="0 0 14 14" fill="currentColor"><rect x="3.5" y="3" width="2.4" height="8" rx=".8"/><rect x="8.1" y="3" width="2.4" height="8" rx=".8"/></svg><span style="opacity:.6">16:48</span>', ''],
+    ['Compact', 'Minutes only, for tight menu bars.', ring.replace('OFF', '23') + '<span>17m</span>', ''],
+    ['Breathe due', 'Violet. Waits for you to press Start.', '<svg width="13" height="13" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-opacity=".4" stroke-width="1.4"/><circle cx="7" cy="7" r="2.6" fill="currentColor"/></svg><span>10:30</span>', 'calm']
+  ];
+  ['light', 'dark'].forEach(mode => {
+    const n = tpl.content.cloneNode(true);
+    n.querySelector('.mac').dataset.mode = mode;
+    n.querySelector('.modehead').textContent = mode === 'light' ? 'Light' : 'Dark';
+    const g = n.querySelector('linearGradient'); g.id = 'g-' + mode;
+    n.querySelector('.prog').setAttribute('stroke', 'url(#g-' + mode + ')');
+    pair.appendChild(n);
+    const row = document.createElement('div'); row.className = 'states';
+    S.forEach(([name, cap, html, cls]) => {
+      const d = document.createElement('div'); d.className = 'st mac'; d.dataset.mode = mode;
+      d.style.cssText = 'width:auto;padding:0;border-radius:10px';
+      d.innerHTML = '<div class="menubar"><div class="tray on ' + cls + '">' + html + '</div></div><p><b>' + name + '</b>' + cap + '</p>';
+      row.appendChild(d);
+    });
+    states.appendChild(row);
+  });
+
+  const TOTAL = 25 * 60; let left = 16 * 60 + 48, running = true;
+  const fmt = s => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  const paint = () => {
+    const done = 1 - left / TOTAL;
+    document.querySelectorAll('.t').forEach(e => e.textContent = fmt(left));
+    pair.querySelectorAll('.prog').forEach(e => e.setAttribute('stroke-dashoffset', (226.2 * (1 - done)).toFixed(1)));
+    pair.querySelectorAll('.mini').forEach(e => e.setAttribute('stroke-dashoffset', (34.56 * (1 - done)).toFixed(1)));
+    pair.querySelectorAll('.pp').forEach(e => e.textContent = running ? 'Pause' : 'Resume');
+  };
+  const counts = () => pair.querySelectorAll('.mac').forEach(m => {
+    const all = m.querySelectorAll('.row').length, d = m.querySelectorAll('.row.done').length;
+    m.querySelector('.cnt').textContent = d + ' of ' + all + ' done';
+    m.querySelector('.bar i').style.width = (100 * d / all) + '%';
+  });
+  setInterval(() => { if (running && left > 0) { left--; paint(); } }, 1000);
+
+  pair.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    const mac = b.closest('.mac');
+    if (b.classList.contains('pp')) { running = !running; paint(); }
+    else if (b.classList.contains('chk')) { b.closest('.row').classList.toggle('done'); counts(); }
+    else if (b.classList.contains('pre')) {
+      mac.querySelectorAll('.pre').forEach(p => p.setAttribute('aria-pressed', p === b));
+      mac.querySelector('.npt').textContent = b.dataset.t; mac.querySelector('.nps').textContent = b.dataset.s;
+    } else if (b.classList.contains('play')) {
+      const p = b.querySelector('.pi'), playing = b.getAttribute('aria-label') === 'Pause music';
+      p.setAttribute('d', playing ? 'M2.5 1v10l8-5z' : 'M2 1h3v10H2zM7 1h3v10H7z');
+      b.setAttribute('aria-label', playing ? 'Play music' : 'Pause music');
+    }
+  });
+  /* ---------- added screens ---------- */
+  const $ = id => document.getElementById(id);
+  const orbI = '<svg width="13" height="13" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-opacity=".4" stroke-width="1.4"/><circle cx="7" cy="7" r="2.6" fill="currentColor"/></svg>';
+  const shell = (mode, tray, cls, body) => `<div class="col"><p class="modehead">${mode === 'light' ? 'Light' : 'Dark'}</p><div class="mac" data-mode="${mode}"><div class="menubar"><div class="apps"><b>Excel</b><span>File</span><span>Edit</span><span>View</span></div><span class="sp"></span><div class="tray on ${cls}">${tray}</div><span class="clock">Tue 10:25 AM</span></div>${body}</div></div>`;
+  const miniRing = ring.replace('OFF', '23');
+
+  ['light', 'dark'].forEach(mode => {
+    $('scratch').insertAdjacentHTML('beforeend', shell(mode, miniRing + '<span class="t"></span>', '', `
+      <div class="pop">
+        <div class="sec mf">${miniRing}<span class="mt t"></span><span class="ftask">Draft investor Q&amp;A responses</span><button class="btn" type="button">Pause</button></div>
+        <div class="tabs"><button class="tab" type="button">Today <small>1/5</small></button><button class="tab on" type="button">Scratchpad</button></div>
+        <div class="sec pad"><textarea id="pad-${mode}" spellcheck="false" aria-label="Scratchpad">Call transfer agent about the lockup
+Send NDA to the new family office p1
+Ask counsel about filing timeline
+Renew passport #personal</textarea></div>
+        <div class="foot"><span class="pc"></span><button class="btn pri send" type="button">Send <kbd>⌘↵</kbd></button></div>
+      </div>`));
+
+    const hud = (title, sub, btns) => `<div class="pop hud"><div class="sec"><div class="hrow"><i class="o"></i><div><b>${title}</b><small>${sub}</small></div></div>${btns}</div></div>`;
+    $('med').insertAdjacentHTML('beforeend', shell(mode, orbI + '<span>4:59</span>', 'calm',
+      '<span class="wl">5 minutes before</span>' +
+      hud('Breathe at 10:30', '5-minute session · in 4:59', '<div class="hbtn"><button class="btn" type="button">Start now</button><button class="btn" type="button">Snooze 5</button><button class="btn" type="button">Snooze 15</button><button class="btn" type="button">Skip</button></div>') +
+      '<span class="wl">At 10:30</span>' +
+      hud('Time to breathe', '5 minutes. Spotify pauses, Esc ends it.', '<button class="btn calm wide" type="button">Start session <kbd>⌥⇧M</kbd></button><div class="hbtn"><button class="btn" type="button">Snooze 5</button><button class="btn" type="button">Snooze 15</button><button class="btn" type="button">Skip</button></div>')));
+
+    const disp = sm => `<div class="disp ${sm}"><i class="win" style="left:6%;top:12%;width:52%;height:66%"></i><i class="win" style="left:46%;top:28%;width:46%;height:58%"></i><div class="veil"><div class="orbwrap"><div class="orb"></div></div><div class="words"><span class="w-in">Breathe in</span><span class="w-out">Breathe out</span></div><div class="left">3:42 LEFT · ESC TO END</div></div></div>`;
+    $('breath').insertAdjacentHTML('beforeend', `<div class="mac scene" data-mode="${mode}"><p class="modehead">${mode === 'light' ? 'Light' : 'Dark'}</p><div class="screens">${disp('')}${disp('sm')}</div></div>`);
+
+    const key = (label, k, rec) => `<div class="set"><span>${label}</span><button class="key${rec ? ' rec' : ''}" type="button" data-k="${k}">${rec ? 'Press keys…' : k}</button></div>`;
+    $('settings').insertAdjacentHTML('beforeend', shell(mode, miniRing + '<span class="t"></span>', '', `
+      <div class="pop">
+        <div class="sec"><span class="lab">Meditation</span>
+          <div class="setlist">
+            <div class="set"><span>Length</span><div class="seg"><button type="button">3 min</button><button type="button" class="on">5 min</button><button type="button">10 min</button></div></div>
+            <div class="set"><span>Schedule</span><div class="seg sched"><button type="button" class="on" data-m="every">Every</button><button type="button" data-m="times">Set times</button></div></div>
+            <div class="set" data-row="every"><span>Every</span><span class="val">90 min</span><span class="val">9:00 AM</span>to<span class="val">6:00 PM</span></div>
+            <div class="set dim" data-row="times"><span>At</span><span class="val">10:30</span><span class="val">1:00</span><span class="val">3:30</span><span class="val add">+ Add</span></div>
+            <div class="set"><span>Heads-up</span><span class="val">5 min before</span></div>
+            <div class="set"><span>Pause Spotify during a session</span><span class="sw" role="img" aria-label="On"></span></div>
+            <p class="hint">Sessions never start on their own. You press Start.</p>
+          </div>
+        </div>
+        <div class="sec"><span class="lab">Hotkeys</span>
+          <div class="setlist">
+            ${key('Open Today', '⌥ T')}${key('Open scratchpad', '⌥ Space')}${key('Start or pause focus', '⌥ ⇧ F')}${key('Start meditation', '⌥ ⇧ M', true)}
+          </div>
+        </div>
+      </div>`));
+  });
+
+  const padCount = ta => {
+    const n = ta.value.split('\n').filter(l => l.trim()).length;
+    ta.closest('.pop').querySelector('.pc').textContent = n ? n + (n === 1 ? ' line → 1 task' : ' lines → ' + n + ' tasks') + ' in Work / General' : 'Nothing to send';
+  };
+  $('scratch').querySelectorAll('textarea').forEach(ta => { padCount(ta); ta.addEventListener('input', () => padCount(ta)); });
+  $('scratch').addEventListener('click', e => {
+    const b = e.target.closest('.send'); if (!b) return;
+    const pop = b.closest('.pop'), ta = pop.querySelector('textarea');
+    const n = ta.value.split('\n').filter(l => l.trim()).length; if (!n) return;
+    ta.value = ''; pop.querySelector('.pc').textContent = 'Sent ' + n + (n === 1 ? ' task' : ' tasks') + ' to General';
+  });
+  $('settings').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.parentElement.classList.contains('seg')) {
+      [...b.parentElement.children].forEach(x => x.classList.toggle('on', x === b));
+      if (b.dataset.m) b.closest('.pop').querySelectorAll('[data-row]').forEach(r => r.classList.toggle('dim', r.dataset.row !== b.dataset.m));
+    } else if (b.classList.contains('key')) {
+      $('settings').querySelectorAll('.key.rec').forEach(k => { k.classList.remove('rec'); k.textContent = k.dataset.k; });
+      b.classList.add('rec'); b.textContent = 'Press keys…';
+    }
+  });
+  $('settings').addEventListener('keydown', e => {
+    const b = e.target.closest('.key.rec'); if (!b) return;
+    if (['Alt', 'Shift', 'Control', 'Meta', 'Tab'].includes(e.key)) return;
+    e.preventDefault();
+    if (e.key !== 'Escape') {
+      const name = e.code === 'Space' ? 'Space' : e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code.slice(5) : e.key;
+      b.dataset.k = [e.ctrlKey && '⌃', e.altKey && '⌥', e.shiftKey && '⇧', e.metaKey && '⌘', name].filter(Boolean).join(' ');
+    }
+    b.classList.remove('rec'); b.textContent = b.dataset.k;
+  });
+
+  paint(); counts();
+})();
+</script>

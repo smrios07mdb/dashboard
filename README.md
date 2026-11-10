@@ -14,6 +14,38 @@ npm test                     # run Vitest once
 npm run build                # production bundle into dist/
 ```
 
+## Menu bar app (macOS)
+
+A Tauri v2 companion that shows the Today list from the Mac menu bar. It is built from this repo and uses the same `.env.local`. See [`ARCHITECTURE.md`](./ARCHITECTURE.md) §16.
+
+Once per machine: the Xcode command line tools and Rust.
+
+```sh
+xcode-select --install
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+```
+
+Build and install:
+
+```sh
+npm install
+npm run menubar:build        # → menubar/src-tauri/target/release/bundle/macos/Hupomnemata.app
+cp -R menubar/src-tauri/target/release/bundle/macos/Hupomnemata.app ~/Applications/
+open ~/Applications/Hupomnemata.app
+```
+
+Click the `h.` icon in the menu bar, enter your email, then the 6-digit code from the sign-in email. To replace a running copy, choose Quit in the popover first.
+
+Develop:
+
+```sh
+npm run menubar:dev          # the popover in a browser, http://localhost:1421/ (no tray, Tauri calls are no-ops)
+npm run menubar:app          # in a second terminal: the real app against that dev server
+npm run menubar:typecheck    # tsc for menubar/ (npm run build does not cover it)
+npm test                     # includes menubar/src/*.test.ts(x)
+node menubar/src-tauri/icons/make-tray-icon.mjs   # regenerate the tray icon from the mark
+```
+
 ## Deploy
 
 Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds with `VITE_*` repository secrets and publishes `dist/` to the `gh-pages` branch. Each build also emits a `version.json` (git short SHA + timestamp) surfaced in **Settings → About**.

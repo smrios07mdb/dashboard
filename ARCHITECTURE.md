@@ -36,6 +36,9 @@ Single-user installable PWA. Runs on iPhone, iPad, and Mac (Safari + installable
 - vite-plugin-pwa (manifest + service worker)
 - Vitest
 
+**Menu bar companion (macOS, chunk 91)**
+- Tauri v2 (Rust shell + the system web view), a second entry of the same package — see §16
+
 **Backend (data)**
 - Supabase: Postgres + Auth (magic link) + RLS + Realtime + Edge Functions
 
@@ -516,6 +519,7 @@ Insights reports estimates, not tracked time (chunk 70): the headline cards lead
 | ~~AI key exposed in browser traffic~~ | Closed in chunk 55: triage goes through the proxy and the key is AES-GCM-encrypted in `settings.ai_api_key_encrypted`, never returned to the app (§10). Residual: the proxy's `CALDAV_ENCRYPTION_KEY` now protects three secrets; `caldavAppleId` is still never written to Dexie (chunk 18) |
 | iOS PWA sessions evicted after ~7 days inactivity | Re-login is expected; documented |
 | iOS Web Push requires installed PWA + 16.4+ | In-app fallback for other contexts |
+| The menu bar companion is macOS only and read-only (chunk 91) | Everything else stays in the PWA, one click away (`Open dashboard`); writes from the popover arrive in chunk 92, online first |
 
 ---
 
@@ -528,6 +532,8 @@ Insights reports estimates, not tracked time (chunk 70): the headline cards lead
 | `VITE_SUPABASE_ANON_KEY` | Supabase anon (public) key | `.env.local`, GitHub Actions secret |
 | `VITE_CALDAV_PROXY_URL` | Vercel deploy URL of the proxy | `.env.local`, GitHub Actions secret |
 | `VITE_VAPID_PUBLIC_KEY` | Web Push VAPID public key | `.env.local`, GitHub Actions secret |
+
+The menu bar companion (§16) builds from this repo with the same `.env.local` (`vite.menubar.config.ts` sets `envDir` to the repo root); it adds no env var. Its build is local only — the deploy workflow never builds it.
 
 **Repo: `dashboard-caldav-proxy`**
 | Env var | Purpose |
@@ -545,3 +551,38 @@ Insights reports estimates, not tracked time (chunk 70): the headline cards lead
 | `VAPID_PRIVATE_KEY` | Sign Web Push payloads |
 | `VAPID_PUBLIC_KEY` | Sent in push registration |
 | `VAPID_SUBJECT` | `mailto:` contact for push provider |
+
+---
+
+## 16. Menu bar companion (macOS)
+
+A Tauri v2 app (chunk 91) that puts the Today list in the Mac menu bar: a tray icon with the open count, and a popover under it. First of a series (91–98); this section describes what is built.
+
+**One package, second entry (D2).** No nested `package.json`.
+- `menubar/index.html`, `menubar/src/**` — the React entry and components.
+- `menubar/src-tauri/**` — the Rust shell (`src/lib.rs`), `tauri.conf.json`, `Info.plist`, `capabilities/`, `icons/`.
+- `vite.menubar.config.ts` — `root: 'menubar'`, `envDir` = repo root, the same `@` → `./src` alias, React plugin, no PWA plugin, output in `menubar/dist`. Tailwind runs with `menubar/tailwind.config.ts`: the app's theme, with `content` limited to the menubar's files and the shared components it imports.
+- `tsconfig.menubar.json` is **not** referenced from `tsconfig.json`, so `npm run build` neither typechecks nor bundles menubar code; the PWA's `dist/` is byte-identical with and without it. Scripts: `menubar:dev` (the popover in a browser, port 1421), `menubar:web`, `menubar:app` (`tauri dev`), `menubar:build` (`Hupomnemata.app`), `menubar:typecheck`.
+- `menubar/dist`, `menubar/src-tauri/target` and `menubar/src-tauri/gen` are ignored by git and ESLint; the first two are excluded from Vitest. Menubar `*.test.ts(x)` files run in `npm test`.
+
+**Shared code (D3).** The popover imports the app's own modules through `@/` and re-implements no Today logic: `@/lib/supabase`, `@/db/repo` (reads only), `@/lib/today`, `@/lib/clock`, `@/lib/whenLabel`, `@/state/todayPlan` (`applyTodayDeltas`, `resolveTodayDeltas`), `@/lib/auth`, `@/lib/signOutCleanup`, `@/components/PriorityChip`, `@/db/types` and the `@/index.css` tokens. `menubar/src/native.ts` is the only file that talks to Tauri; every call in it is a no-op when `window.__TAURI_INTERNALS__` is absent, so the same bundle runs in a browser and under Vitest.
+
+**Sign-in (D4).** Email → `supabase.auth.signInWithOtp({ email })` → 6-digit code → `verifyOtp({ type: 'email' })` — Login's calls without `emailRedirectTo`. No magic-link handling, no deep link. The session lives in the web view's `localStorage`. Single user, no account switcher. Sign-out runs the PWA's own cleanup (`installSignOutCleanup`): the cache mirror is wiped on `SIGNED_OUT`. The web view has its own storage: its Dexie cache, outbox and session are separate from any browser's.
+
+**Today (D5).** One read (`menubar/src/loadToday.ts`): `repo.settings.get` for `settings.timezone`, then `repo.categories.list()`, `repo.subcategories.list()`, `repo.tasks.list()`, `repo.todayMarks.list()`. `menubar/src/todayView.ts` (pure) applies the Dashboard's rule — live lists only, `(autoTodayIds ∪ pins) − removes` with marks dated today in the Settings zone, then `resolveToday`, whose order is the row order. This is the membership the Dashboard resolves on a fresh load; the Dashboard also keeps a task completed during the session in the plan until its next load, and the popover does not. Rows are read-only: category dot, title (one line, ellipsis), priority chip, when-chip (`lib/whenLabel`, a due date over a reminder, none on a done row), minutes; done rows are struck and last. Header: `Today`, `N of M done`, a progress bar. An empty plan reads `Nothing planned today.`
+
+**Refresh (D6).** `menubar/src/refresher.ts`: one load at start, one each time the popover is shown, and one every 5 minutes while it stays open; the timer is cleared when it hides. **No realtime subscription** — macOS suspends hidden web views, so a socket would be dropped and reopened on every show. Offline, `repo` returns its cache and the popover says `Offline — showing the last list`.
+
+**Window (D7).** One frameless, transparent window (`main`), 340 pt wide, as tall as its content (60–560 pt, set by the web view through `set_popover_height`; the list scrolls past that). It is placed under the tray icon, centred on it and kept inside that screen, shown on a tray click, and hidden on blur, on Esc and on a second tray click. Always on top while shown, on every Space. No Dock icon and no app switcher entry: `LSUIElement` in `Info.plist`, and the accessory activation policy at start. The card is a solid surface — there is no vibrancy effect.
+
+**Tray (D8).** A template icon rasterised from `public/hupomnemata-mark-mono.svg` (`icons/make-tray-icon.mjs` → `icons/tray.png`, 44 px) and a title: the count of open Today tasks, empty at 0 and when signed out. The web view sends it after every load (`set_tray_title`); the shell sets it and accepts only a number of up to four digits. The count is as fresh as the last load — it does not move while the popover is closed.
+
+**Theme (D9).** The popover follows the system (`prefers-color-scheme`); there is no toggle. Light is Daylight (`src/index.css`). Dark is `menubar/src/dark.css`, the values of the design prototype's `.mac[data-mode="dark"]` block. **This is the one dark theme in the repo and it is menubar-only:** the PWA stays light-only and never loads that file.
+
+**Shell commands.** `set_tray_title`, `set_popover_height`, `hide_popover`, `popover_is_shown`, `open_dashboard` (opens the fixed live URL in the default browser — the web view cannot name another), `quit_app`. The shell emits `popover-shown` / `popover-hidden`. The one capability grants `core:default` to `main`; no Tauri plugin is used.
+
+**CSP (D11).** Set in `tauri.conf.json`: `default-src 'self'`; `connect-src` is Tauri's own IPC (`ipc:`, `http://ipc.localhost`), the Supabase project over `https` and `wss`, and the CalDAV proxy host — nothing else; `script-src 'self'`, no remote scripts. `devCsp` adds the local dev server. Fonts are the bundled `@fontsource` files (D12).
+
+**Signing (D13).** Ad-hoc (`signingIdentity: "-"`), bundle id `net.mdblabs.hupomnemata.menubar`, minimum macOS 12. A stable identity comes with chunk 95.
+
+**Design reference.** `hupomnemata_handoff/menubar/` — unwired, never imported.
