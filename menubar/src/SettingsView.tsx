@@ -253,7 +253,9 @@ function FocusSettings({ pomodoro }: { pomodoro: Pomodoro }) {
         on={cfg.compact}
         onChange={(compact) => save({ ...cfg, compact })}
       />
-      <p className="mb-hint">Changes apply from the next phase.</p>
+      <p className="mb-hint">
+        New lengths apply from the next phase. Compact changes the menu bar at once.
+      </p>
     </Section>
   )
 }

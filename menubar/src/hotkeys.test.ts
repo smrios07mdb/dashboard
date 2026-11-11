@@ -178,6 +178,21 @@ describe('hotkeys', () => {
     })
   })
 
+  // Chunk 97 gate, F2: a swap whose default is refused must not leave a
+  // duplicate or claim the old key was kept.
+  it('resetDefaults after a swap never stores a key twice or claims a kept key', async () => {
+    localStorage.setItem(HOTKEYS_KEY, JSON.stringify({ scratchpad: 'Alt+Shift+F', focus: 'Alt+H' }))
+    const b = backend(['Alt+H'])
+    const h = createHotkeys(b, HANDLERS())
+    await h.start()
+    await h.resetDefaults()
+    const saved = Object.values(readHotkeys())
+    expect(new Set(saved).size).toBe(saved.length)
+    expect(h.getState().bound).toEqual(DEFAULTS)
+    expect(h.getState().failed).toEqual({ scratchpad: '⌥H is taken by another app' })
+    expect([...b.presses.keys()].sort()).toEqual(['Alt+Shift+F', 'Alt+Shift+M'])
+  })
+
   it('stop and start around a recording release and restore every key', async () => {
     const b = backend()
     const h = createHotkeys(b, HANDLERS())

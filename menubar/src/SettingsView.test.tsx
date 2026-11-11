@@ -83,7 +83,9 @@ describe('SettingsView (chunk 97)', () => {
       .filter((n) => ['Focus', 'Sound', 'Meditation', 'Hotkeys', 'General'].includes(n!))
     expect(groups).toEqual(['Focus', 'Sound', 'Meditation', 'Hotkeys', 'General'])
     expect(btn('Done')).toBeInTheDocument()
-    expect(screen.getByText('Changes apply from the next phase.')).toBeInTheDocument()
+    expect(
+      screen.getByText('New lengths apply from the next phase. Compact changes the menu bar at once.'),
+    ).toBeInTheDocument()
     expect(
       screen.getByText('Sessions never start on their own. You press Start.'),
     ).toBeInTheDocument()

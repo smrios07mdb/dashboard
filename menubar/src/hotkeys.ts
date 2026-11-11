@@ -286,9 +286,15 @@ export function createHotkeys(
         }
       }
       for (const a of lost) {
-        // Back to the old key, unless another action now holds it.
-        if (!usedBy(bound, a, old[a])) await take(a, old[a])
-        failed[a] = keptMessage(DEFAULT_HOTKEYS[a], old[a])
+        // Back to the old key, unless another action now holds it (a swap).
+        // Then nothing is kept: store the default, unbound, and say so.
+        if (!usedBy(bound, a, old[a])) {
+          await take(a, old[a])
+          failed[a] = keptMessage(DEFAULT_HOTKEYS[a], old[a])
+        } else {
+          bound[a] = DEFAULT_HOTKEYS[a]
+          failed[a] = takenMessage(DEFAULT_HOTKEYS[a])
+        }
       }
       saveHotkeys(bound)
       set({ bound, failed })
