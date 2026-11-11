@@ -276,3 +276,21 @@ export function watchMeditation(
     off?.()
   }
 }
+
+/*
+ * Open at login (chunk 97, D12). The shell writes or removes one LaunchAgent
+ * plist (`login.rs`); both commands answer the state. Outside Tauri: `null`.
+ */
+export type LoginItemStatus = 'on' | 'off' | 'other' | 'unavailable'
+export type LoginItemState = { status: LoginItemStatus; path: string | null }
+
+export async function loginItemState(): Promise<LoginItemState | null> {
+  if (!inTauri()) return null
+  return invoke<LoginItemState>('login_item_state')
+}
+
+/** Rejected with `unavailable` when this is not the installed app. */
+export async function loginItemSet(on: boolean): Promise<LoginItemState | null> {
+  if (!inTauri()) return null
+  return invoke<LoginItemState>('login_item_set', { on })
+}

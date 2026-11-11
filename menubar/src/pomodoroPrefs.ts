@@ -3,7 +3,7 @@
  * `localStorage['hup:mb:pomodoro']` over the defaults. Pure and guarded like
  * `prefs.ts`; an invalid field falls back on its own. The ranges are the
  * shell's (`Config::validated` in `pomodoro.rs`), which rejects anything
- * else. There is no settings UI yet — chunk 97 edits this key.
+ * else. Edited by the Settings view (chunk 97).
  *
  * Settings only: a running session's state is never stored here. Rust is the
  * only truth for that.
@@ -32,13 +32,15 @@ export const DEFAULT_POMODORO: PomodoroConfig = {
   compact: false,
 }
 
-const RANGE = {
+/** The shell's ranges; the Settings steppers stop at each end (chunk 97). */
+export const POMODORO_RANGE = {
   focus: [1, 180],
   short: [1, 60],
   long: [1, 90],
   every: [1, 12],
 } as const
 
+const RANGE = POMODORO_RANGE
 const NUMBERS = Object.keys(RANGE) as Array<keyof typeof RANGE>
 
 export function readPomodoroPrefs(): PomodoroConfig {

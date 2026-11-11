@@ -15,8 +15,8 @@ export const SCHEDULE_DAYS = 14
 /**
  * One day's reminders, as minutes after midnight, in order. `every`: at
  * `from`, then every `every` minutes for as long as the time is strictly
- * before `to`. `times`: each listed time. Every day (days of the week are
- * chunk 97's).
+ * before `to`. `times`: each listed time. The same on every day; which days
+ * is `dueTimes`' business (`prefs.days`, chunk 97).
  */
 export function dayTimes(prefs: MeditationPrefs): number[] {
   if (prefs.mode === 'times') {
@@ -31,7 +31,7 @@ export function dayTimes(prefs: MeditationPrefs): number[] {
 /**
  * The due times (epoch ms) for the next `days` days from `now`, today
  * included, in order. Times already past are left out; reminders switched
- * off give none.
+ * off give none, and so does a day whose `getDay()` is not in `prefs.days`.
  */
 export function dueTimes(
   prefs: MeditationPrefs,
@@ -43,7 +43,9 @@ export function dueTimes(
   const [y, m, d] = [now.getFullYear(), now.getMonth(), now.getDate()]
   const from = now.getTime()
   const out: number[] = []
+  const on = new Set(prefs.days)
   for (let i = 0; i < days; i++) {
+    if (!on.has(new Date(y, m, d + i).getDay())) continue
     for (const minute of minutes) {
       const at = new Date(y, m, d + i, Math.floor(minute / 60), minute % 60).getTime()
       if (at > from) out.push(at)

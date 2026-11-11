@@ -967,3 +967,287 @@ body::before {
   background: var(--bg-alt);
   color: var(--ink);
 }
+
+/* ---- settings (chunk 97) — the prototype's .setlist / .set / .seg / .key ---- */
+.mb-settings {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.mb-set-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 10px 16px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.mb-set-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 17px;
+}
+.mb-set-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mb-set-sec + .mb-set-sec {
+  border-top: 1px solid var(--line);
+}
+.mb-setlist {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}
+.mb-set {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-height: 34px;
+  font-size: 13px;
+  color: var(--ink);
+  text-align: left;
+}
+.mb-set > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.mb-set.mb-dim {
+  opacity: 0.4;
+}
+.mb-set-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.mb-time {
+  display: inline-flex;
+  align-items: center;
+}
+/* A message under its row. */
+.mb-set-err {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: 11.5px;
+  color: hsl(var(--destructive));
+}
+.mb-set-note {
+  display: block;
+  margin: -4px 0 4px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.mb-seg {
+  display: inline-flex;
+  background: var(--bg-alt);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.mb-seg button {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.mb-seg button[aria-pressed='true'] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+.mb-val {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg-alt);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.mb-add {
+  background: none;
+  border: 1px dashed var(--line-strong);
+  color: var(--ink-2);
+}
+.mb-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mb-step .mb-val {
+  min-width: 78px;
+  text-align: center;
+}
+.mb-step button,
+.mb-x {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.mb-x {
+  width: 18px;
+  font-size: 13px;
+}
+.mb-step button:hover:not(:disabled),
+.mb-x:hover:not(:disabled) {
+  background: var(--bg-alt);
+  color: var(--ink);
+}
+.mb-hint {
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--calm-soft);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.mb-key {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  white-space: nowrap;
+  min-width: 64px;
+  text-align: center;
+}
+.mb-key.mb-rec {
+  border-color: hsl(var(--accent));
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+.mb-mini {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+  border: 1px solid var(--line-strong);
+  flex: none;
+}
+.mb-mini:hover:not(:disabled) {
+  background: var(--bg-alt);
+  color: var(--ink);
+}
+.mb-in {
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 12px;
+  min-width: 0;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.mb-in[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 1px hsl(var(--destructive));
+}
+.mb-sel {
+  padding-right: 4px;
+}
+.mb-time-in {
+  font-family: var(--font-mono);
+  width: 96px;
+}
+/* The clock button takes room the time needs; the field is typed into. */
+.mb-time-in::-webkit-calendar-picker-indicator {
+  display: none;
+}
+/* The window and the times each take their own line under the label. */
+[data-row] .mb-set-wrap {
+  flex-basis: 100%;
+  justify-content: flex-end;
+}
+.mb-pl {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0;
+}
+.mb-pl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mb-pl-name {
+  width: 86px;
+  flex: none;
+}
+.mb-pl-link {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.mb-days {
+  display: inline-flex;
+  gap: 3px;
+}
+.mb-day {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+  border: 1px solid var(--line-strong);
+}
+.mb-day[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+/* A whole row that is a switch. */
+.mb-swrow {
+  width: 100%;
+}
+.mb-swrow[aria-checked='true'] .mb-sw {
+  background: hsl(var(--accent));
+}
+.mb-swrow[aria-checked='true'] .mb-sw::after {
+  left: auto;
+  right: 2px;
+}
+.mb-settings button:disabled,
+.mb-settings select:disabled,
+.mb-settings input:disabled {
+  cursor: default;
+}
+.mb-step button:disabled,
+.mb-mini:disabled,
+.mb-swrow:disabled,
+.mb-set:not(.mb-dim) .mb-add:disabled {
+  opacity: 0.4;
+}
+.mb-day:disabled {
+  opacity: 1;
+}
+.mb-settings button:focus-visible,
+.mb-settings input:focus-visible,
+.mb-settings select:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+.mb-foot-btn[aria-expanded='true'] {
+  background: var(--bg-alt);
+  color: var(--ink);
+}

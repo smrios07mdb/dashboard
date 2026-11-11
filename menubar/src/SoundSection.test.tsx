@@ -110,7 +110,7 @@ describe('menubar SoundSection', () => {
   })
 
   it('paused: Play music; with no track the subtitle is the preset', async () => {
-    saveSoundPrefs({ auto: true, preset: 'classical' })
+    saveSoundPrefs({ auto: true, preset: 'classical', playlists: {} })
     await setup(sp())
     expect(screen.getByRole('button', { name: 'Play music' })).toBeEnabled()
     expect(screen.getByText('Nothing playing')).toBeInTheDocument()
@@ -208,7 +208,7 @@ describe('menubar SoundSection', () => {
     await setup(sp({ status: 'not_running' }))
     h.current = PLAYING
     await press(user, screen.getByRole('button', { name: 'Classical' }))
-    expect(readSoundPrefs()).toEqual({ auto: true, preset: 'classical' })
+    expect(readSoundPrefs()).toEqual({ auto: true, preset: 'classical', playlists: {} })
     expect(h.native.soundConfigure).toHaveBeenCalledWith(true, CLASSICAL)
     expect(h.native.spotifyPlayPreset).toHaveBeenCalledWith(CLASSICAL)
     expect(h.native.spotifyPlayPause).not.toHaveBeenCalled()
@@ -216,12 +216,34 @@ describe('menubar SoundSection', () => {
     expect(screen.getByText('Alpha Waves, 10 Hz')).toBeInTheDocument()
   })
 
+  it('his own playlist replaces its slot: label shown, his URI played (chunk 97)', async () => {
+    const MINE = 'spotify:playlist:37i9dQZF1DWZeKCadgRdKQ'
+    saveSoundPrefs({
+      auto: true,
+      preset: 'classical',
+      playlists: { binaural: { label: 'Mine', uri: MINE } },
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    await setup(sp())
+    expect(screen.queryByRole('button', { name: 'Binaural' })).toBeNull()
+    await press(user, screen.getByRole('button', { name: 'Mine' }))
+    expect(h.native.soundConfigure).toHaveBeenLastCalledWith(true, MINE)
+    expect(h.native.spotifyPlayPreset).toHaveBeenCalledWith(MINE)
+    expect(readSoundPrefs()).toMatchObject({
+      preset: 'binaural',
+      playlists: { binaural: { label: 'Mine', uri: MINE } },
+    })
+    expect(
+      screen.getByRole('button', { name: 'Mine' }).getAttribute('aria-pressed'),
+    ).toBe('true')
+  })
+
   it('Silence is saved and pauses Spotify directly, never with the toggle', async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     await setup(PLAYING)
     h.current = sp({ track: 'Alpha Waves, 10 Hz' })
     await press(user, screen.getByRole('button', { name: 'Silence' }))
-    expect(readSoundPrefs()).toEqual({ auto: true, preset: 'silence' })
+    expect(readSoundPrefs()).toEqual({ auto: true, preset: 'silence', playlists: {} })
     expect(h.native.soundConfigure).toHaveBeenCalledWith(true, null)
     expect(h.native.spotifyPause).toHaveBeenCalledTimes(1)
     expect(h.native.spotifyPlayPause).not.toHaveBeenCalled()
@@ -254,7 +276,7 @@ describe('menubar SoundSection', () => {
     expect(sw).toHaveAttribute('aria-checked', 'true')
     await press(user, sw)
     expect(sw).toHaveAttribute('aria-checked', 'false')
-    expect(readSoundPrefs()).toEqual({ auto: false, preset: 'binaural' })
+    expect(readSoundPrefs()).toEqual({ auto: false, preset: 'binaural', playlists: {} })
     expect(h.native.soundConfigure).toHaveBeenLastCalledWith(false, BINAURAL)
     await press(user, sw)
     expect(sw).toHaveAttribute('aria-checked', 'true')

@@ -10,10 +10,12 @@
 //! and, with it, every write to the tray. Sound (chunk 95) lives in
 //! `sound.rs`: Spotify on this Mac through `osascript`, on its own thread.
 //! Meditation (chunk 96) lives in `meditation.rs`: the reminder clock, the
-//! session and its overlay windows.
+//! session and its overlay windows. Open at login (chunk 97) lives in
+//! `login.rs`: one LaunchAgent plist, the only file the shell writes.
 //!
 //! Commands are named in `menubar/src/native.ts` — keep the two in step.
 
+mod login;
 mod meditation;
 mod pomodoro;
 mod sound;
@@ -275,7 +277,9 @@ pub fn run() {
             meditation::meditation_start,
             meditation::meditation_snooze,
             meditation::meditation_skip,
-            meditation::meditation_end
+            meditation::meditation_end,
+            login::login_item_state,
+            login::login_item_set
         ])
         .on_window_event(|w, event| {
             // Hidden on blur (D7).

@@ -17,6 +17,8 @@ vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
 }))
 
 import {
+  loginItemSet,
+  loginItemState,
   meditationConfigure,
   meditationEnd,
   meditationSkip,
@@ -261,6 +263,58 @@ describe('native.ts — meditation commands (chunk 96)', () => {
     expect(await meditationConfigure(CONFIG)).toBeNull()
     expect(await meditationStart()).toBeNull()
     expect(await meditationEnd()).toBeNull()
+    expect(h.invoke).not.toHaveBeenCalled()
+  })
+})
+
+const LOGIN = readFileSync(
+  resolve(process.cwd(), 'menubar/src-tauri/src/login.rs'),
+  'utf8',
+)
+
+function loginArgs(command: string): string[] {
+  const m = new RegExp(
+    `#\\[tauri::command\\]\\s*pub fn ${command}\\(([^)]*)\\)`,
+  ).exec(LOGIN)
+  if (!m) throw new Error(`no command ${command} in login.rs`)
+  return m[1]
+    .split(',')
+    .map((a) => a.trim().split(':')[0].trim())
+    .filter((name) => name && name !== 'app')
+}
+
+describe('native.ts — open at login (chunk 97, D12)', () => {
+  beforeEach(() => {
+    h.invoke.mockClear()
+    vi.stubGlobal('__TAURI_INTERNALS__', {})
+    return () => vi.unstubAllGlobals()
+  })
+
+  it('names both commands as the shell does, with the `on` argument', async () => {
+    await loginItemState()
+    await loginItemSet(true)
+    await loginItemSet(false)
+    expect(h.invoke.mock.calls).toEqual([
+      ['login_item_state'],
+      ['login_item_set', { on: true }],
+      ['login_item_set', { on: false }],
+    ])
+    expect(loginArgs('login_item_state')).toEqual([])
+    expect(loginArgs('login_item_set')).toEqual(['on'])
+    expect(LIB).toContain('login::login_item_state')
+    expect(LIB).toContain('login::login_item_set')
+  })
+
+  it('answers the state the shell sends', async () => {
+    const state = { status: 'other', path: '/Applications/Hupomnemata.app' }
+    h.invoke.mockResolvedValueOnce(state)
+    expect(await loginItemState()).toEqual(state)
+  })
+
+  it('outside Tauri nothing is sent', async () => {
+    vi.unstubAllGlobals()
+    expect(await loginItemState()).toBeNull()
+    expect(await loginItemSet(true)).toBeNull()
     expect(h.invoke).not.toHaveBeenCalled()
   })
 })

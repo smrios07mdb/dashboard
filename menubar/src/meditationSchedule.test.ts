@@ -99,4 +99,37 @@ describe('meditationSchedule', () => {
       }
     }
   })
+
+  // Chunk 97, D7. 15 January 2027 is a Friday.
+  it('days: only the chosen weekdays, over 14 days', () => {
+    const now = new Date(2027, 0, 15, 6, 0)
+    const weekdays = dueTimes({ ...times(['10:30']), days: [1, 2, 3, 4, 5] }, now)
+    expect(weekdays.map(day)).toEqual([15, 18, 19, 20, 21, 22, 25, 26, 27, 28])
+    expect(weekdays.every((t) => ![0, 6].includes(new Date(t).getDay()))).toBe(true)
+    expect(weekdays.map(clock).every((c) => c === '10:30')).toBe(true)
+
+    const sundays = dueTimes({ ...DEFAULT_MEDITATION, days: [0] }, now)
+    expect(sundays).toHaveLength(6 * 2)
+    expect([...new Set(sundays.map(day))]).toEqual([17, 24])
+
+    // Today off: nothing today, even before its times.
+    const notFriday = dueTimes({ ...times(['10:30', '15:30']), days: [0, 1, 2, 3, 4, 6] }, now)
+    expect(notFriday.map(day)).not.toContain(15)
+    expect(notFriday.map(day)).not.toContain(22)
+    expect(notFriday).toHaveLength(2 * 12)
+
+    // All seven is the old behaviour.
+    expect(dueTimes({ ...DEFAULT_MEDITATION, days: [0, 1, 2, 3, 4, 5, 6] }, now)).toEqual(
+      dueTimes(DEFAULT_MEDITATION, now),
+    )
+  })
+
+  it('days: the weekday is the local one across a DST change', () => {
+    // Sunday 14 March 2027 (US forward) and Sunday 7 November (back).
+    for (const now of [new Date(2027, 2, 12, 12, 0), new Date(2027, 10, 5, 12, 0)]) {
+      const due = dueTimes({ ...times(['00:30', '23:30']), days: [0] }, now)
+      expect(due.every((t) => new Date(t).getDay() === 0)).toBe(true)
+      expect(due).toHaveLength(4)
+    }
+  })
 })

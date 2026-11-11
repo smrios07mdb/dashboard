@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
@@ -50,6 +50,8 @@ vi.mock('./native', () => {
     'meditationSnooze',
     'meditationSkip',
     'meditationEnd',
+    'loginItemState',
+    'loginItemSet',
   ]
   for (const n of names) h.native[n] = vi.fn(nothing)
   for (const n of ['setTrayTitle', 'setPopoverHeight', 'hidePopover', 'openDashboard', 'quitApp', 'openAutomationSettings']) {
@@ -73,6 +75,10 @@ import { DEFAULT_POMODORO } from './pomodoroPrefs'
 const show = () =>
   act(() => {
     for (const on of h.popover) on(true)
+  })
+const hide = () =>
+  act(() => {
+    for (const on of h.popover) on(false)
   })
 
 describe('menubar App — pomodoro wiring (chunk 94)', () => {
@@ -200,5 +206,149 @@ describe('menubar App — pomodoro wiring (chunk 94)', () => {
     expect(h.native.pomodoroStop).not.toHaveBeenCalled()
     expect(h.native.pomodoroConfigure).not.toHaveBeenCalled()
     expect(h.native.soundConfigure).not.toHaveBeenCalled()
+  })
+})
+
+describe('menubar App — Settings (chunk 97)', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+    localStorage.clear()
+    for (const f of Object.values(h.native)) f.mockClear()
+    h.popover.clear()
+  })
+
+  const footer = () =>
+    [...document.querySelectorAll('.mb-foot button')].map((b) => b.textContent)
+  const openSettings = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
+    return screen.getByRole('region', { name: 'Settings' })
+  }
+
+  it('signed in: the footer is Open dashboard · Settings · Sign out · Quit', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await screen.findByText('Focus · 25 min')
+    expect(footer()).toEqual(['Open dashboard', 'Settings', 'Sign out', 'Quit'])
+  })
+
+  it('signed out: no Settings, Theme stays in the footer', () => {
+    h.session = { user: null, loading: false }
+    render(<App />)
+    expect(footer()).toEqual(['Open dashboard', 'Theme: Auto', 'Quit'])
+    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull()
+  })
+
+  it('Settings replaces the focus header, tabs and Sound; the reminder stays', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    h.native.meditationConfigure.mockResolvedValue({
+      status: 'due',
+      dueAt: Date.now(),
+      startedAt: null,
+      endsAt: null,
+      length: 5,
+      pauseSpotify: true,
+      nextDueAt: null,
+    })
+    render(<App />)
+    await screen.findByRole('region', { name: 'Meditation reminder' })
+    await openSettings()
+    expect(screen.getByRole('region', { name: 'Meditation reminder' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Focus' })).toBeNull()
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.queryByText('Sound · Spotify on this Mac')).toBeNull()
+    for (const name of ['Focus', 'Sound', 'Meditation', 'Hotkeys', 'General']) {
+      expect(screen.getByRole('group', { name })).toBeInTheDocument()
+    }
+    h.native.meditationConfigure.mockResolvedValue(null)
+  })
+
+  it('Done closes it', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await openSettings()
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('region', { name: 'Settings' })).toBeNull()
+    expect(screen.getByText('Focus · 25 min')).toBeInTheDocument()
+  })
+
+  it('Esc closes it and does not hide the popover', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await openSettings()
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Settings' })).toBeNull()
+    expect(h.native.hidePopover).not.toHaveBeenCalled()
+    // Closed, Esc hides the popover as before.
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(h.native.hidePopover).toHaveBeenCalledTimes(1)
+  })
+
+  it('the popover hiding closes it', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await openSettings()
+    hide()
+    expect(screen.queryByRole('region', { name: 'Settings' })).toBeNull()
+  })
+
+  it('⌥H closes it and forces Scratchpad', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await screen.findByText('Focus · 25 min')
+    await waitFor(() =>
+      expect(h.native.registerShortcut).toHaveBeenCalledWith('Alt+H', expect.any(Function)),
+    )
+    const press = h.native.registerShortcut.mock.calls.find((c) => c[0] === 'Alt+H')![1]
+    await openSettings()
+    await act(async () => {
+      press()
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'Settings' })).toBeNull(),
+    )
+    expect(screen.getByRole('tab', { name: /Scratchpad/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
+
+  it('Sound rereads its prefs after Settings closes', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await screen.findByText('Focus · 25 min')
+    expect(screen.getByRole('button', { name: 'Binaural' })).toBeInTheDocument()
+    await openSettings()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Binaural name' }), {
+      target: { value: 'Mine' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.getByRole('button', { name: 'Mine' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Binaural' })).toBeNull()
+  })
+
+  it('Theme moved into Settings › General', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await openSettings()
+    fireEvent.click(screen.getByRole('button', { name: 'Dark' }))
+    expect(localStorage.getItem('hupo.menubar.theme')).toBe('dark')
+    expect(document.documentElement.dataset.mode).toBe('dark')
+    fireEvent.click(screen.getByRole('button', { name: 'Auto' }))
+    expect(localStorage.getItem('hupo.menubar.theme')).toBeNull()
+  })
+
+  it('sign-in configures Sound with his own playlist when set', async () => {
+    const MINE = 'spotify:playlist:37i9dQZF1DWZeKCadgRdKQ'
+    localStorage.setItem(
+      'hup:mb:sound',
+      JSON.stringify({ auto: true, preset: 'binaural', playlists: { binaural: { label: 'Mine', uri: MINE } } }),
+    )
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await waitFor(() => expect(h.native.soundConfigure).toHaveBeenCalledWith(true, MINE))
   })
 })

@@ -3,9 +3,12 @@
  * (chunk 94) over two tabs — the Today list and the scratchpad (chunk 93),
  * which ⌥H opens from anywhere — and the Sound section (chunk 95) under them.
  * A meditation reminder (chunk 96) sits above it all while one is showing.
+ * The footer's Settings button (chunk 97) swaps everything under that
+ * reminder for the Settings view.
  */
 import {
   type CSSProperties,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -67,8 +70,9 @@ import {
   type ScratchLists,
   type ScratchResult,
 } from './scratchpad'
+import SettingsView from './SettingsView'
 import SignIn from './SignIn'
-import { presetById } from './sound'
+import { presetFor } from './sound'
 import { readSoundPrefs } from './soundPrefs'
 import SoundSection from './SoundSection'
 import {
@@ -202,6 +206,10 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeChoice>(readTheme)
   // Bumped by the hotkey: forces the Scratchpad tab and focuses the pad.
   const [forceScratch, setForceScratch] = useState(0)
+  // The Settings view (chunk 97, D1). Closed by Done, Esc, the popover
+  // hiding and ⌥H; closing remounts the Sound section, which rereads.
+  const [settings, setSettings] = useState(false)
+  const closeSettings = useCallback(() => setSettings(false), [])
   // The pomodoro (chunk 94): the shell owns the timer; this holds its last
   // snapshot and sends commands.
   const [pomodoro] = useState(() =>
@@ -236,7 +244,10 @@ export default function App() {
       { register: registerShortcut, unregister: unregisterShortcut },
       {
         scratchpad: () =>
-          void toggleScratchpad(() => setForceScratch((n) => n + 1)),
+          void toggleScratchpad(() => {
+            setSettings(false)
+            setForceScratch((n) => n + 1)
+          }),
         // Start or pause focus (D10); never opens the popover. While a
         // breathing session runs it does nothing (chunk 96, D8).
         focus: () => void meditation.unlessRunning(() => pomodoro.toggle()),
@@ -266,6 +277,15 @@ export default function App() {
     return r
   }
 
+  // Hidden: the Settings view closes (D1).
+  useEffect(
+    () =>
+      watchPopover((shown) => {
+        if (!shown) setSettings(false)
+      }),
+    [],
+  )
+
   useEffect(() => pomodoro.start(), [pomodoro])
   useEffect(() => meditation.start(), [meditation])
   // Every show sends the next 14 days of due times again (chunk 96, D2).
@@ -285,7 +305,8 @@ export default function App() {
       void pomodoro.signedIn()
       // Sound (chunk 95, D11): play on focus or not, and the preset.
       const sound = readSoundPrefs()
-      void soundConfigure(sound.auto, presetById(sound.preset).uri)
+      // His own playlist behind the preset, if he set one (chunk 97, D5).
+      void soundConfigure(sound.auto, presetFor(sound, sound.preset).uri)
       // Meditation (chunk 96, D2): reminders run only while signed in.
       void meditation.signedIn()
     } else {
@@ -296,8 +317,7 @@ export default function App() {
 
   useEffect(() => watchSystemTheme(theme), [theme])
 
-  function cycleTheme() {
-    const next = nextTheme(theme)
+  function chooseTheme(next: ThemeChoice) {
     saveTheme(next)
     setTheme(next)
   }
@@ -357,43 +377,56 @@ export default function App() {
             hotkey={hk.bound.meditate}
             hotkeyError={hk.failed.meditate ?? null}
           />
-          <FocusHeader
-            pomodoro={pomodoro}
-            timeZone={today.lists?.timeZone ?? 'America/New_York'}
-            hotkeyError={hk.failed.focus ?? null}
-          />
-          <PopoverTabs
-            todayCount={view ? `${view.done}/${view.total}` : null}
-            forceScratch={forceScratch}
-            today={
-              <TodayList
-                view={view}
-                offline={today.offline}
-                failed={today.failed}
-                saveFailed={co.failed}
-                onToggle={(row) => void session?.checkOff.toggle(row.task)}
-                focus={{
-                  phase: pomo.snapshot.phase,
-                  paused: pomo.snapshot.paused,
-                  taskId: pomo.snapshot.task?.id ?? null,
-                }}
-                onFocus={(row) =>
-                  void pomodoro.startFocus({ id: row.id, title: row.title })
+          {settings ? (
+            <SettingsView
+              pomodoro={pomodoro}
+              meditation={meditation}
+              hotkeys={hotkeys}
+              theme={theme}
+              onTheme={chooseTheme}
+              onDone={closeSettings}
+            />
+          ) : (
+            <>
+              <FocusHeader
+                pomodoro={pomodoro}
+                timeZone={today.lists?.timeZone ?? 'America/New_York'}
+                hotkeyError={hk.failed.focus ?? null}
+              />
+              <PopoverTabs
+                todayCount={view ? `${view.done}/${view.total}` : null}
+                forceScratch={forceScratch}
+                today={
+                  <TodayList
+                    view={view}
+                    offline={today.offline}
+                    failed={today.failed}
+                    saveFailed={co.failed}
+                    onToggle={(row) => void session?.checkOff.toggle(row.task)}
+                    focus={{
+                      phase: pomo.snapshot.phase,
+                      paused: pomo.snapshot.paused,
+                      taskId: pomo.snapshot.task?.id ?? null,
+                    }}
+                    onFocus={(row) =>
+                      void pomodoro.startFocus({ id: row.id, title: row.title })
+                    }
+                  />
+                }
+                scratchpad={
+                  <Scratchpad
+                    lists={today.lists}
+                    userId={userId}
+                    send={send}
+                    hotkeyError={hk.failed.scratchpad ?? null}
+                    focusSeq={forceScratch}
+                    onHide={hidePopover}
+                  />
                 }
               />
-            }
-            scratchpad={
-              <Scratchpad
-                lists={today.lists}
-                userId={userId}
-                send={send}
-                hotkeyError={hk.failed.scratchpad ?? null}
-                focusSeq={forceScratch}
-                onHide={hidePopover}
-              />
-            }
-          />
-          <SoundSection />
+              <SoundSection />
+            </>
+          )}
         </>
       ) : (
         <SignIn />
@@ -403,24 +436,36 @@ export default function App() {
           Open dashboard
         </button>
         <span className="mb-sp" />
-        <button
-          type="button"
-          className="mb-foot-btn"
-          onClick={cycleTheme}
-          aria-label={`Theme: ${THEME_LABEL[theme]}. Change theme`}
-          title="Auto follows macOS"
-        >
-          Theme: {THEME_LABEL[theme]}
-        </button>
         {userId ? (
+          <>
+            {/* Signed in, Theme lives in Settings › General (D3). */}
+            <button
+              type="button"
+              className="mb-foot-btn"
+              aria-expanded={settings}
+              onClick={() => setSettings((open) => !open)}
+            >
+              Settings
+            </button>
+            <button
+              type="button"
+              className="mb-foot-btn"
+              onClick={() => void signOutUser()}
+            >
+              Sign out
+            </button>
+          </>
+        ) : (
           <button
             type="button"
             className="mb-foot-btn"
-            onClick={() => void signOutUser()}
+            onClick={() => chooseTheme(nextTheme(theme))}
+            aria-label={`Theme: ${THEME_LABEL[theme]}. Change theme`}
+            title="Auto follows macOS"
           >
-            Sign out
+            Theme: {THEME_LABEL[theme]}
           </button>
-        ) : null}
+        )}
         <button type="button" className="mb-foot-btn" onClick={quitApp}>
           Quit
         </button>

@@ -1,8 +1,8 @@
 /*
  * Meditation settings (chunk 96, D3): per Mac, in the web view's
  * `localStorage['hup:mb:meditation']` over the defaults. Pure and guarded
- * like `soundPrefs.ts`; an invalid field falls back on its own. There is no
- * settings UI yet (chunk 97 edits the key).
+ * like `soundPrefs.ts`; an invalid field falls back on its own. Edited by
+ * the Settings view (chunk 97), which also added `days`.
  */
 
 export const MEDITATION_KEY = 'hup:mb:meditation'
@@ -26,7 +26,14 @@ export type MeditationPrefs = {
   /** Minutes of warning before a reminder, 0–30; 0 is none. */
   headsUp: number
   pauseSpotify: boolean
+  /**
+   * Days of the week reminders fall on, as `getDay()` (0 = Sunday … 6 =
+   * Saturday): 1–7 distinct, sorted (chunk 97, D7).
+   */
+  days: number[]
 }
+
+export const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6] as const
 
 export const DEFAULT_MEDITATION: MeditationPrefs = {
   enabled: true,
@@ -38,6 +45,15 @@ export const DEFAULT_MEDITATION: MeditationPrefs = {
   times: ['10:30', '13:00', '15:30'],
   headsUp: 5,
   pauseSpotify: true,
+  days: [...ALL_DAYS],
+}
+
+/** 1–7 distinct integers 0–6, sorted; `null` when not. */
+export function validDays(v: unknown): number[] | null {
+  if (!Array.isArray(v) || v.length < 1 || v.length > 7) return null
+  if (!v.every((d) => intIn(d, 0, 6))) return null
+  if (new Set(v).size !== v.length) return null
+  return [...(v as number[])].sort((a, b) => a - b)
 }
 
 const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -60,6 +76,7 @@ export function readMeditationPrefs(): MeditationPrefs {
   const prefs: MeditationPrefs = {
     ...DEFAULT_MEDITATION,
     times: [...DEFAULT_MEDITATION.times],
+    days: [...DEFAULT_MEDITATION.days],
   }
   try {
     const raw = localStorage.getItem(MEDITATION_KEY)
@@ -85,6 +102,8 @@ export function readMeditationPrefs(): MeditationPrefs {
     }
     if (intIn(o.headsUp, 0, 30)) prefs.headsUp = o.headsUp
     if (typeof o.pauseSpotify === 'boolean') prefs.pauseSpotify = o.pauseSpotify
+    const days = validDays(o.days)
+    if (days) prefs.days = days
   } catch {
     // Unreadable or malformed: the defaults stand.
   }

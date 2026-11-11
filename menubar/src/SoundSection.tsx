@@ -20,7 +20,7 @@ import {
   spotifyState,
   watchPopover,
 } from './native'
-import { presetById, PRESETS, type Preset, type SpotifyState } from './sound'
+import { presetFor, presetsFor, type Preset, type SpotifyState } from './sound'
 import { readSoundPrefs, saveSoundPrefs, type SoundPrefs } from './soundPrefs'
 
 /** While shown. */
@@ -169,7 +169,7 @@ export default function SoundSection({
   function save(next: SoundPrefs) {
     saveSoundPrefs(next)
     setPrefs(next)
-    return backend.configure(next.auto, presetById(next.preset).uri)
+    return backend.configure(next.auto, presetFor(next, next.preset).uri)
   }
 
   async function pick(p: Preset) {
@@ -185,7 +185,8 @@ export default function SoundSection({
     await control(backend.pause)
   }
 
-  const preset = presetById(prefs.preset)
+  // His own playlists replace the built-ins slot by slot (chunk 97, D5).
+  const preset = presetFor(prefs, prefs.preset)
   const view = describe(sp, preset)
   const playing = sp?.status === 'ok' && sp.playing
   const installed = sp?.status !== 'not_installed'
@@ -249,7 +250,7 @@ export default function SoundSection({
         </div>
       </div>
       <div className="mb-presets">
-        {PRESETS.map((p) => (
+        {presetsFor(prefs).map((p) => (
           <button
             key={p.id}
             type="button"

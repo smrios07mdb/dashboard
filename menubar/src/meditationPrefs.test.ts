@@ -25,6 +25,7 @@ describe('meditationPrefs', () => {
       times: ['10:30', '13:00', '15:30'],
       headsUp: 5,
       pauseSpotify: true,
+      days: [0, 1, 2, 3, 4, 5, 6],
     })
     expect(readMeditationPrefs()).toEqual(DEFAULT_MEDITATION)
     localStorage.setItem(MEDITATION_KEY, '{not json')
@@ -44,6 +45,7 @@ describe('meditationPrefs', () => {
       times: ['07:05', '21:40'],
       headsUp: 0,
       pauseSpotify: false,
+      days: [1, 2, 3, 4, 5],
     }
     store(stored)
     expect(readMeditationPrefs()).toEqual(stored)
@@ -102,5 +104,46 @@ describe('meditationPrefs', () => {
     expect(readMeditationPrefs().times).toEqual(twelve)
     store({ times: [...twelve, '20:30'] })
     expect(readMeditationPrefs().times).toEqual(DEFAULT_MEDITATION.times)
+  })
+
+  // Chunk 97, D7: days of the week (getDay(): 0 = Sunday).
+  it('days: all seven by default', () => {
+    store({ enabled: true })
+    expect(readMeditationPrefs().days).toEqual([0, 1, 2, 3, 4, 5, 6])
+    // The default is a copy: changing what was read does not change it.
+    readMeditationPrefs().days.push(9)
+    expect(DEFAULT_MEDITATION.days).toEqual([0, 1, 2, 3, 4, 5, 6])
+  })
+
+  it('days: a valid set is kept, sorted', () => {
+    store({ days: [3] })
+    expect(readMeditationPrefs().days).toEqual([3])
+    store({ days: [6, 0] })
+    expect(readMeditationPrefs().days).toEqual([0, 6])
+    store({ days: [5, 4, 3, 2, 1] })
+    expect(readMeditationPrefs().days).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('days: empty, out of range, duplicates or junk → all seven', () => {
+    const all = [0, 1, 2, 3, 4, 5, 6]
+    for (const days of [
+      [],
+      [7],
+      [-1, 2],
+      [1, 1],
+      [0, 1, 2, 3, 4, 5, 6, 0],
+      [1.5],
+      ['1'],
+      [null],
+      '1,2',
+      3,
+      null,
+    ]) {
+      store({ days, length: 10 })
+      const read = readMeditationPrefs()
+      expect(read.days, JSON.stringify(days)).toEqual(all)
+      // The rest is untouched.
+      expect(read.length).toBe(10)
+    }
   })
 })
