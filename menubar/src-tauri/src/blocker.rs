@@ -25,8 +25,18 @@
 //! after 10 s (so a browser opened during a block is caught within 10 s),
 //! and one that answered `denied`, `timeout` or `error` after 30 s.
 //!
+//! A daily allowance (chunk 100) is the third trigger. A group can carry
+//! "N minutes a day": time counts for it while one of its sites is the
+//! active tab of the front window of a browser that is itself the frontmost
+//! app, and once the count reaches the allowance the group's sites are
+//! blocked until the next local midnight (`#limit`). While nothing blocks
+//! but some allowance is still open, the thread reads on a 5 s cadence, only
+//! to count. The count lives in `allowance.rs` and in `usage.tsv`, which
+//! holds group ids and milliseconds, never a URL.
+//!
 //! The `Blocker` lock is a leaf: never taken under the pomodoro, meditation
-//! or sessions lock, and never held across an `osascript` run or an emit.
+//! or sessions lock, and never held across an `osascript` run, an emit, a
+//! file write or `show_passive`.
 //!
 //! Top half: pure pieces, unit-tested. Bottom half: the thread and the Tauri
 //! commands.
@@ -38,6 +48,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::allowance::{self, day_start, exhausted, minute_changed, valid_id, warn_now, Usage};
 use crate::pomodoro::json_string;
 use crate::sound::{run_with_timeout, Run, TIMEOUT};
 
@@ -49,6 +60,10 @@ pub const BLOCKED_PAGE: &str = "https://smrios07mdb.github.io/dashboard/blocked.
 const SEP: char = '\u{1f}';
 
 pub const ACTIVE_WAIT: Duration = Duration::from_secs(2);
+/// Nothing blocks, but an allowance is still open: read only to count.
+pub const TRACK_WAIT: Duration = Duration::from_secs(5);
+/// How long the five-minute warning stays up when nobody clicks into it.
+pub const WARNING_SHOWN_MS: u64 = 10_000;
 pub const RETRY_MS: u64 = 30_000;
 /// A browser that answered "not running" is read again after this, not on
 /// every pass: a browser opened during a block is caught within 10 s.
@@ -59,6 +74,9 @@ const DAY_MS: u64 = 24 * 60 * 60 * 1000;
 pub const MAX_GROUPS: usize = 20;
 pub const MAX_DOMAINS: usize = 50;
 pub const MAX_WINDOWS: usize = 60;
+pub const MAX_LIMIT_MIN: u64 = 1440;
+pub const MAX_MIDNIGHTS: usize = 20;
+const MINUTE_MS: u64 = 60_000;
 
 // ---------------------------------------------------------------------------
 // Domains and hosts
@@ -113,24 +131,32 @@ pub fn matches(host: &str, domain: &str) -> bool {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Group {
+    /// The row's id: what the day's count is kept under.
+    pub id: String,
     pub name: String,
     pub domains: Vec<String>,
     /// Block during a focus phase.
     pub focus: bool,
     /// Scheduled windows, epoch ms, `start < end`.
     pub windows: Vec<(u64, u64)>,
+    /// The daily allowance in ms; 0 = none.
+    pub limit_ms: u64,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Config {
     pub enabled: bool,
     pub groups: Vec<Group>,
+    /// The Mac's local midnights around now, ascending (the web view's).
+    pub midnights: Vec<u64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Reason {
     Focus,
     Schedule,
+    /// Today's allowance is used up.
+    Limit,
 }
 
 impl Reason {
@@ -139,6 +165,7 @@ impl Reason {
         match self {
             Reason::Focus => format!("{BLOCKED_PAGE}#focus"),
             Reason::Schedule => format!("{BLOCKED_PAGE}#schedule"),
+            Reason::Limit => format!("{BLOCKED_PAGE}#limit"),
         }
     }
 }
@@ -147,14 +174,27 @@ fn in_window(g: &Group, now: u64) -> bool {
     g.windows.iter().any(|&(s, e)| s <= now && now < e)
 }
 
+fn used_up(g: &Group, usage: &Usage, day: u64) -> bool {
+    exhausted(g.limit_ms, usage.used_ms(day, &g.id))
+}
+
 /// Why this URL must not be the active tab now, if it must not. `Focus`
-/// beats `Schedule`.
-pub fn verdict(config: &Config, focus_on: bool, now: u64, url: &str) -> Option<Reason> {
+/// beats `Schedule`, which beats `Limit` (D4): focus and schedule blocks
+/// apply whether or not allowance is left.
+pub fn verdict(
+    config: &Config,
+    focus_on: bool,
+    now: u64,
+    usage: &Usage,
+    day: u64,
+    url: &str,
+) -> Option<Reason> {
     if !config.enabled || url.starts_with(EXEMPT_PREFIX) {
         return None;
     }
     let host = host_of(url)?;
     let mut scheduled = false;
+    let mut limited = false;
     for g in &config.groups {
         if !g.domains.iter().any(|d| matches(&host, d)) {
             continue;
@@ -163,17 +203,33 @@ pub fn verdict(config: &Config, focus_on: bool, now: u64, url: &str) -> Option<R
             return Some(Reason::Focus);
         }
         scheduled |= in_window(g, now);
+        limited |= used_up(g, usage, day);
     }
-    scheduled.then_some(Reason::Schedule)
+    if scheduled {
+        Some(Reason::Schedule)
+    } else {
+        limited.then_some(Reason::Limit)
+    }
 }
 
-/// Whether any group blocks anything now. Nothing active, nothing runs.
-pub fn anything_active(config: &Config, focus_on: bool, now: u64) -> bool {
+/// Whether any group blocks anything now: a focus phase, a scheduled window
+/// or an allowance used up. Nothing active, nothing runs at 2 s.
+pub fn anything_active(config: &Config, focus_on: bool, now: u64, usage: &Usage, day: u64) -> bool {
+    config.enabled
+        && config.groups.iter().any(|g| {
+            !g.domains.is_empty()
+                && ((focus_on && g.focus) || in_window(g, now) || used_up(g, usage, day))
+        })
+}
+
+/// Whether there is anything to count: some group with sites has an
+/// allowance not yet used up.
+pub fn tracking(config: &Config, usage: &Usage, day: u64) -> bool {
     config.enabled
         && config
             .groups
             .iter()
-            .any(|g| !g.domains.is_empty() && ((focus_on && g.focus) || in_window(g, now)))
+            .any(|g| !g.domains.is_empty() && g.limit_ms > 0 && !used_up(g, usage, day))
 }
 
 /// The next scheduled start after `now`, when one exists.
@@ -190,31 +246,81 @@ pub fn next_start(config: &Config, now: u64) -> Option<u64> {
         .min()
 }
 
-/// D14: the web view's parallel lists → a `Config`, or the reason the whole
-/// set is rejected. Nothing is clamped.
-pub fn validate(
-    enabled: bool,
-    names: Vec<String>,
-    domains: Vec<Vec<String>>,
-    focus: Vec<bool>,
-    starts: Vec<Vec<u64>>,
-    ends: Vec<Vec<u64>>,
-    now: u64,
-) -> Result<Config, String> {
+/// `blocker_configure`'s arguments: parallel lists, one entry per group,
+/// and the local midnights.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Lists {
+    pub ids: Vec<String>,
+    pub names: Vec<String>,
+    pub domains: Vec<Vec<String>>,
+    pub focus: Vec<bool>,
+    pub starts: Vec<Vec<u64>>,
+    pub ends: Vec<Vec<u64>>,
+    /// Minutes a day; 0 = no allowance.
+    pub limits: Vec<u64>,
+    pub midnights: Vec<u64>,
+}
+
+/// D14 (chunk 99) and D13 (chunk 100): the web view's lists → a `Config`, or
+/// the reason the whole set is rejected. Nothing is clamped.
+pub fn validate(enabled: bool, lists: Lists, now: u64) -> Result<Config, String> {
+    let Lists {
+        ids,
+        names,
+        domains,
+        focus,
+        starts,
+        ends,
+        limits,
+        midnights,
+    } = lists;
     let n = names.len();
-    if [domains.len(), focus.len(), starts.len(), ends.len()]
-        .iter()
-        .any(|&l| l != n)
+    if [
+        ids.len(),
+        domains.len(),
+        focus.len(),
+        starts.len(),
+        ends.len(),
+        limits.len(),
+    ]
+    .iter()
+    .any(|&l| l != n)
     {
         return Err("lists differ in length".into());
     }
     if n > MAX_GROUPS {
         return Err("too many groups".into());
     }
+    if !ids.iter().all(|id| valid_id(id)) {
+        return Err("bad group id".into());
+    }
+    if ids.iter().enumerate().any(|(i, id)| ids[..i].contains(id)) {
+        return Err("duplicate group id".into());
+    }
+    if limits.iter().any(|&m| m > MAX_LIMIT_MIN) {
+        return Err("allowance out of range".into());
+    }
+    if midnights.is_empty() || midnights.len() > MAX_MIDNIGHTS {
+        return Err("bad midnight count".into());
+    }
+    if !midnights.windows(2).all(|w| w[0] < w[1]) {
+        return Err("midnights not ascending".into());
+    }
     let lo = now.saturating_sub(2 * DAY_MS);
+    if !midnights.iter().all(|&m| m >= lo && m <= now + 17 * DAY_MS) {
+        return Err("midnight out of range".into());
+    }
     let hi = now + 16 * DAY_MS;
     let mut groups = Vec::with_capacity(n);
-    for ((((name, doms), f), s), e) in names.into_iter().zip(domains).zip(focus).zip(starts).zip(ends) {
+    let rows = ids
+        .into_iter()
+        .zip(names)
+        .zip(domains)
+        .zip(focus)
+        .zip(starts)
+        .zip(ends)
+        .zip(limits);
+    for ((((((id, name), doms), f), s), e), limit) in rows {
         if !(1..=40).contains(&name.trim().chars().count()) {
             return Err("bad group name".into());
         }
@@ -238,13 +344,19 @@ pub fn validate(
             return Err("window out of range".into());
         }
         groups.push(Group {
+            id,
             name,
             domains: doms,
             focus: f,
             windows,
+            limit_ms: limit * MINUTE_MS,
         });
     }
-    Ok(Config { enabled, groups })
+    Ok(Config {
+        enabled,
+        groups,
+        midnights,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -306,21 +418,32 @@ fn tab_ref(d: Dialect) -> &'static str {
     }
 }
 
-/// One line per window: `<window id>` SEP `<url of its active tab>`, then a
-/// last line `ok` (skipped by `parse_tabs`, it tells "running, no windows"
-/// from "not running"). `is running` sends no Apple Event: the read never
-/// launches a browser, and prints nothing when it is not running. Each
-/// window sits in its own `try`, so one odd window (a Safari settings
-/// window, an empty tab) does not lose the others.
+/// A first line `front` or `back` (chunk 100): whether the browser is the
+/// frontmost app. It is `frontmost of application id`, an AppleScript
+/// application property read **outside** the `tell` block, so it sends the
+/// browser nothing. Then one line per window, front to back: `<window id>`
+/// SEP `<url of its active tab>`; then a last line `ok` (it tells "running,
+/// no windows" from "not running"). `parse_tabs` skips the first and the
+/// last. `is running` sends no Apple Event: the read never launches a
+/// browser, and prints nothing when it is not running. Each window sits in
+/// its own `try`, so one odd window (a Safari settings window, an empty tab)
+/// does not lose the others; it leaves a line with window id 0 and no URL,
+/// so the first window line is always the front window.
 pub fn read_script(b: &Browser) -> String {
     format!(
         r#"if application id "{id}" is running then
 set sep to character id 31
-set out to ""
+if frontmost of application id "{id}" then
+set out to "front" & linefeed
+else
+set out to "back" & linefeed
+end if
 tell application id "{id}"
 repeat with w in windows
 try
 set out to out & ((id of w) as text) & sep & (URL of {tab} of w) & linefeed
+on error
+set out to out & "0" & sep & linefeed
 end try
 end repeat
 end tell
@@ -366,6 +489,12 @@ pub fn parse_tabs(stdout: &str) -> Vec<(i64, String)> {
             Some((id.trim().parse().ok()?, url.to_string()))
         })
         .collect()
+}
+
+/// The read's first line: whether the browser is the frontmost app. Anything
+/// but `front` — `back`, or no such line — is not.
+pub fn parse_front(stdout: &str) -> bool {
+    stdout.lines().next().map(|l| l.trim_end_matches('\r')) == Some("front")
 }
 
 /// Whether `<app_file>` is in one of these folders. Checked before any
@@ -430,17 +559,57 @@ pub fn classify(stderr: &str) -> Status {
     }
 }
 
+/// The five-minute warning (D5) for one group.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Warning {
+    pub id: String,
+    pub name: String,
+    pub minutes_left: u64,
+}
+
 /// What the web view reads, written by hand like the pomodoro snapshot. No
-/// URL, ever.
-pub fn state_json(enabled: bool, active: bool, statuses: &[Status; 4]) -> String {
+/// URL, ever. `usage` lists the groups with an allowance, in whole minutes
+/// rounded down — so this text, and the `blocker` event, change at most once
+/// a minute per group.
+pub fn state_json(
+    config: &Config,
+    active: bool,
+    statuses: &[Status; 4],
+    usage: &Usage,
+    day: u64,
+    warning: Option<&Warning>,
+) -> String {
     let browsers: Vec<String> = BROWSERS
         .iter()
         .zip(statuses)
         .map(|(b, s)| format!("{{\"name\":{},\"status\":\"{}\"}}", json_string(b.name), s.name()))
         .collect();
+    let used: Vec<String> = config
+        .groups
+        .iter()
+        .filter(|g| g.limit_ms > 0)
+        .map(|g| {
+            let limit = g.limit_ms / MINUTE_MS;
+            format!(
+                "{{\"id\":{},\"usedMinutes\":{},\"limitMinutes\":{limit}}}",
+                json_string(&g.id),
+                (usage.used_ms(day, &g.id) / MINUTE_MS).min(limit)
+            )
+        })
+        .collect();
+    let warning = warning.map_or("null".to_string(), |w| {
+        format!(
+            "{{\"id\":{},\"name\":{},\"minutesLeft\":{}}}",
+            json_string(&w.id),
+            json_string(&w.name),
+            w.minutes_left
+        )
+    });
     format!(
-        "{{\"enabled\":{enabled},\"active\":{active},\"browsers\":[{}]}}",
-        browsers.join(",")
+        "{{\"enabled\":{},\"active\":{active},\"browsers\":[{}],\"usage\":[{}],\"warning\":{warning}}}",
+        config.enabled,
+        browsers.join(","),
+        used.join(",")
     )
 }
 
@@ -469,14 +638,45 @@ impl Default for Track {
     }
 }
 
-/// Read one browser and record its status. The tabs it holds, when it
-/// answered.
-fn read_one(b: &Browser, i: usize, now: u64, track: &mut Track, run: &mut ScriptRun) -> Vec<(i64, String)> {
-    let (status, tabs) = match run(&read_script(b), &[]) {
-        Run::Ok(out) if out.trim().is_empty() => (Status::NotRunning, Vec::new()),
-        Run::Ok(out) => (Status::Ok, parse_tabs(&out)),
-        Run::Failed(err) => (classify(&err), Vec::new()),
-        Run::Timeout => (Status::Timeout, Vec::new()),
+/// The allowance's bookkeeping between passes (chunk 100).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Allowance {
+    pub usage: Usage,
+    /// The day the last pass saw; `None` before the first configuration.
+    pub day: Option<u64>,
+    /// When the previous pass read the browsers; `None` when it read
+    /// nothing, so the first read after an idle stretch adds no time.
+    pub last_pass: Option<u64>,
+    /// The groups warned today (D5: one warning per group per day).
+    pub warned: Vec<String>,
+    pub warning: Option<Warning>,
+}
+
+/// What one pass asks of the thread.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Outcome {
+    /// How long to wait before the next pass: `None` = until a change.
+    pub wait: Option<Duration>,
+    /// `usage.tsv` is due a rewrite.
+    pub save: bool,
+    /// A warning was just given: drop the panel.
+    pub warned: bool,
+}
+
+/// Read one browser and record its status. Whether it is the frontmost app,
+/// and the tabs it holds, front window first, when it answered.
+fn read_one(
+    b: &Browser,
+    i: usize,
+    now: u64,
+    track: &mut Track,
+    run: &mut ScriptRun,
+) -> (bool, Vec<(i64, String)>) {
+    let (status, front, tabs) = match run(&read_script(b), &[]) {
+        Run::Ok(out) if out.trim().is_empty() => (Status::NotRunning, false, Vec::new()),
+        Run::Ok(out) => (Status::Ok, parse_front(&out), parse_tabs(&out)),
+        Run::Failed(err) => (classify(&err), false, Vec::new()),
+        Run::Timeout => (Status::Timeout, false, Vec::new()),
     };
     track.statuses[i] = status;
     track.retry_at[i] = match status {
@@ -484,7 +684,7 @@ fn read_one(b: &Browser, i: usize, now: u64, track: &mut Track, run: &mut Script
         Status::NotRunning => now + NOT_RUNNING_MS,
         _ => 0,
     };
-    tabs
+    (front, tabs)
 }
 
 /// Bring each browser's installed / not-installed status up to date.
@@ -498,27 +698,116 @@ fn refresh_installed(installed: [bool; 4], track: &mut Track) {
     }
 }
 
-/// One pass of the watcher at `now`. Answers how long to wait before the
-/// next: `None` = until something changes.
+/// The day this pass belongs to. A new one drops the other days' counts and
+/// the warnings given (D3). Before the first configuration there are no
+/// midnights and nothing changes. The pass that sees the new day counts
+/// nothing: the time since the previous pass lies across midnight.
+fn roll_day(config: &Config, now: u64, allow: &mut Allowance, out: &mut Outcome) -> u64 {
+    if config.midnights.is_empty() {
+        return allow.day.unwrap_or(0);
+    }
+    let day = day_start(&config.midnights, now);
+    if allow.day != Some(day) {
+        out.save |= allow.usage.prune(day);
+        allow.warned.clear();
+        allow.warning = None;
+        allow.day = Some(day);
+        allow.last_pass = None;
+    }
+    day
+}
+
+/// D2: `elapsed` ms for every group with an open allowance that holds this
+/// URL's host. Whether one of them just reached its limit.
+fn count(config: &Config, day: u64, url: &str, elapsed: u64, allow: &mut Allowance, out: &mut Outcome) -> bool {
+    if elapsed == 0 || url.starts_with(EXEMPT_PREFIX) {
+        return false;
+    }
+    let Some(host) = host_of(url) else { return false };
+    let mut reached = false;
+    for g in &config.groups {
+        if g.limit_ms == 0 || !g.domains.iter().any(|d| matches(&host, d)) {
+            continue;
+        }
+        let before = allow.usage.used_ms(day, &g.id);
+        if exhausted(g.limit_ms, before) {
+            continue;
+        }
+        allow.usage.add(day, &g.id, elapsed);
+        let after = before + elapsed;
+        out.save |= minute_changed(before, after);
+        if exhausted(g.limit_ms, after) {
+            reached = true;
+            out.save = true;
+            if allow.warning.as_ref().is_some_and(|w| w.id == g.id) {
+                allow.warning = None;
+            }
+        } else if warn_now(g.limit_ms, before, after) && !allow.warned.contains(&g.id) {
+            allow.warned.push(g.id.clone());
+            allow.warning = Some(Warning {
+                id: g.id.clone(),
+                name: g.name.clone(),
+                minutes_left: (g.limit_ms - after).div_ceil(MINUTE_MS),
+            });
+            out.warned = true;
+        }
+    }
+    reached
+}
+
+/// One pass of the watcher at `now`.
+///
+/// Something blocks: one read per installed browser and one write per
+/// matching tab, every 2 s. Nothing blocks but an allowance is open: the
+/// same reads every 5 s, to count. Neither: no script at all.
+///
+/// After a read, a tab that nothing blocks yet, in the front window of the
+/// frontmost browser, adds the time since the previous pass (10 s at most)
+/// to its groups; the verdict is then taken again, so the tab that spends
+/// the last second is redirected in the same pass.
 pub fn pass(
     config: &Config,
     focus_on: bool,
     now: u64,
     installed: [bool; 4],
     track: &mut Track,
+    allow: &mut Allowance,
     run: &mut ScriptRun,
-) -> Option<Duration> {
+) -> Outcome {
     refresh_installed(installed, track);
-    if !anything_active(config, focus_on, now) {
-        return next_start(config, now)
-            .map(|s| Duration::from_millis(s - now).min(IDLE_CAP));
+    let mut out = Outcome::default();
+    let day = roll_day(config, now, allow, &mut out);
+    // A warning outlives neither its group, its allowance nor the limit.
+    if let Some(w) = &allow.warning {
+        let open = config.enabled
+            && config
+                .groups
+                .iter()
+                .any(|g| g.id == w.id && g.limit_ms > 0 && !used_up(g, &allow.usage, day));
+        if !open {
+            allow.warning = None;
+        }
     }
+    if !anything_active(config, focus_on, now, &allow.usage, day) && !tracking(config, &allow.usage, day) {
+        allow.last_pass = None;
+        out.wait = next_start(config, now).map(|s| Duration::from_millis(s - now).min(IDLE_CAP));
+        return out;
+    }
+    let elapsed = allow
+        .last_pass
+        .map_or(0, |t| now.saturating_sub(t).min(allowance::MAX_STEP_MS));
+    allow.last_pass = Some(now);
     for (i, b) in BROWSERS.iter().enumerate() {
         if !installed[i] || now < track.retry_at[i] {
             continue;
         }
-        for (wid, url) in read_one(b, i, now, track, run) {
-            if let Some(reason) = verdict(config, focus_on, now, &url) {
+        let (front, tabs) = read_one(b, i, now, track, run);
+        for (n, (wid, url)) in tabs.into_iter().enumerate() {
+            let mut reason = verdict(config, focus_on, now, &allow.usage, day, &url);
+            if reason.is_none() && front && n == 0 && count(config, day, &url, elapsed, allow, &mut out) {
+                reason = verdict(config, focus_on, now, &allow.usage, day, &url);
+            }
+            if let Some(reason) = reason {
                 let args = [wid.to_string(), url, reason.url()];
                 if let Run::Failed(err) = run(&write_script(b), &args) {
                     let status = classify(&err);
@@ -530,7 +819,12 @@ pub fn pass(
             }
         }
     }
-    Some(ACTIVE_WAIT)
+    out.wait = Some(if anything_active(config, focus_on, now, &allow.usage, day) {
+        ACTIVE_WAIT
+    } else {
+        TRACK_WAIT
+    });
+    out
 }
 
 /// `blocker_check`: one read of every installed browser now, no writes.
@@ -552,7 +846,24 @@ struct Shared {
     focus_on: bool,
     generation: u64,
     track: Track,
+    allow: Allowance,
+    /// `usage.tsv`; `None` until `load` (and in a run with no app data
+    /// folder): the count is then kept in memory only.
+    file: Option<PathBuf>,
     json: String,
+}
+
+/// The state JSON from what is held now.
+fn snapshot(g: &Shared, now: u64) -> String {
+    let day = g.allow.day.unwrap_or(0);
+    state_json(
+        &g.config,
+        anything_active(&g.config, g.focus_on, now, &g.allow.usage, day),
+        &g.track.statuses,
+        &g.allow.usage,
+        day,
+        g.allow.warning.as_ref(),
+    )
 }
 
 /// Managed by Tauri. Its lock is a leaf (see the file header).
@@ -563,15 +874,18 @@ pub struct Blocker {
 
 impl Default for Blocker {
     fn default() -> Self {
-        let track = Track::default();
+        let mut shared = Shared {
+            config: Config::default(),
+            focus_on: false,
+            generation: 0,
+            track: Track::default(),
+            allow: Allowance::default(),
+            file: None,
+            json: String::new(),
+        };
+        shared.json = snapshot(&shared, 0);
         Blocker {
-            inner: Mutex::new(Shared {
-                config: Config::default(),
-                focus_on: false,
-                generation: 0,
-                json: state_json(false, false, &track.statuses),
-                track,
-            }),
+            inner: Mutex::new(shared),
             wake: Condvar::new(),
         }
     }
@@ -614,6 +928,19 @@ impl Blocker {
         }
     }
 
+    /// Read the count a previous run left, once, in `setup`, before the
+    /// thread starts (D7: quitting does not reset the count). The file is
+    /// read outside the lock.
+    pub fn load(&self, dir: PathBuf) {
+        let file = dir.join(allowance::FILE_NAME);
+        let usage = std::fs::read_to_string(&file)
+            .map(|text| allowance::parse_usage(&text))
+            .unwrap_or_default();
+        let mut g = self.lock();
+        g.allow.usage = usage;
+        g.file = Some(file);
+    }
+
     /// The pomodoro's focus edge (D15). Called after the pomodoro lock is
     /// released.
     pub fn set_focus(&self, on: bool) {
@@ -643,28 +970,62 @@ pub fn spawn_loop(app: AppHandle) -> std::io::Result<()> {
         .name("blocker".into())
         .spawn(move || {
             let blocker = app.state::<Blocker>();
+            let file = blocker.lock().file.clone();
             let mut emitted = String::new();
+            // When the warning panel this thread dropped goes away again.
+            let mut hide_at: Option<u64> = None;
             loop {
-                let (config, focus_on, generation, mut track) = {
+                let (config, focus_on, generation, mut track, mut allow) = {
                     let g = blocker.lock();
-                    (g.config.clone(), g.focus_on, g.generation, g.track)
+                    (g.config.clone(), g.focus_on, g.generation, g.track, g.allow.clone())
                 };
+                let warning_before = allow.warning.clone();
                 let now = now_ms();
-                let wait = pass(&config, focus_on, now, installed_now(), &mut track, &mut osascript);
-                let json = state_json(
-                    config.enabled,
-                    anything_active(&config, focus_on, now),
-                    &track.statuses,
-                );
-                {
+                let out = pass(&config, focus_on, now, installed_now(), &mut track, &mut allow, &mut osascript);
+                let saved = out.save.then(|| allow.usage.clone());
+                let json = {
                     let mut g = blocker.lock();
+                    // A warning dismissed during the pass stays dismissed.
+                    if allow.warning == warning_before {
+                        allow.warning = g.allow.warning.clone();
+                    }
                     g.track = track;
+                    g.allow = allow;
+                    let json = snapshot(&g, now);
                     g.json = json.clone();
+                    json
+                };
+                if let (Some(usage), Some(file)) = (saved, file.as_deref()) {
+                    // A failed write leaves the count in memory; the next
+                    // change tries again.
+                    if let Err(e) = allowance::persist(file, &usage) {
+                        eprintln!("usage file: {e}");
+                    }
                 }
                 if json != emitted {
                     let _ = app.emit_str("blocker", json.clone());
                     emitted = json;
                 }
+                if out.warned {
+                    // D5: drop the panel without taking focus. One that is
+                    // already up (the user's, or a reminder's) is left alone.
+                    let shown = crate::popover_is_shown(app.clone());
+                    crate::show_passive(&app);
+                    if !shown {
+                        hide_at = Some(now + WARNING_SHOWN_MS);
+                    }
+                }
+                if hide_at.is_some_and(|at| now_ms() >= at) {
+                    crate::hide_unfocused(&app);
+                    hide_at = None;
+                }
+                let wait = match (out.wait, hide_at) {
+                    (wait, None) => wait,
+                    (wait, Some(at)) => {
+                        let left = Duration::from_millis(at.saturating_sub(now_ms()));
+                        Some(wait.map_or(left, |w| w.min(left)))
+                    }
+                };
 
                 let g = blocker.lock();
                 if g.generation != generation {
@@ -684,13 +1045,26 @@ pub fn spawn_loop(app: AppHandle) -> std::io::Result<()> {
 pub fn blocker_configure(
     app: AppHandle,
     enabled: bool,
+    ids: Vec<String>,
     names: Vec<String>,
     domains: Vec<Vec<String>>,
     focus: Vec<bool>,
     starts: Vec<Vec<u64>>,
     ends: Vec<Vec<u64>>,
+    limits: Vec<u64>,
+    midnights: Vec<u64>,
 ) -> Result<Response, String> {
-    let config = validate(enabled, names, domains, focus, starts, ends, now_ms())?;
+    let lists = Lists {
+        ids,
+        names,
+        domains,
+        focus,
+        starts,
+        ends,
+        limits,
+        midnights,
+    };
+    let config = validate(enabled, lists, now_ms())?;
     let blocker = app.state::<Blocker>();
     blocker.set_config(config);
     Ok(Response::new(blocker.json()))
@@ -701,24 +1075,38 @@ pub fn blocker_state(app: AppHandle) -> Response {
     Response::new(app.state::<Blocker>().json())
 }
 
+/// **OK** on the five-minute warning (D5): it is gone until tomorrow.
+#[tauri::command]
+pub fn blocker_dismiss_warning(app: AppHandle) -> Response {
+    let blocker = app.state::<Blocker>();
+    let json = {
+        let mut g = blocker.lock();
+        g.allow.warning = None;
+        g.generation += 1;
+        let json = snapshot(&g, now_ms());
+        g.json = json.clone();
+        json
+    };
+    blocker.wake.notify_all();
+    Response::new(json)
+}
+
 /// One read of every installed, running browser now — so the Automation
 /// prompt can be met on purpose — then the state JSON. Off the main thread.
 #[tauri::command]
 pub async fn blocker_check(app: AppHandle) -> Result<Response, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let blocker = app.state::<Blocker>();
-        let (config, focus_on, mut track) = {
-            let g = blocker.lock();
-            (g.config.clone(), g.focus_on, g.track)
-        };
+        let mut track = blocker.lock().track;
         let now = now_ms();
         check(now, installed_now(), &mut track, &mut osascript);
-        let json = state_json(config.enabled, anything_active(&config, focus_on, now), &track.statuses);
-        {
+        let json = {
             let mut g = blocker.lock();
             g.track = track;
+            let json = snapshot(&g, now);
             g.json = json.clone();
-        }
+            json
+        };
         Response::new(json)
     })
     .await
@@ -734,10 +1122,12 @@ mod tests {
 
     fn group(domains: &[&str], focus: bool, windows: &[(u64, u64)]) -> Group {
         Group {
+            id: "g".into(),
             name: "G".into(),
             domains: domains.iter().map(|d| d.to_string()).collect(),
             focus,
             windows: windows.to_vec(),
+            limit_ms: 0,
         }
     }
 
@@ -745,7 +1135,38 @@ mod tests {
         Config {
             enabled: true,
             groups,
+            midnights: Vec::new(),
         }
+    }
+
+    // The chunk-99 tests below know no allowance: these stand in for the
+    // real functions with no usage, so their calls read as they did. The
+    // chunk-100 tests at the end call `super::` directly.
+    fn verdict(config: &Config, focus_on: bool, now: u64, url: &str) -> Option<Reason> {
+        super::verdict(config, focus_on, now, &Usage::default(), 0, url)
+    }
+
+    fn anything_active(config: &Config, focus_on: bool, now: u64) -> bool {
+        super::anything_active(config, focus_on, now, &Usage::default(), 0)
+    }
+
+    fn pass(
+        config: &Config,
+        focus_on: bool,
+        now: u64,
+        installed: [bool; 4],
+        track: &mut Track,
+        run: &mut ScriptRun,
+    ) -> Option<Duration> {
+        super::pass(config, focus_on, now, installed, track, &mut Allowance::default(), run).wait
+    }
+
+    fn state_json(enabled: bool, active: bool, statuses: &[Status; 4]) -> String {
+        let config = Config {
+            enabled,
+            ..Config::default()
+        };
+        super::state_json(&config, active, statuses, &Usage::default(), 0, None)
     }
 
     // ---- valid_domain ----
@@ -938,11 +1359,17 @@ mod tests {
             read_script(&BROWSERS[0]),
             "if application id \"com.google.Chrome\" is running then\n\
 set sep to character id 31\n\
-set out to \"\"\n\
+if frontmost of application id \"com.google.Chrome\" then\n\
+set out to \"front\" & linefeed\n\
+else\n\
+set out to \"back\" & linefeed\n\
+end if\n\
 tell application id \"com.google.Chrome\"\n\
 repeat with w in windows\n\
 try\n\
 set out to out & ((id of w) as text) & sep & (URL of active tab of w) & linefeed\n\
+on error\n\
+set out to out & \"0\" & sep & linefeed\n\
 end try\n\
 end repeat\n\
 end tell\n\
@@ -1051,7 +1478,20 @@ end run"
     fn run_validate(
         a: (Vec<String>, Vec<Vec<String>>, Vec<bool>, Vec<Vec<u64>>, Vec<Vec<u64>>),
     ) -> Result<Config, String> {
-        validate(true, a.0, a.1, a.2, a.3, a.4, NOW)
+        // One id and no allowance per name; the chunk-100 lists are tested
+        // at the end.
+        let n = a.0.len();
+        let lists = Lists {
+            ids: (0..n).map(|i| format!("g-{i}")).collect(),
+            names: a.0,
+            domains: a.1,
+            focus: a.2,
+            starts: a.3,
+            ends: a.4,
+            limits: vec![0; n],
+            midnights: vec![NOW],
+        };
+        validate(true, lists, NOW)
     }
 
     #[test]
@@ -1059,7 +1499,11 @@ end run"
         let c = run_validate(ok_args()).unwrap();
         assert_eq!(c.groups.len(), 1);
         assert_eq!(c.groups[0].windows, vec![(NOW, NOW + MIN)]);
-        assert!(validate(false, vec![], vec![], vec![], vec![], vec![], NOW).is_ok());
+        let empty = Lists {
+            midnights: vec![NOW],
+            ..Lists::default()
+        };
+        assert!(validate(false, empty, NOW).is_ok());
     }
 
     #[test]
@@ -1149,7 +1593,8 @@ end run"
 {\"name\":\"Google Chrome\",\"status\":\"ok\"},\
 {\"name\":\"Safari\",\"status\":\"denied\"},\
 {\"name\":\"Brave Browser\",\"status\":\"not_installed\"},\
-{\"name\":\"Microsoft Edge\",\"status\":\"unknown\"}]}"
+{\"name\":\"Microsoft Edge\",\"status\":\"unknown\"}],\
+\"usage\":[],\"warning\":null}"
         );
         let t = [Status::NotRunning, Status::Timeout, Status::Error, Status::Ok];
         assert!(state_json(false, true, &t).contains("\"not_running\"") );
@@ -1315,5 +1760,657 @@ end run"
         assert!(calls.iter().all(|(s, _)| !s.starts_with("on run")));
         assert_eq!(track.statuses[0], Status::Ok);
         assert_eq!(track.retry_at[0], 0);
+    }
+
+    // =======================================================================
+    // Chunk 100: the daily allowance
+    // =======================================================================
+
+    const DAY0: u64 = NOW - 3_600_000;
+    const SEC: u64 = 1_000;
+    const FRONT_X: &str = "front\n1\u{1f}https://x.com/\nok\n";
+
+    fn limited(id: &str, domains: &[&str], minutes: u64) -> Group {
+        Group {
+            id: id.into(),
+            name: format!("Group {id}"),
+            limit_ms: minutes * MIN,
+            ..group(domains, false, &[])
+        }
+    }
+
+    fn day_cfg(groups: Vec<Group>) -> Config {
+        Config {
+            enabled: true,
+            groups,
+            midnights: vec![DAY0, DAY0 + DAY_MS],
+        }
+    }
+
+    fn used(id: &str, ms: u64) -> Usage {
+        let mut u = Usage::default();
+        u.add(DAY0, id, ms);
+        u
+    }
+
+    /// One pass with a fixed reply to every read; writes answer nothing.
+    fn step(c: &Config, focus: bool, now: u64, track: &mut Track, allow: &mut Allowance, calls: &mut Calls, read: &str) -> Outcome {
+        let read = read.to_string();
+        super::pass(c, focus, now, CHROME_ONLY, track, allow, &mut runner(calls, move |s| {
+            if s.starts_with("on run") { Run::Ok(String::new()) } else { Run::Ok(read.clone()) }
+        }))
+    }
+
+    fn writes(calls: &Calls) -> Vec<&(String, Vec<String>)> {
+        calls.iter().filter(|(s, _)| s.starts_with("on run")).collect()
+    }
+
+    // ---- parse_front / parse_tabs ----
+
+    #[test]
+    fn parse_front_reads_the_first_line() {
+        assert!(parse_front("front\n1\u{1f}https://x.com/\nok"));
+        assert!(parse_front("front\r\nok"));
+        assert!(!parse_front("back\n1\u{1f}https://x.com/\nok"));
+        // Missing: an old-style answer, or nothing at all.
+        assert!(!parse_front("1\u{1f}https://x.com/\nok"));
+        assert!(!parse_front("ok"));
+        assert!(!parse_front(""));
+    }
+
+    #[test]
+    fn parse_tabs_skips_the_front_line() {
+        for first in ["front", "back"] {
+            let out = format!("{first}\n12\u{1f}https://x.com/\n7\u{1f}https://y.com/\nok\n");
+            assert_eq!(
+                parse_tabs(&out),
+                vec![(12, "https://x.com/".to_string()), (7, "https://y.com/".to_string())]
+            );
+        }
+        // A window that could not be read keeps its place, with no URL.
+        assert_eq!(
+            parse_tabs("front\n0\u{1f}\n7\u{1f}https://y.com/\nok"),
+            vec![(0, String::new()), (7, "https://y.com/".to_string())]
+        );
+    }
+
+    // ---- the read script ----
+
+    #[test]
+    fn read_script_reads_frontmost_outside_the_tell() {
+        for b in &BROWSERS {
+            let s = read_script(b);
+            let front = s.find(&format!("if frontmost of application id \"{}\" then\n", b.bundle_id)).unwrap();
+            let tell = s.find(&format!("tell application id \"{}\"\n", b.bundle_id)).unwrap();
+            assert!(front < tell, "{s}");
+            // Nowhere inside the tell block.
+            let end = s.find("end tell").unwrap();
+            assert!(!s[tell..end].contains("frontmost"));
+            assert_eq!(s.matches("frontmost").count(), 1);
+        }
+    }
+
+    #[test]
+    fn read_script_golden_safari_whole() {
+        assert_eq!(
+            read_script(&BROWSERS[1]),
+            "if application id \"com.apple.Safari\" is running then\n\
+set sep to character id 31\n\
+if frontmost of application id \"com.apple.Safari\" then\n\
+set out to \"front\" & linefeed\n\
+else\n\
+set out to \"back\" & linefeed\n\
+end if\n\
+tell application id \"com.apple.Safari\"\n\
+repeat with w in windows\n\
+try\n\
+set out to out & ((id of w) as text) & sep & (URL of current tab of w) & linefeed\n\
+on error\n\
+set out to out & \"0\" & sep & linefeed\n\
+end try\n\
+end repeat\n\
+end tell\n\
+return out & \"ok\"\n\
+end if"
+        );
+    }
+
+    // ---- verdict ----
+
+    #[test]
+    fn verdict_none_under_the_limit() {
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        assert_eq!(super::verdict(&c, false, NOW, &Usage::default(), DAY0, "https://x.com/"), None);
+        assert_eq!(super::verdict(&c, false, NOW, &used("a", 30 * MIN - 1), DAY0, "https://x.com/"), None);
+    }
+
+    #[test]
+    fn verdict_limit_at_the_limit() {
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        let u = used("a", 30 * MIN);
+        assert_eq!(super::verdict(&c, false, NOW, &u, DAY0, "https://www.x.com/a"), Some(Reason::Limit));
+        assert_eq!(Reason::Limit.url(), format!("{BLOCKED_PAGE}#limit"));
+        // Another site, another day, another group's count: nothing.
+        assert_eq!(super::verdict(&c, false, NOW, &u, DAY0, "https://y.com/"), None);
+        assert_eq!(super::verdict(&c, false, NOW, &u, DAY0 + DAY_MS, "https://x.com/"), None);
+        assert_eq!(super::verdict(&c, false, NOW, &used("b", 30 * MIN), DAY0, "https://x.com/"), None);
+    }
+
+    #[test]
+    fn verdict_focus_and_schedule_still_win() {
+        let mut g = limited("a", &["x.com"], 30);
+        g.focus = true;
+        g.windows = vec![(NOW - MIN, NOW + MIN)];
+        let c = day_cfg(vec![g]);
+        for u in [Usage::default(), used("a", 30 * MIN)] {
+            assert_eq!(super::verdict(&c, true, NOW, &u, DAY0, "https://x.com/"), Some(Reason::Focus));
+            assert_eq!(super::verdict(&c, false, NOW, &u, DAY0, "https://x.com/"), Some(Reason::Schedule));
+        }
+        // Outside the window, with no focus: the limit.
+        assert_eq!(
+            super::verdict(&c, false, NOW + MIN, &used("a", 30 * MIN), DAY0, "https://x.com/"),
+            Some(Reason::Limit)
+        );
+    }
+
+    #[test]
+    fn verdict_limit_still_exempts_the_dashboard() {
+        let c = day_cfg(vec![limited("a", &["github.io"], 1)]);
+        let u = used("a", 5 * MIN);
+        assert_eq!(super::verdict(&c, false, NOW, &u, DAY0, "https://smrios07mdb.github.io/dashboard/"), None);
+        assert_eq!(super::verdict(&c, false, NOW, &u, DAY0, &Reason::Limit.url()), None);
+        assert_eq!(
+            super::verdict(&c, false, NOW, &u, DAY0, "https://smrios07mdb.github.io/other/"),
+            Some(Reason::Limit)
+        );
+    }
+
+    // ---- anything_active / tracking ----
+
+    #[test]
+    fn an_exhausted_group_is_active_and_an_open_one_is_tracked() {
+        let c = day_cfg(vec![limited("a", &["x.com"], 2)]);
+        let none = Usage::default();
+        let full = used("a", 2 * MIN);
+        assert!(!super::anything_active(&c, false, NOW, &none, DAY0));
+        assert!(tracking(&c, &none, DAY0));
+        assert!(super::anything_active(&c, false, NOW, &full, DAY0));
+        assert!(!tracking(&c, &full, DAY0));
+        // No sites, no allowance, or the Mac switch off: nothing to count.
+        assert!(!tracking(&day_cfg(vec![limited("a", &[], 2)]), &none, DAY0));
+        assert!(!tracking(&day_cfg(vec![limited("a", &["x.com"], 0)]), &none, DAY0));
+        let mut off = c.clone();
+        off.enabled = false;
+        assert!(!tracking(&off, &none, DAY0));
+        assert!(!super::anything_active(&off, false, NOW, &full, DAY0));
+    }
+
+    // ---- the pass ----
+
+    #[test]
+    fn no_runner_call_with_neither_blocking_nor_tracking() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        // No allowance and no trigger; then an allowance on a group that is
+        // switched off (the web view sends none) or with the Mac switch off.
+        let plain = day_cfg(vec![limited("a", &["x.com"], 0)]);
+        let out = step(&plain, false, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(out.wait, None);
+        let mut off = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        off.enabled = false;
+        let out = step(&off, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(out.wait, None);
+        assert!(calls.is_empty());
+        assert!(allow.usage.is_empty());
+    }
+
+    #[test]
+    fn tracking_alone_waits_5_s() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        let out = step(&c, false, NOW, &mut track, &mut allow, &mut calls, "back\nok\n");
+        assert_eq!(out.wait, Some(TRACK_WAIT));
+        assert_eq!(TRACK_WAIT, Duration::from_secs(5));
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, read_script(&BROWSERS[0]));
+        // A focus block on top of it: back to 2 s.
+        let mut g = limited("b", &["y.com"], 0);
+        g.focus = true;
+        let both = day_cfg(vec![limited("a", &["x.com"], 30), g]);
+        let out = step(&both, true, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, "back\nok\n");
+        assert_eq!(out.wait, Some(ACTIVE_WAIT));
+    }
+
+    #[test]
+    fn a_front_browsers_first_window_counts_and_a_second_does_not() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let c = day_cfg(vec![limited("a", &["x.com"], 30), limited("b", &["y.com"], 30)]);
+        let read = "front\n1\u{1f}https://x.com/\n2\u{1f}https://y.com/\nok\n";
+        // The first read after an idle stretch has nothing to add.
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, read);
+        assert!(allow.usage.is_empty());
+        step(&c, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, read);
+        step(&c, false, NOW + 10 * SEC, &mut track, &mut allow, &mut calls, read);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 10 * SEC);
+        assert_eq!(allow.usage.used_ms(DAY0, "b"), 0);
+        assert!(writes(&calls).is_empty());
+    }
+
+    #[test]
+    fn a_window_that_could_not_be_read_in_front_counts_nothing() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        let read = "front\n0\u{1f}\n1\u{1f}https://x.com/\nok\n";
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, read);
+        step(&c, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, read);
+        assert!(allow.usage.is_empty());
+    }
+
+    #[test]
+    fn back_counts_nothing() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        let read = "back\n1\u{1f}https://x.com/\nok\n";
+        for k in 0..4 {
+            step(&c, false, NOW + k * 5 * SEC, &mut track, &mut allow, &mut calls, read);
+        }
+        assert!(allow.usage.is_empty());
+        assert_eq!(calls.len(), 4);
+    }
+
+    #[test]
+    fn a_host_in_two_groups_counts_for_both() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let c = day_cfg(vec![
+            limited("a", &["x.com"], 30),
+            limited("b", &["y.com", "x.com"], 60),
+            limited("c", &["x.com"], 0),
+        ]);
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        step(&c, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 5 * SEC);
+        assert_eq!(allow.usage.used_ms(DAY0, "b"), 5 * SEC);
+        // No allowance, no count.
+        assert_eq!(allow.usage.used_ms(DAY0, "c"), 0);
+    }
+
+    #[test]
+    fn the_elapsed_time_is_capped_at_10_s() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        // The Mac slept for an hour.
+        step(&c, false, NOW + 60 * MIN, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 10 * SEC);
+    }
+
+    #[test]
+    fn a_tab_that_is_blocked_already_counts_nothing() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let mut g = limited("a", &["x.com"], 30);
+        g.focus = true;
+        let c = day_cfg(vec![g]);
+        step(&c, true, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        step(&c, true, NOW + 2 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert!(allow.usage.is_empty());
+        assert_eq!(writes(&calls).len(), 2);
+        assert_eq!(writes(&calls)[0].1[2], format!("{BLOCKED_PAGE}#focus"));
+    }
+
+    #[test]
+    fn the_pass_that_reaches_the_limit_redirects_in_the_same_pass() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance {
+            usage: used("a", 2 * MIN - 7 * SEC),
+            ..Allowance::default()
+        };
+        let c = day_cfg(vec![limited("a", &["x.com"], 2)]);
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        let out = step(&c, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert!(writes(&calls).is_empty());
+        assert!(!out.save);
+        assert_eq!(out.wait, Some(TRACK_WAIT));
+        // 5 s more: 2 min 3 s of 2 min.
+        let out = step(&c, false, NOW + 10 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(
+            writes(&calls)[0].1,
+            vec!["1".to_string(), "https://x.com/".to_string(), format!("{BLOCKED_PAGE}#limit")]
+        );
+        assert!(out.save);
+        // Blocking now: the 2 s cadence, and nothing more is counted.
+        assert_eq!(out.wait, Some(ACTIVE_WAIT));
+        let at = allow.usage.used_ms(DAY0, "a");
+        step(&c, false, NOW + 12 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), at);
+        assert_eq!(writes(&calls).len(), 2);
+    }
+
+    #[test]
+    fn the_file_is_due_when_a_whole_minute_passes() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance {
+            usage: used("a", MIN - 7 * SEC),
+            ..Allowance::default()
+        };
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        assert!(!step(&c, false, NOW, &mut track, &mut allow, &mut calls, FRONT_X).save);
+        assert!(!step(&c, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, FRONT_X).save);
+        assert!(step(&c, false, NOW + 10 * SEC, &mut track, &mut allow, &mut calls, FRONT_X).save);
+        assert!(!step(&c, false, NOW + 15 * SEC, &mut track, &mut allow, &mut calls, FRONT_X).save);
+    }
+
+    #[test]
+    fn warn_now_sets_the_warning_once() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance {
+            usage: used("a", 3 * MIN - 7 * SEC),
+            ..Allowance::default()
+        };
+        let c = day_cfg(vec![limited("a", &["x.com"], 8)]);
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        let out = step(&c, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert!(!out.warned);
+        assert_eq!(allow.warning, None);
+        let out = step(&c, false, NOW + 10 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert!(out.warned);
+        assert_eq!(
+            allow.warning,
+            Some(Warning { id: "a".into(), name: "Group a".into(), minutes_left: 5 })
+        );
+        // It stays up, and is not given again.
+        let out = step(&c, false, NOW + 15 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert!(!out.warned);
+        assert!(allow.warning.is_some());
+        // Dismissed, then a larger allowance crossed a second time: no second warning today.
+        allow.warning = None;
+        allow.usage = used("a", 5 * MIN - 2 * SEC);
+        let wider = day_cfg(vec![limited("a", &["x.com"], 10)]);
+        let out = step(&wider, false, NOW + 20 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert!(!out.warned);
+        assert_eq!(allow.warning, None);
+    }
+
+    #[test]
+    fn the_warning_clears_when_the_limit_is_reached() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance {
+            usage: used("a", 8 * MIN - 3 * SEC),
+            day: Some(DAY0),
+            warned: vec!["a".into()],
+            warning: Some(Warning { id: "a".into(), name: "Group a".into(), minutes_left: 5 }),
+            ..Allowance::default()
+        };
+        let c = day_cfg(vec![limited("a", &["x.com"], 8)]);
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert!(allow.warning.is_some());
+        step(&c, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.warning, None);
+        assert_eq!(writes(&calls).len(), 1);
+    }
+
+    #[test]
+    fn the_warning_clears_when_its_group_goes() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance {
+            warning: Some(Warning { id: "a".into(), name: "Group a".into(), minutes_left: 5 }),
+            ..Allowance::default()
+        };
+        let c = day_cfg(vec![limited("b", &["x.com"], 8)]);
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, "back\nok");
+        assert_eq!(allow.warning, None);
+    }
+
+    #[test]
+    fn a_day_change_resets_the_count_and_the_warning() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let c = day_cfg(vec![limited("a", &["x.com"], 2)]);
+        let late = DAY0 + DAY_MS - 20 * SEC;
+        allow.usage = used("a", 2 * MIN);
+        step(&c, false, late, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.day, Some(DAY0));
+        assert_eq!(writes(&calls).len(), 1);
+        allow.warned = vec!["a".into()];
+        allow.warning = Some(Warning { id: "a".into(), name: "Group a".into(), minutes_left: 5 });
+        // Past midnight: yesterday's count is gone, the site opens again.
+        let out = step(&c, false, DAY0 + DAY_MS + SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.day, Some(DAY0 + DAY_MS));
+        assert!(out.save);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 0);
+        assert!(allow.warned.is_empty());
+        assert_eq!(allow.warning, None);
+        assert_eq!(writes(&calls).len(), 1);
+        assert_eq!(out.wait, Some(TRACK_WAIT));
+        // The new day counts from nothing.
+        step(&c, false, DAY0 + DAY_MS + 6 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.usage.used_ms(DAY0 + DAY_MS, "a"), 5 * SEC);
+    }
+
+    #[test]
+    fn the_first_pass_keeps_todays_count_from_the_file() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance {
+            usage: used("a", 2 * MIN),
+            ..Allowance::default()
+        };
+        // Before the first configuration: no midnights, nothing is dropped.
+        let out = step(&Config::default(), false, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 2 * MIN);
+        assert!(!out.save);
+        assert!(calls.is_empty());
+        // Configured, the same day: kept, and nothing to write.
+        let c = day_cfg(vec![limited("a", &["x.com"], 4)]);
+        let out = step(&c, false, NOW, &mut track, &mut allow, &mut calls, "back\nok");
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 2 * MIN);
+        assert!(!out.save);
+    }
+
+    #[test]
+    fn a_closed_browser_keeps_its_10_s_back_off_while_tracking() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let mut allow = Allowance::default();
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        for k in [0, 5, 9] {
+            let out = step(&c, false, NOW + k * SEC, &mut track, &mut allow, &mut calls, "");
+            assert_eq!(out.wait, Some(TRACK_WAIT));
+        }
+        assert_eq!(calls.len(), 1);
+        assert_eq!(track.statuses[0], Status::NotRunning);
+        step(&c, false, NOW + 10 * SEC, &mut track, &mut allow, &mut calls, "");
+        assert_eq!(calls.len(), 2);
+        // Denied: 30 s, as while blocking.
+        let mut track = Track::default();
+        let mut calls = Calls::new();
+        let denied = |_: &str| Run::Failed("(-1743)".into());
+        for k in [0, 5, 29] {
+            super::pass(&c, false, NOW + k * SEC, CHROME_ONLY, &mut track, &mut allow, &mut runner(&mut calls, denied));
+        }
+        assert_eq!(calls.len(), 1);
+        super::pass(&c, false, NOW + 30 * SEC, CHROME_ONLY, &mut track, &mut allow, &mut runner(&mut calls, denied));
+        assert_eq!(calls.len(), 2);
+    }
+
+    // ---- validate ----
+
+    fn lists() -> Lists {
+        Lists {
+            ids: vec!["g-1".into()],
+            names: vec!["Social".into()],
+            domains: vec![vec!["x.com".into()]],
+            focus: vec![false],
+            starts: vec![vec![]],
+            ends: vec![vec![]],
+            limits: vec![30],
+            midnights: vec![NOW - 1, NOW + DAY_MS - 1],
+        }
+    }
+
+    #[test]
+    fn validate_takes_ids_limits_and_midnights() {
+        let c = validate(true, lists(), NOW).unwrap();
+        assert_eq!(c.groups[0].id, "g-1");
+        assert_eq!(c.groups[0].limit_ms, 30 * MIN);
+        assert_eq!(c.midnights, vec![NOW - 1, NOW + DAY_MS - 1]);
+        let mut l = lists();
+        l.limits = vec![0];
+        assert_eq!(validate(true, l, NOW).unwrap().groups[0].limit_ms, 0);
+        let mut l = lists();
+        l.limits = vec![1440];
+        l.midnights = vec![NOW - 2 * DAY_MS, NOW + 17 * DAY_MS];
+        assert!(validate(true, l, NOW).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_ids_of_a_different_length() {
+        let mut l = lists();
+        l.ids.push("g-2".into());
+        assert!(validate(true, l, NOW).is_err());
+        let mut l = lists();
+        l.ids.clear();
+        assert!(validate(true, l, NOW).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_limits_of_a_different_length() {
+        let mut l = lists();
+        l.limits.push(5);
+        assert!(validate(true, l, NOW).is_err());
+        let mut l = lists();
+        l.limits.clear();
+        assert!(validate(true, l, NOW).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_a_bad_id() {
+        for bad in ["", "a b", "a\tb", "https://x.com/", &"a".repeat(65)] {
+            let mut l = lists();
+            l.ids = vec![bad.to_string()];
+            assert!(validate(true, l, NOW).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_duplicate_ids() {
+        let mut l = lists();
+        l.ids = vec!["g-1".into(), "g-1".into()];
+        l.names.push("News".into());
+        l.domains.push(vec![]);
+        l.focus.push(true);
+        l.starts.push(vec![]);
+        l.ends.push(vec![]);
+        l.limits.push(0);
+        assert_eq!(validate(true, l.clone(), NOW), Err("duplicate group id".into()));
+        l.ids[1] = "g-2".into();
+        assert!(validate(true, l, NOW).is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_a_limit_over_1440() {
+        let mut l = lists();
+        l.limits = vec![1441];
+        assert!(validate(true, l, NOW).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_empty_midnights() {
+        let mut l = lists();
+        l.midnights.clear();
+        assert!(validate(true, l, NOW).is_err());
+        // And more than 20.
+        let mut l = lists();
+        l.midnights = (0..21).map(|i| NOW + i * 1_000).collect();
+        assert!(validate(true, l, NOW).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_unsorted_midnights() {
+        let mut l = lists();
+        l.midnights = vec![NOW + DAY_MS, NOW];
+        assert!(validate(true, l, NOW).is_err());
+        let mut l = lists();
+        l.midnights = vec![NOW, NOW];
+        assert!(validate(true, l, NOW).is_err());
+    }
+
+    #[test]
+    fn validate_rejects_midnights_out_of_range() {
+        let mut l = lists();
+        l.midnights = vec![NOW - 2 * DAY_MS - 1];
+        assert!(validate(true, l, NOW).is_err());
+        let mut l = lists();
+        l.midnights = vec![NOW + 17 * DAY_MS + 1];
+        assert!(validate(true, l, NOW).is_err());
+    }
+
+    // ---- state_json ----
+
+    #[test]
+    fn state_json_golden_with_usage() {
+        let c = day_cfg(vec![
+            limited("g-1", &["x.com"], 30),
+            limited("g-2", &["y.com"], 0),
+            limited("g-3", &["z.com"], 2),
+        ]);
+        let mut u = used("g-1", 13 * MIN - 1);
+        u.add(DAY0, "g-3", 2 * MIN + 4 * SEC);
+        u.add(DAY0 + DAY_MS, "g-1", 29 * MIN);
+        let s = [Status::Ok, Status::NotInstalled, Status::NotInstalled, Status::NotInstalled];
+        assert_eq!(
+            super::state_json(&c, true, &s, &u, DAY0, None),
+            "{\"enabled\":true,\"active\":true,\"browsers\":[\
+{\"name\":\"Google Chrome\",\"status\":\"ok\"},\
+{\"name\":\"Safari\",\"status\":\"not_installed\"},\
+{\"name\":\"Brave Browser\",\"status\":\"not_installed\"},\
+{\"name\":\"Microsoft Edge\",\"status\":\"not_installed\"}],\
+\"usage\":[{\"id\":\"g-1\",\"usedMinutes\":12,\"limitMinutes\":30},\
+{\"id\":\"g-3\",\"usedMinutes\":2,\"limitMinutes\":2}],\
+\"warning\":null}"
+        );
+    }
+
+    #[test]
+    fn state_json_used_minutes_round_down() {
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        let s = [Status::Unknown; 4];
+        for (ms, want) in [(0, 0), (MIN - 1, 0), (MIN, 1), (2 * MIN - 1, 1), (29 * MIN + 59 * SEC, 29)] {
+            let json = super::state_json(&c, false, &s, &used("a", ms), DAY0, None);
+            assert!(json.contains(&format!("\"usedMinutes\":{want},")), "{ms}: {json}");
+        }
+    }
+
+    #[test]
+    fn state_json_golden_with_a_warning() {
+        let c = day_cfg(vec![limited("a", &["x.com"], 8)]);
+        let w = Warning { id: "a".into(), name: "So \"cial\"".into(), minutes_left: 5 };
+        let json = super::state_json(&c, false, &[Status::Unknown; 4], &used("a", 3 * MIN), DAY0, Some(&w));
+        assert!(json.ends_with(
+            "\"usage\":[{\"id\":\"a\",\"usedMinutes\":3,\"limitMinutes\":8}],\
+\"warning\":{\"id\":\"a\",\"name\":\"So \\\"cial\\\"\",\"minutesLeft\":5}}"
+        ), "{json}");
+        // Never a URL or a domain.
+        assert!(!json.contains("x.com"));
     }
 }

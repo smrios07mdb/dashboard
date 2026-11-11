@@ -13,11 +13,15 @@
 //! session and its overlay windows. Open at login (chunk 97) lives in
 //! `login.rs`: one LaunchAgent plist. Saved sessions (chunk 98) live in
 //! `sessions.rs`: the ledger of finished focus and breathing sessions, kept
-//! until the web view has written each one. The plist and the ledger are the
-//! two files the shell writes.
+//! until the web view has written each one. Site blocking (chunk 99) lives
+//! in `blocker.rs`, the tab watcher, and its daily allowance (chunk 100) in
+//! `allowance.rs`: today's count per block group, kept in `usage.tsv`. The
+//! plist, the ledger and the usage file are the three files the shell
+//! writes.
 //!
 //! Commands are named in `menubar/src/native.ts` — keep the two in step.
 
+mod allowance;
 mod blocker;
 mod login;
 mod meditation;
@@ -292,7 +296,8 @@ pub fn run() {
             sessions::sessions_clear,
             blocker::blocker_configure,
             blocker::blocker_state,
-            blocker::blocker_check
+            blocker::blocker_check,
+            blocker::blocker_dismiss_warning
         ])
         .on_window_event(|w, event| {
             // Hidden on blur (D7).
@@ -351,8 +356,13 @@ pub fn run() {
             pomodoro::spawn_loop(app.handle().clone(), TRAY_ID)?;
             // Meditation (chunk 96): the reminder clock and the session.
             meditation::spawn_loop(app.handle().clone())?;
+            // The daily allowance (chunk 100): read today's count a previous
+            // run left, before the watcher can count or block.
+            if let Ok(dir) = app.path().app_data_dir() {
+                app.state::<blocker::Blocker>().load(dir);
+            }
             // Site blocking (chunk 99): the tab watcher. Idle until a block
-            // is active.
+            // is active or an allowance is open.
             blocker::spawn_loop(app.handle().clone())?;
             Ok(())
         })

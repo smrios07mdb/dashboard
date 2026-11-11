@@ -5,6 +5,7 @@ import {
   daysLabel,
   isValidDomain,
   normalizeDomain,
+  parseDailyMinutes,
   ruleSummary,
 } from './blockRules'
 import html from '../../public/blocked.html?raw'
@@ -49,7 +50,44 @@ describe('ruleSummary', () => {
     scheduleDays: [1, 2, 3, 4, 5],
     scheduleFrom: '09:00',
     scheduleTo: '17:00',
+    dailyLimitOn: false,
+    dailyLimitMinutes: 30,
   }
+
+  it('reads every combination of the three triggers (chunk 100)', () => {
+    const F = 'Focus'
+    const S = 'Mon–Fri 9:00 AM – 5:00 PM'
+    const L = '30 min a day'
+    const want: [boolean, boolean, boolean, string][] = [
+      [false, false, false, 'No trigger'],
+      [true, false, false, F],
+      [false, true, false, S],
+      [false, false, true, L],
+      [true, true, false, `${F} · ${S}`],
+      [true, false, true, `${F} · ${L}`],
+      [false, true, true, `${S} · ${L}`],
+      [true, true, true, `${F} · ${S} · ${L}`],
+    ]
+    for (const [blockInFocus, blockOnSchedule, dailyLimitOn, text] of want) {
+      expect(
+        ruleSummary({ ...base, blockInFocus, blockOnSchedule, dailyLimitOn }),
+      ).toBe(text)
+    }
+    // The minutes are read only while the allowance is on.
+    expect(
+      ruleSummary({ ...base, dailyLimitOn: true, dailyLimitMinutes: 1 }),
+    ).toBe('1 min a day')
+    expect(ruleSummary({ ...base, dailyLimitMinutes: 90 })).toBe('No trigger')
+  })
+
+  it('parseDailyMinutes takes 1 to 1440 whole minutes (chunk 100)', () => {
+    expect(parseDailyMinutes('1')).toBe(1)
+    expect(parseDailyMinutes(' 30 ')).toBe(30)
+    expect(parseDailyMinutes('1440')).toBe(1440)
+    for (const bad of ['', ' ', '0', '1441', '1.5', '-5', '1e2', 'abc', '99999']) {
+      expect(parseDailyMinutes(bad)).toBeNull()
+    }
+  })
 
   it('reads each combination', () => {
     expect(ruleSummary(base)).toBe('No trigger')
@@ -77,6 +115,17 @@ describe('public/blocked.html (chunk 99, D12)', () => {
     expect(html).not.toMatch(/<script/i)
     expect(html).not.toMatch(/https?:\/\//)
     expect(html).not.toMatch(/src="\/|href="\//)
+  })
+
+  it('has a third :target reason for a used-up allowance (chunk 100)', () => {
+    expect(html.match(/<p id="[a-z]+" class="reason">/g)).toEqual([
+      '<p id="focus" class="reason">',
+      '<p id="schedule" class="reason">',
+      '<p id="limit" class="reason">',
+    ])
+    expect(html.replace(/\s+/g, ' ')).toContain(
+      "Today's time for these sites is used up. It opens again tomorrow.",
+    )
   })
 
   it('has both :target ids, the title and the noindex', () => {

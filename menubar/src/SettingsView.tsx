@@ -23,7 +23,7 @@ import {
 import type { BlockGroup } from '@/db/types'
 import { ruleSummary } from '@/lib/blockRules'
 
-import type { BlockerState, BrowserStatus } from './blocker'
+import type { BlockerState, BlockerUsage, BrowserStatus } from './blocker'
 import { readBlockerPrefs, saveBlockerPrefs } from './blockerPrefs'
 import {
   accelFromEvent,
@@ -634,6 +634,12 @@ const BROWSER_STATUS: Record<BrowserStatus, string> = {
   unknown: 'Checked when a block starts',
 }
 
+/** `12 of 30 min today`; once reached, `· blocked until midnight` (chunk 100, D17). */
+function usageLine(u: BlockerUsage): string {
+  const line = `${u.usedMinutes} of ${u.limitMinutes} min today`
+  return u.usedMinutes >= u.limitMinutes ? `${line} · blocked until midnight` : line
+}
+
 function BlockingSettings({ backend }: { backend: BlockingBackend }) {
   const [onMac, setOnMac] = useState(() => readBlockerPrefs().enabled)
   const [groups, setGroups] = useState<BlockGroup[] | null>(null)
@@ -695,6 +701,10 @@ function BlockingSettings({ backend }: { backend: BlockingBackend }) {
   }
 
   const browsers = (state?.browsers ?? []).filter((b) => b.status !== 'not_installed')
+  // Today's count, live through the `blocker` event. Only for a group the
+  // dashboard gave an allowance (the shell lists every such group it holds).
+  const usageOf = (g: BlockGroup) =>
+    g.dailyLimitOn ? (state?.usage ?? []).find((u) => u.id === g.id) : undefined
 
   return (
     <Section label="Blocking">
@@ -712,6 +722,11 @@ function BlockingSettings({ backend }: { backend: BlockingBackend }) {
           <span className="mb-set-note">
             {`${g.domains.length} sites`} · {ruleSummary(g)}
           </span>
+          {usageOf(g) ? (
+            <span className="mb-set-note" data-usage={g.id}>
+              {usageLine(usageOf(g)!)}
+            </span>
+          ) : null}
         </div>
       ))}
       {browsers.map((b) => (

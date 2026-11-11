@@ -339,9 +339,11 @@ export function watchSessions(onAdded: () => void): () => void {
 }
 
 /*
- * Site blocking (chunk 99). The shell watches the active tab of each
- * supported browser (`blocker.rs`) with its own fixed AppleScript; nothing
- * here carries script text, and no URL ever comes back. Each command
+ * Site blocking (chunk 99; the daily allowance, chunk 100). The shell
+ * watches the active tab of each supported browser (`blocker.rs`) with its
+ * own fixed AppleScript, and counts a group's allowance while one of its
+ * sites is in front; nothing here carries script text, and no URL ever
+ * comes back. Each command
  * answers the state. Outside Tauri: `null`, and nothing is sent.
  */
 
@@ -352,12 +354,21 @@ export async function blockerConfigure(
   if (!inTauri()) return null
   return invoke<BlockerState>('blocker_configure', {
     enabled: config.enabled,
+    ids: config.ids,
     names: config.names,
     domains: config.domains,
     focus: config.focus,
     starts: config.starts,
     ends: config.ends,
+    limits: config.limits,
+    midnights: config.midnights,
   })
+}
+
+/** **OK** on the five-minute allowance warning (chunk 100). */
+export async function blockerDismissWarning(): Promise<BlockerState | null> {
+  if (!inTauri()) return null
+  return invoke<BlockerState>('blocker_dismiss_warning')
 }
 
 export async function blockerState(): Promise<BlockerState | null> {

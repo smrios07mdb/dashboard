@@ -97,6 +97,8 @@ function aRow(over: Partial<BlockGroupRow> = {}): BlockGroupRow {
     schedule_days: [1, 2, 3, 4, 5],
     schedule_from: '09:00:00',
     schedule_to: '17:30:00',
+    daily_limit_on: false,
+    daily_limit_minutes: 30,
     sort_order: 0,
     created_at: '2026-11-11T14:00:00+00:00',
     updated_at: '2026-11-11T14:00:00+00:00',
@@ -128,6 +130,8 @@ describe('block group mappers', () => {
       scheduleDays: [1, 2, 3, 4, 5],
       scheduleFrom: '09:00',
       scheduleTo: '17:30',
+      dailyLimitOn: false,
+      dailyLimitMinutes: 30,
       sortOrder: 0,
       createdAt: '2026-11-11T14:00:00+00:00',
       updatedAt: '2026-11-11T14:00:00+00:00',
@@ -136,6 +140,30 @@ describe('block group mappers', () => {
       aRow({ schedule_from: '09:00', schedule_to: '17:30' }),
     )
     expect(blockGroupFromRow(blockGroupToRow(g) as BlockGroupRow)).toEqual(g)
+  })
+
+  it('round-trips the daily allowance (chunk 100)', () => {
+    const row = aRow({ daily_limit_on: true, daily_limit_minutes: 45 })
+    const g = blockGroupFromRow(row)
+    expect(g).toMatchObject({ dailyLimitOn: true, dailyLimitMinutes: 45 })
+    expect(blockGroupToRow(g)).toMatchObject({
+      daily_limit_on: true,
+      daily_limit_minutes: 45,
+    })
+    expect(blockGroupFromRow(blockGroupToRow(g) as BlockGroupRow)).toEqual(g)
+    expect(
+      blockGroupToRow({ dailyLimitOn: false, dailyLimitMinutes: 1440 }),
+    ).toEqual({ daily_limit_on: false, daily_limit_minutes: 1440 })
+  })
+
+  it('a row read before migration 24 has no allowance', () => {
+    const old = aRow()
+    delete old.daily_limit_on
+    delete old.daily_limit_minutes
+    expect(blockGroupFromRow(old)).toMatchObject({
+      dailyLimitOn: false,
+      dailyLimitMinutes: 30,
+    })
   })
 
   it('toRow emits only the keys it was given', () => {
@@ -253,6 +281,33 @@ describe('repo.blockGroups — online', () => {
     expect(await db.block_groups.get(ID)).toMatchObject({ enabled: false })
   })
 
+  it('create sends no allowance by default; update sends the two fields (chunk 100)', async () => {
+    respond(aRow())
+    await repo.blockGroups.create({ userId: 'u-1', id: ID })
+    expect(call('insert')?.args[0]).toMatchObject({
+      daily_limit_on: false,
+      daily_limit_minutes: 30,
+    })
+    chainCalls.length = 0
+    respond(aRow({ daily_limit_on: true, daily_limit_minutes: 45 }))
+    const out = await repo.blockGroups.update(ID, {
+      dailyLimitOn: true,
+      dailyLimitMinutes: 45,
+    })
+    const payload = call('update')?.args[0] as Record<string, unknown>
+    expect(Object.keys(payload).sort()).toEqual([
+      'daily_limit_minutes',
+      'daily_limit_on',
+      'updated_at',
+    ])
+    expect(payload).toMatchObject({ daily_limit_on: true, daily_limit_minutes: 45 })
+    expect(out).toMatchObject({ dailyLimitOn: true, dailyLimitMinutes: 45 })
+    expect(await db.block_groups.get(ID)).toMatchObject({
+      dailyLimitOn: true,
+      dailyLimitMinutes: 45,
+    })
+  })
+
   it('delete removes the row', async () => {
     await db.block_groups.put(blockGroupFromRow(aRow()))
     respond(null)
@@ -320,6 +375,31 @@ describe('repo.blockGroups — offline', () => {
     })
     expect(ins?.args[0]).not.toHaveProperty('userId')
     expect(await db.block_groups.get(ID)).toMatchObject({ scheduleTo: '17:30' })
+  })
+
+  it('an allowance update goes through the outbox (chunk 100)', async () => {
+    await db.block_groups.put(blockGroupFromRow(aRow()))
+    const out = await repo.blockGroups.update(ID, {
+      dailyLimitOn: true,
+      dailyLimitMinutes: 20,
+    })
+    expect(fromMock).not.toHaveBeenCalled()
+    expect(out).toMatchObject({ dailyLimitOn: true, dailyLimitMinutes: 20 })
+    expect(await db.block_groups.get(ID)).toMatchObject({
+      dailyLimitOn: true,
+      dailyLimitMinutes: 20,
+    })
+    isOnlineMock.mockReturnValue(true)
+    respond(aRow({ daily_limit_on: true, daily_limit_minutes: 20 }))
+    const res = await drainOutbox()
+    expect(res).toMatchObject({ processed: 1, remaining: 0 })
+    const sent = call('update')?.args[0] as Record<string, unknown>
+    expect(sent).toMatchObject({ daily_limit_on: true, daily_limit_minutes: 20 })
+    expect(sent).not.toHaveProperty('dailyLimitOn')
+    expect(await db.block_groups.get(ID)).toMatchObject({
+      dailyLimitOn: true,
+      dailyLimitMinutes: 20,
+    })
   })
 
   it('list falls back to the mirror, in order', async () => {

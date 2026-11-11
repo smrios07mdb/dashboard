@@ -489,6 +489,8 @@ describe('SettingsView — Blocking (chunk 99, D21)', () => {
       scheduleDays: [1, 2, 3, 4, 5],
       scheduleFrom: '09:00',
       scheduleTo: '17:00',
+      dailyLimitOn: false,
+      dailyLimitMinutes: 30,
       sortOrder: 0,
       createdAt: 'x',
       updatedAt: 'x',
@@ -561,6 +563,61 @@ describe('SettingsView — Blocking (chunk 99, D21)', () => {
     expect(b.sync).toHaveBeenCalledTimes(1)
   })
 
+  describe('the daily allowance (chunk 100, D17)', () => {
+    const state = (usage: BlockerState['usage']): BlockerState => ({
+      enabled: true,
+      active: false,
+      browsers: [],
+      usage,
+      warning: null,
+    })
+    const usageRow = (view: { container: HTMLElement }, id: string) =>
+      view.container.querySelector(`[data-usage="${id}"]`)
+
+    it('a group with an allowance reads its summary and today\'s usage, live', async () => {
+      const { b, emit } = blockingBackend(
+        [aGroup({ dailyLimitOn: true, dailyLimitMinutes: 30 })],
+        state([{ id: 'g-1', usedMinutes: 12, limitMinutes: 30 }]),
+      )
+      const { view } = setup({ blocking: b })
+      await settle()
+      expect(
+        screen.getByText(/2 sites · Focus · Mon–Fri 9:00 AM – 5:00 PM · 30 min a day/),
+      ).toBeInTheDocument()
+      expect(usageRow(view, 'g-1')?.textContent).toBe('12 of 30 min today')
+      act(() => emit(state([{ id: 'g-1', usedMinutes: 13, limitMinutes: 30 }])))
+      expect(usageRow(view, 'g-1')?.textContent).toBe('13 of 30 min today')
+    })
+
+    it('once reached it reads "blocked until midnight"', async () => {
+      const { b } = blockingBackend(
+        [aGroup({ dailyLimitOn: true, dailyLimitMinutes: 30 })],
+        state([{ id: 'g-1', usedMinutes: 30, limitMinutes: 30 }]),
+      )
+      const { view } = setup({ blocking: b })
+      await settle()
+      expect(usageRow(view, 'g-1')?.textContent).toBe(
+        '30 of 30 min today · blocked until midnight',
+      )
+    })
+
+    it('no usage line for a group without an allowance, or before the shell has it', async () => {
+      const { b } = blockingBackend(
+        [
+          aGroup({ id: 'plain', name: 'Plain' }),
+          aGroup({ id: 'fresh', name: 'Fresh', dailyLimitOn: true }),
+        ],
+        // A stale entry for a group whose allowance was just switched off.
+        state([{ id: 'plain', usedMinutes: 3, limitMinutes: 30 }]),
+      )
+      const { view } = setup({ blocking: b })
+      await settle()
+      expect(usageRow(view, 'plain')).toBeNull()
+      expect(usageRow(view, 'fresh')).toBeNull()
+      expect(screen.queryByText(/min today/)).toBeNull()
+    })
+  })
+
   it('shows each installed browser\'s status; denied offers the settings button', async () => {
     const { b, emit } = blockingBackend([], {
       enabled: true,
@@ -571,6 +628,8 @@ describe('SettingsView — Blocking (chunk 99, D21)', () => {
         { name: 'Brave Browser', status: 'not_installed' },
         { name: 'Microsoft Edge', status: 'unknown' },
       ],
+      usage: [],
+      warning: null,
     })
     const { view } = setup({ blocking: b })
     await settle()
@@ -588,6 +647,8 @@ describe('SettingsView — Blocking (chunk 99, D21)', () => {
         enabled: true,
         active: true,
         browsers: [{ name: 'Safari', status: 'timeout' }],
+        usage: [],
+        warning: null,
       }),
     )
     expect(row('Safari')?.textContent).toContain("Didn't respond")
@@ -598,6 +659,8 @@ describe('SettingsView — Blocking (chunk 99, D21)', () => {
       enabled: true,
       active: false,
       browsers: [{ name: 'Google Chrome', status: 'not_running' }],
+      usage: [],
+      warning: null,
     })
     setup({ blocking: b })
     await settle()

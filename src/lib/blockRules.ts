@@ -1,5 +1,6 @@
 /*
- * Site-blocking rules (chunk 99, ARCHITECTURE.md §4 "Block groups"). Pure.
+ * Site-blocking rules (chunk 99; the daily allowance, chunk 100 —
+ * ARCHITECTURE.md §4 "Block groups"). Pure.
  *
  * A domain is stored lowercase, without scheme, path, port or a leading
  * `www.`. A rule for `x.com` matches `x.com` and every subdomain, never
@@ -11,6 +12,16 @@ import type { BlockGroup } from '@/db/types'
 export const MAX_GROUPS = 20
 export const MAX_DOMAINS = 50
 export const MAX_NAME = 40
+/** Chunk 100: a daily allowance is 1–1440 whole minutes. */
+export const MAX_DAILY_MINUTES = 1440
+
+/** What the `Minutes a day` input holds → the minutes, or `null`. */
+export function parseDailyMinutes(input: string): number | null {
+  const s = input.trim()
+  if (!/^\d{1,4}$/.test(s)) return null
+  const n = Number(s)
+  return n >= 1 && n <= MAX_DAILY_MINUTES ? n : null
+}
 
 const DOMAIN_RE = /^[a-z0-9.-]{1,253}$/
 
@@ -67,7 +78,10 @@ export function daysLabel(days: number[]): string {
   return ordered.map((d) => SHORT_DAYS[d]).join(', ')
 }
 
-/** `Focus`, `Mon–Fri 9:00 AM – 5:00 PM`, both joined by ` · `, or `No trigger`. */
+/**
+ * `Focus`, `Mon–Fri 9:00 AM – 5:00 PM`, `30 min a day` (chunk 100), the ones
+ * that are on joined by ` · `, or `No trigger` when all three are off.
+ */
 export function ruleSummary(
   group: Pick<
     BlockGroup,
@@ -76,6 +90,8 @@ export function ruleSummary(
     | 'scheduleDays'
     | 'scheduleFrom'
     | 'scheduleTo'
+    | 'dailyLimitOn'
+    | 'dailyLimitMinutes'
   >,
 ): string {
   const parts: string[] = []
@@ -85,5 +101,6 @@ export function ruleSummary(
       `${daysLabel(group.scheduleDays)} ${clockLabel(group.scheduleFrom)} – ${clockLabel(group.scheduleTo)}`,
     )
   }
+  if (group.dailyLimitOn) parts.push(`${group.dailyLimitMinutes} min a day`)
   return parts.length ? parts.join(' · ') : 'No trigger'
 }

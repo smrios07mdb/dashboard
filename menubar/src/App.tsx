@@ -27,10 +27,12 @@ import { startSyncRunner } from '@/lib/syncRunner'
 
 import {
   createBlockerSync,
-  DISABLED_CONFIG,
+  disabledConfig,
+  type BlockerWarning,
 } from './blocker'
 import { readBlockerPrefs } from './blockerPrefs'
 import { createCheckOff, type CheckOff, type CheckOffState } from './checkOff'
+import AllowancePanel from './AllowancePanel'
 import FocusHeader from './FocusHeader'
 import { createHotkeys } from './hotkeys'
 import { loadToday } from './loadToday'
@@ -39,6 +41,7 @@ import MeditationPanel from './MeditationPanel'
 import {
   blockerCheck,
   blockerConfigure,
+  blockerDismissWarning,
   blockerState,
   hidePopover,
   meditationConfigure,
@@ -373,6 +376,38 @@ export default function App() {
       offPomo()
     }
   }, [blocker])
+  // The daily allowance's five-minute warning (chunk 100, D16): the shell
+  // counts and drops the panel; this holds the last warning it sent. Read
+  // again on each show, as the hidden web view is suspended.
+  const [warning, setWarning] = useState<BlockerWarning | null>(null)
+  useEffect(() => {
+    if (!blocker) return
+    let live = true
+    const read = () =>
+      void blockerState()
+        .then((s) => {
+          if (live && s) setWarning(s.warning ?? null)
+        })
+        .catch((e: unknown) => console.error('menubar: blocker state not read', e))
+    read()
+    const offState = watchBlocker((s) => {
+      if (live) setWarning(s.warning ?? null)
+    })
+    const offShown = watchPopover((shown) => {
+      if (shown) read()
+    })
+    return () => {
+      live = false
+      offState()
+      offShown()
+    }
+  }, [blocker])
+  function dismissWarning() {
+    setWarning(null)
+    void blockerDismissWarning().catch((e: unknown) =>
+      console.error('menubar: warning not dismissed', e),
+    )
+  }
   const blocking = useMemo<BlockingBackend | undefined>(
     () =>
       blocker
@@ -416,7 +451,7 @@ export default function App() {
       void blocker?.sync()
     } else {
       // Site blocking (chunk 99, D7): signed out lifts every block.
-      void blockerConfigure(DISABLED_CONFIG).catch((e: unknown) =>
+      void blockerConfigure(disabledConfig()).catch((e: unknown) =>
         console.error('menubar: blocker not cleared', e),
       )
       // The stop and the end can each put one last session in the ledger;
@@ -446,7 +481,7 @@ export default function App() {
   }
   async function signOut() {
     blocker?.stop()
-    await Promise.allSettled([stopRunning(), blockerConfigure(DISABLED_CONFIG)])
+    await Promise.allSettled([stopRunning(), blockerConfigure(disabledConfig())])
     await sessions?.drainWithin(DRAIN_MS)
     await signOutUser()
   }
@@ -513,6 +548,7 @@ export default function App() {
             hotkey={hk.bound.meditate}
             hotkeyError={hk.failed.meditate ?? null}
           />
+          <AllowancePanel warning={warning} onDismiss={dismissWarning} />
           {settings ? (
             <SettingsView
               pomodoro={pomodoro}

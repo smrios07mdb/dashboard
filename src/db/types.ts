@@ -139,6 +139,10 @@ export type BlockGroup = {
   scheduleDays: number[]
   scheduleFrom: string
   scheduleTo: string
+  /** Chunk 100: a daily allowance, shared by the group's sites. */
+  dailyLimitOn: boolean
+  /** Minutes a day, 1–1440; read only while `dailyLimitOn`. */
+  dailyLimitMinutes: number
   sortOrder: number
   createdAt: string
   updatedAt: string

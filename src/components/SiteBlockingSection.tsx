@@ -14,13 +14,15 @@ import {
   MAX_GROUPS,
   MAX_NAME,
   normalizeDomain,
+  parseDailyMinutes,
 } from '@/lib/blockRules'
 import { SettingsRow, SettingsSection } from '@/screens/Settings'
 import { useUIStore } from '@/state/uiStore'
 
 /*
- * Settings › Site blocking (chunk 99, ARCHITECTURE.md §13 / D11). Edits the
- * `block_groups` rows the menu bar app enforces on the Mac. Built from the
+ * Settings › Site blocking (chunk 99, ARCHITECTURE.md §13 / D11; the daily
+ * allowance, chunk 100 / D10). Edits the `block_groups` rows the menu bar app
+ * enforces on the Mac. Built from the
  * existing Settings row, switch, input and confirm-dialog patterns. Every
  * change saves at once through `repo.blockGroups`.
  */
@@ -184,6 +186,7 @@ function GroupBlock({
   const [nameDraft, setNameDraft] = useState<string | null>(null)
   const [site, setSite] = useState('')
   const [siteError, setSiteError] = useState<string | null>(null)
+  const [minutesDraft, setMinutesDraft] = useState<string | null>(null)
   const nameRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -236,6 +239,20 @@ function GroupBlock({
   }
 
   const pastMidnight = group.scheduleTo <= group.scheduleFrom
+
+  // A row cached before chunk 100 has neither field.
+  const limitOn = group.dailyLimitOn === true
+  const savedMinutes = group.dailyLimitMinutes ?? 30
+  const minutesValue = minutesDraft ?? String(savedMinutes)
+  const minutes = parseDailyMinutes(minutesValue)
+
+  /** Blur and Enter: a valid value saves; an invalid one is not saved. */
+  function commitMinutes() {
+    if (minutesDraft === null) return
+    setMinutesDraft(null)
+    if (minutes === null || minutes === savedMinutes) return
+    void onSave({ dailyLimitMinutes: minutes })
+  }
 
   return (
     <div role="group" aria-label={group.name}>
@@ -398,6 +415,49 @@ function GroupBlock({
               <p className="text-[12px] leading-relaxed text-ink-3">
                 Times follow your Mac's clock.
                 {pastMidnight && ' Runs past midnight.'}
+              </p>
+            </div>
+          )}
+
+          <SwitchRow
+            label="Daily allowance"
+            checked={limitOn}
+            onChange={(v) => void onSave({ dailyLimitOn: v })}
+          />
+
+          {limitOn && (
+            <div className="space-y-2" data-testid="allowance-row">
+              <label className="flex items-center gap-1.5 text-[13px] text-ink">
+                Minutes a day
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={1440}
+                  step={1}
+                  aria-label="Minutes a day"
+                  value={minutesValue}
+                  aria-invalid={minutes === null}
+                  className={`w-24 ${minutes === null ? INVALID_SHADOW : ''}`}
+                  onChange={(e) => setMinutesDraft(e.target.value)}
+                  onBlur={commitMinutes}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (minutes !== null) commitMinutes()
+                    } else if (e.key === 'Escape') {
+                      setMinutesDraft(null)
+                    }
+                  }}
+                />
+              </label>
+              {minutes === null && (
+                <p className="text-[12px] text-destructive" role="status">
+                  1 to 1440 minutes
+                </p>
+              )}
+              <p className="text-[12px] leading-relaxed text-ink-3">
+                Counted on your Mac while the site is the tab in front. Resets
+                at midnight.
               </p>
             </div>
           )}

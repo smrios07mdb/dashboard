@@ -11,6 +11,8 @@ const h = vi.hoisted(() => ({
   save: vi.fn(async (row: unknown) => row),
   /** Every `watchPomodoro` listener, so a test can send a snapshot. */
   pomodoro: new Set<() => void>(),
+  /** Every `watchBlocker` listener, so a test can send the shell's state. */
+  blocker: new Set<(s: unknown) => void>(),
   listGroups: vi.fn(async () => [] as unknown[]),
   signOutUser: vi.fn(async () => {}),
 }))
@@ -72,6 +74,7 @@ vi.mock('./native', () => {
     'blockerConfigure',
     'blockerState',
     'blockerCheck',
+    'blockerDismissWarning',
   ]
   for (const n of names) h.native[n] = vi.fn(nothing)
   for (const n of ['setTrayTitle', 'setPopoverHeight', 'hidePopover', 'openDashboard', 'quitApp', 'openAutomationSettings']) {
@@ -88,7 +91,10 @@ vi.mock('./native', () => {
       h.pomodoro.add(on)
       return () => h.pomodoro.delete(on)
     },
-    watchBlocker: () => () => {},
+    watchBlocker: (on: (s: unknown) => void) => {
+      h.blocker.add(on)
+      return () => h.blocker.delete(on)
+    },
     watchMeditation: () => () => {},
     watchSessions: (on: () => void) => {
       h.sessions.add(on)
@@ -98,6 +104,7 @@ vi.mock('./native', () => {
 })
 
 import App from './App'
+import { midnightsFrom } from './blockSchedule'
 import { DEFAULT_POMODORO } from './pomodoroPrefs'
 
 const show = () =>
@@ -625,17 +632,22 @@ describe('menubar App — site blocking (chunk 99, D20)', () => {
     scheduleDays: [1, 2, 3, 4, 5],
     scheduleFrom: '09:00',
     scheduleTo: '17:00',
+    dailyLimitOn: false,
+    dailyLimitMinutes: 30,
     sortOrder: 0,
     createdAt: '2026-11-01T00:00:00Z',
     updatedAt: '2026-11-01T00:00:00Z',
   }
   const DISABLED = {
     enabled: false,
+    ids: [],
     names: [],
     domains: [],
     focus: [],
     starts: [],
     ends: [],
+    limits: [],
+    midnights: midnightsFrom(new Date()),
   }
 
   beforeEach(() => {
@@ -663,12 +675,28 @@ describe('menubar App — site blocking (chunk 99, D20)', () => {
     await waitFor(() =>
       expect(h.native.blockerConfigure).toHaveBeenCalledWith({
         enabled: true,
+        ids: ['g1'],
         names: ['Social'],
         domains: [['x.com']],
         focus: [true],
         starts: [[]],
         ends: [[]],
+        limits: [0],
+        midnights: midnightsFrom(new Date()),
       }),
+    )
+  })
+
+  it('a group with an allowance sends its minutes (chunk 100)', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    h.listGroups.mockResolvedValue([
+      { ...group, blockInFocus: false, dailyLimitOn: true, dailyLimitMinutes: 45 },
+    ])
+    render(<App />)
+    await waitFor(() =>
+      expect(h.native.blockerConfigure).toHaveBeenCalledWith(
+        expect.objectContaining({ ids: ['g1'], limits: [45], focus: [false] }),
+      ),
     )
   })
 
@@ -707,5 +735,121 @@ describe('menubar App — site blocking (chunk 99, D20)', () => {
     await waitFor(() =>
       expect(h.native.blockerConfigure).toHaveBeenCalledWith(DISABLED),
     )
+  })
+})
+
+describe('menubar App — the allowance warning (chunk 100, D16)', () => {
+  const DUE = {
+    status: 'due',
+    dueAt: Date.now(),
+    startedAt: null,
+    endsAt: null,
+    length: 5,
+    pauseSpotify: true,
+    nextDueAt: null,
+  }
+  const stateWith = (warning: unknown) => ({
+    enabled: true,
+    active: false,
+    browsers: [],
+    usage: [{ id: 'g1', usedMinutes: 25, limitMinutes: 30 }],
+    warning,
+  })
+  const WARNING = { id: 'g1', name: 'Social', minutesLeft: 5 }
+
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+    localStorage.clear()
+    for (const f of Object.values(h.native)) f.mockClear()
+    h.popover.clear()
+    h.pomodoro.clear()
+    h.blocker.clear()
+    h.listGroups.mockReset()
+    h.listGroups.mockResolvedValue([])
+    h.session = { user: { id: 'u1' }, loading: false }
+  })
+  afterEach(() => {
+    h.native.meditationConfigure.mockResolvedValue(null)
+    h.native.blockerState.mockResolvedValue(null)
+  })
+
+  const follows = (a: HTMLElement, b: HTMLElement) =>
+    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+  const panel = () => screen.queryByRole('region', { name: 'Allowance warning' })
+
+  it('no panel without a warning', async () => {
+    h.native.blockerState.mockResolvedValue(stateWith(null))
+    render(<App />)
+    await screen.findByRole('region', { name: 'Focus' })
+    await act(async () => {})
+    expect(panel()).toBeNull()
+  })
+
+  it('sits under the meditation panel and above the focus header, on both tabs', async () => {
+    h.native.meditationConfigure.mockResolvedValue(DUE)
+    h.native.blockerState.mockResolvedValue(stateWith(WARNING))
+    render(<App />)
+    const warn = await screen.findByRole('region', { name: 'Allowance warning' })
+    expect(warn).toHaveTextContent('5 minutes left for Social today')
+    const med = await screen.findByRole('region', { name: 'Meditation reminder' })
+    const focus = screen.getByRole('region', { name: 'Focus' })
+    expect(follows(med, warn)).toBe(true)
+    expect(follows(warn, focus)).toBe(true)
+    // The other tab: still there, in the same place.
+    fireEvent.click(screen.getByRole('tab', { name: /Scratchpad/ }))
+    expect(screen.getByRole('tab', { name: /Scratchpad/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(follows(med, panel()!)).toBe(true)
+    expect(follows(panel()!, screen.getByRole('region', { name: 'Focus' }))).toBe(true)
+  })
+
+  it('stays in Settings, under the meditation panel', async () => {
+    h.native.meditationConfigure.mockResolvedValue(DUE)
+    h.native.blockerState.mockResolvedValue(stateWith(WARNING))
+    render(<App />)
+    await screen.findByRole('region', { name: 'Allowance warning' })
+    const med = await screen.findByRole('region', { name: 'Meditation reminder' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }))
+    const settings = screen.getByRole('region', { name: 'Settings' })
+    expect(follows(med, panel()!)).toBe(true)
+    expect(follows(panel()!, settings)).toBe(true)
+  })
+
+  it('arrives with the shell\'s `blocker` event and goes when it clears', async () => {
+    render(<App />)
+    await screen.findByRole('region', { name: 'Focus' })
+    await waitFor(() => expect(h.blocker.size).toBeGreaterThan(0))
+    expect(panel()).toBeNull()
+    act(() => {
+      for (const on of h.blocker) on(stateWith(WARNING))
+    })
+    expect(panel()).toHaveTextContent('5 minutes left for Social today')
+    act(() => {
+      for (const on of h.blocker) on(stateWith(null))
+    })
+    expect(panel()).toBeNull()
+  })
+
+  it('OK dismisses it in the shell', async () => {
+    h.native.blockerState.mockResolvedValue(stateWith(WARNING))
+    render(<App />)
+    await screen.findByRole('region', { name: 'Allowance warning' })
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }))
+    expect(h.native.blockerDismissWarning).toHaveBeenCalledTimes(1)
+    expect(panel()).toBeNull()
+  })
+
+  it('signed out there is no panel', async () => {
+    h.session = { user: null, loading: false }
+    h.native.blockerState.mockResolvedValue(stateWith(WARNING))
+    render(<App />)
+    await act(async () => {})
+    expect(panel()).toBeNull()
   })
 })

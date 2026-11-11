@@ -1544,6 +1544,8 @@ export type BlockGroupPatch = Partial<
     | 'scheduleDays'
     | 'scheduleFrom'
     | 'scheduleTo'
+    | 'dailyLimitOn'
+    | 'dailyLimitMinutes'
     | 'sortOrder'
   >
 >
@@ -1596,6 +1598,8 @@ const blockGroupsRepo = {
       scheduleDays: input.scheduleDays ?? [1, 2, 3, 4, 5],
       scheduleFrom: input.scheduleFrom ?? '09:00',
       scheduleTo: input.scheduleTo ?? '17:00',
+      dailyLimitOn: input.dailyLimitOn ?? false,
+      dailyLimitMinutes: input.dailyLimitMinutes ?? 30,
       sortOrder: input.sortOrder ?? 0,
       createdAt: now,
       updatedAt: now,

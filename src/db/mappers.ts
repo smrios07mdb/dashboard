@@ -317,6 +317,9 @@ export type BlockGroupRow = {
   /** Postgres `time` comes back as `HH:MM:SS`. */
   schedule_from: string
   schedule_to: string
+  /** Chunk 100 / migration 24. Absent on a row read before it. */
+  daily_limit_on?: boolean
+  daily_limit_minutes?: number
   sort_order: number
   created_at: string
   updated_at: string
@@ -339,6 +342,8 @@ export function blockGroupFromRow(row: BlockGroupRow): BlockGroup {
     scheduleDays: row.schedule_days ?? [],
     scheduleFrom: hhmm(row.schedule_from),
     scheduleTo: hhmm(row.schedule_to),
+    dailyLimitOn: row.daily_limit_on ?? false,
+    dailyLimitMinutes: row.daily_limit_minutes ?? 30,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -360,6 +365,9 @@ export function blockGroupToRow(
   if (value.scheduleDays !== undefined) row.schedule_days = value.scheduleDays
   if (value.scheduleFrom !== undefined) row.schedule_from = value.scheduleFrom
   if (value.scheduleTo !== undefined) row.schedule_to = value.scheduleTo
+  if (value.dailyLimitOn !== undefined) row.daily_limit_on = value.dailyLimitOn
+  if (value.dailyLimitMinutes !== undefined)
+    row.daily_limit_minutes = value.dailyLimitMinutes
   if (value.sortOrder !== undefined) row.sort_order = value.sortOrder
   if (value.createdAt !== undefined) row.created_at = value.createdAt
   if (value.updatedAt !== undefined) row.updated_at = value.updatedAt

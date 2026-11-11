@@ -12,6 +12,24 @@ import type { BlockGroup } from '@/db/types'
 
 export type Window = [number, number]
 
+/** How many local midnights `midnightsFrom` gives: today's and 15 more. */
+export const MIDNIGHT_COUNT = 16
+
+/**
+ * The Mac's local midnights from today's through today + 15, ascending
+ * (chunk 100, D15). The shell reads the day of a daily allowance off these
+ * and never works out a date itself. A day is 23 or 25 hours long across a
+ * DST change; that is the platform's.
+ */
+export function midnightsFrom(now: Date): number[] {
+  const y = now.getFullYear()
+  const mo = now.getMonth()
+  const d0 = now.getDate()
+  return Array.from({ length: MIDNIGHT_COUNT }, (_, k) =>
+    new Date(y, mo, d0 + k).getTime(),
+  )
+}
+
 type Schedule = Pick<
   BlockGroup,
   'blockOnSchedule' | 'scheduleDays' | 'scheduleFrom' | 'scheduleTo'

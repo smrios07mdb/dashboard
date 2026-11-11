@@ -44,6 +44,8 @@ function aGroup(over: Partial<BlockGroup> = {}): BlockGroup {
     scheduleDays: [1, 2, 3, 4, 5],
     scheduleFrom: '09:00',
     scheduleTo: '17:00',
+    dailyLimitOn: false,
+    dailyLimitMinutes: 30,
     sortOrder: 0,
     createdAt: '2026-11-11T00:00:00Z',
     updatedAt: '2026-11-11T00:00:00Z',
@@ -247,6 +249,66 @@ describe('SiteBlockingSection (chunk 99, D11)', () => {
   it('no "Runs past midnight." for a same-day window', async () => {
     const g = await withGroup({ blockOnSchedule: true })
     expect(within(g).queryByText(/Runs past midnight/)).toBeNull()
+  })
+
+  it('the Daily allowance switch saves (chunk 100)', async () => {
+    const user = userEvent.setup()
+    const g = await withGroup()
+    await user.click(within(g).getByRole('switch', { name: 'Daily allowance' }))
+    expect(lastPatch()).toEqual({ dailyLimitOn: true })
+  })
+
+  it('the minutes input shows only while the allowance is on', async () => {
+    const user = userEvent.setup()
+    const g = await withGroup()
+    expect(within(g).queryByTestId('allowance-row')).toBeNull()
+    expect(within(g).queryByRole('spinbutton', { name: 'Minutes a day' })).toBeNull()
+    await user.click(within(g).getByRole('switch', { name: 'Daily allowance' }))
+    const row = await within(g).findByTestId('allowance-row')
+    expect(within(row).getByRole('spinbutton', { name: 'Minutes a day' })).toHaveValue(30)
+    expect(
+      within(row).getByText(
+        'Counted on your Mac while the site is the tab in front. Resets at midnight.',
+      ),
+    ).toBeInTheDocument()
+    expect(within(row).queryByText('1 to 1440 minutes')).toBeNull()
+  })
+
+  it.each(['0', '1441', '', '1.5'])(
+    'minutes "%s" read "1 to 1440 minutes" and are not saved',
+    async (value) => {
+      const user = userEvent.setup()
+      const g = await withGroup({ dailyLimitOn: true, dailyLimitMinutes: 30 })
+      const input = within(g).getByRole('spinbutton', { name: 'Minutes a day' })
+      await user.clear(input)
+      if (value) await user.type(input, value)
+      expect(within(g).getByText('1 to 1440 minutes')).toBeInTheDocument()
+      expect(input).toHaveAttribute('aria-invalid', 'true')
+      await user.keyboard('{Enter}')
+      await user.tab()
+      expect(h.update).not.toHaveBeenCalled()
+      // Not saved: the row reads what is stored again.
+      expect(input).toHaveValue(30)
+    },
+  )
+
+  it('a valid number of minutes saves on Enter and on blur', async () => {
+    const user = userEvent.setup()
+    const g = await withGroup({ dailyLimitOn: true, dailyLimitMinutes: 30 })
+    const input = within(g).getByRole('spinbutton', { name: 'Minutes a day' })
+    await user.clear(input)
+    await user.type(input, '45{Enter}')
+    expect(lastPatch()).toEqual({ dailyLimitMinutes: 45 })
+    expect(within(g).queryByText('1 to 1440 minutes')).toBeNull()
+    await user.clear(input)
+    await user.type(input, '1440')
+    await user.tab()
+    expect(lastPatch()).toEqual({ dailyLimitMinutes: 1440 })
+    // Unchanged: nothing is sent.
+    h.update.mockClear()
+    await user.click(input)
+    await user.tab()
+    expect(h.update).not.toHaveBeenCalled()
   })
 
   it('deletes behind the confirm dialog', async () => {

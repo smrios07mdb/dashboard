@@ -25,6 +25,7 @@ vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
 import {
   blockerCheck,
   blockerConfigure,
+  blockerDismissWarning,
   blockerState,
   watchBlocker,
   loginItemSet,
@@ -452,11 +453,14 @@ describe('native.ts — site blocking (chunk 99, D22)', () => {
 
   const config = {
     enabled: true,
+    ids: ['g-1'],
     names: ['Social'],
     domains: [['x.com']],
     focus: [true],
     starts: [[1]],
     ends: [[2]],
+    limits: [30],
+    midnights: [3, 4],
   }
 
   beforeEach(() => {
@@ -477,11 +481,14 @@ describe('native.ts — site blocking (chunk 99, D22)', () => {
     ])
     expect(blockerArgs('blocker_configure')).toEqual([
       'enabled',
+      'ids',
       'names',
       'domains',
       'focus',
       'starts',
       'ends',
+      'limits',
+      'midnights',
     ])
     expect(Object.keys(h.invoke.mock.calls[0][1] as object)).toEqual(
       blockerArgs('blocker_configure'),
@@ -491,6 +498,19 @@ describe('native.ts — site blocking (chunk 99, D22)', () => {
     expect(LIB).toContain('blocker::blocker_configure')
     expect(LIB).toContain('blocker::blocker_state')
     expect(LIB).toContain('blocker::blocker_check')
+  })
+
+  it('names the warning\'s dismiss command as the shell does (chunk 100)', async () => {
+    await blockerDismissWarning()
+    expect(h.invoke.mock.calls).toEqual([['blocker_dismiss_warning']])
+    expect(blockerArgs('blocker_dismiss_warning')).toEqual([])
+    expect(LIB).toContain('blocker::blocker_dismiss_warning')
+    // The state the shell answers carries the two new keys.
+    expect(BLOCKER).toContain('\\"usage\\":[')
+    expect(BLOCKER).toContain('\\"warning\\":')
+    for (const key of ['usedMinutes', 'limitMinutes', 'minutesLeft']) {
+      expect(BLOCKER).toContain(`\\"${key}\\":`)
+    }
   })
 
   it('listens to the shell\'s `blocker` event', () => {
@@ -505,6 +525,7 @@ describe('native.ts — site blocking (chunk 99, D22)', () => {
     expect(await blockerConfigure(config)).toBeNull()
     expect(await blockerState()).toBeNull()
     expect(await blockerCheck()).toBeNull()
+    expect(await blockerDismissWarning()).toBeNull()
     watchBlocker(() => {})()
     expect(h.invoke).not.toHaveBeenCalled()
     expect(h.listeners).toHaveLength(0)

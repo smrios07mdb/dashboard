@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { windowsFor } from './blockSchedule'
+import { MIDNIGHT_COUNT, midnightsFrom, windowsFor } from './blockSchedule'
 
 /*
  * Chunk 99 (D17). Expectations are built with the local `Date` constructor,
@@ -95,5 +95,77 @@ describe('windowsFor (chunk 99, D17)', () => {
     const w = windowsFor(sun, new Date(2026, 2, 7, 12))
     expect(w[0]).toEqual([at(2026, 3, 8, 9), at(2026, 3, 8, 17)])
     expect(w[0][1] - w[0][0]).toBe(8 * 3_600_000)
+  })
+})
+
+/*
+ * Chunk 100 (D15). Run under TZ=America/New_York, UTC and Asia/Tokyo: the
+ * values are built with the local `Date` constructor, and the DST cases
+ * state the zone they are about.
+ */
+describe('midnightsFrom (chunk 100, D15)', () => {
+  const HOUR = 3_600_000
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+  it('gives 16 ascending local midnights, the first today\'s', () => {
+    for (const now of [
+      new Date(2026, 10, 11, 0, 0),
+      new Date(2026, 10, 11, 10, 30),
+      new Date(2026, 10, 11, 23, 59, 59),
+      new Date(2026, 11, 25, 12),
+    ]) {
+      const m = midnightsFrom(now)
+      expect(m).toHaveLength(16)
+      expect(MIDNIGHT_COUNT).toBe(16)
+      expect(m[0]).toBe(
+        new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(),
+      )
+      expect(m[0]).toBeLessThanOrEqual(now.getTime())
+      expect(m[1]).toBeGreaterThan(now.getTime())
+      for (let i = 1; i < m.length; i++) expect(m[i]).toBeGreaterThan(m[i - 1])
+      // Each one is a local midnight.
+      for (const t of m) {
+        const d = new Date(t)
+        expect([d.getHours(), d.getMinutes(), d.getSeconds()]).toEqual([0, 0, 0])
+      }
+      expect(m[15]).toBe(at(now.getFullYear(), now.getMonth() + 1, now.getDate() + 15))
+    }
+  })
+
+  it('crosses a month and a year end', () => {
+    const m = midnightsFrom(new Date(2026, 11, 28, 9))
+    expect(m[3]).toBe(at(2026, 12, 31))
+    expect(m[4]).toBe(at(2027, 1, 1))
+  })
+
+  it('the spring change is a 23-hour day in New York, 24 elsewhere', () => {
+    // Sun 14 Mar 2027: clocks go forward in New York.
+    const m = midnightsFrom(new Date(2027, 2, 13, 12))
+    expect(m[0]).toBe(at(2027, 3, 13))
+    expect(m[1]).toBe(at(2027, 3, 14))
+    expect(m[2] - m[1]).toBe((zone === 'America/New_York' ? 23 : 24) * HOUR)
+    expect(m[1] - m[0]).toBe(24 * HOUR)
+  })
+
+  it('the autumn change is a 25-hour day in New York, 24 elsewhere', () => {
+    // Sun 1 Nov 2026: clocks go back in New York.
+    const m = midnightsFrom(new Date(2026, 9, 31, 12))
+    expect(m[1]).toBe(at(2026, 11, 1))
+    expect(m[2] - m[1]).toBe((zone === 'America/New_York' ? 25 : 24) * HOUR)
+    expect(m[1] - m[0]).toBe(24 * HOUR)
+  })
+
+  it('names its zone in every run (New York, UTC or Tokyo in the gate)', () => {
+    const offsets: Record<string, number> = {
+      'America/New_York': 5 * 60,
+      UTC: 0,
+      'Asia/Tokyo': -9 * 60,
+    }
+    if (zone in offsets) {
+      // 11 Nov 2026 is winter time in all three.
+      expect(new Date(midnightsFrom(new Date(2026, 10, 11, 10))[0]).getTimezoneOffset()).toBe(
+        offsets[zone],
+      )
+    }
   })
 })
