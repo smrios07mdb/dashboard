@@ -899,6 +899,16 @@ mod tests {
     }
 
     #[test]
+    fn a_session_ended_exactly_at_its_end_is_completed() {
+        let s = running_session();
+        let now = t(5 * MIN);
+        let r = ended_session(&s, &tick(&s, now), now).unwrap();
+        assert_eq!(r.outcome, Outcome::Completed);
+        assert_eq!(r.ended_at, t(5 * MIN));
+        assert_eq!(r.active_ms, 5 * MIN);
+    }
+
+    #[test]
     fn ending_early_is_ended_with_the_time_spent() {
         let s = running_session();
         let now = t(70 * SEC);
