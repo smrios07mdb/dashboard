@@ -17,6 +17,7 @@ import type {
   Subcategory,
   Task,
   TodayMark,
+  TrackedSession,
   ReadCalendar,
 } from './types'
 
@@ -247,6 +248,57 @@ export function todayMarkToRow(
   if (value.day !== undefined) row.day = value.day
   if (value.kind !== undefined) row.kind = value.kind
   if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
+  return row
+}
+
+// ---------- tracked_sessions (chunk 98) ----------
+
+export type TrackedSessionRow = {
+  id: string
+  user_id: string
+  kind: 'focus' | 'meditation'
+  started_at: string
+  ended_at: string
+  planned_seconds: number
+  active_seconds: number
+  outcome: 'completed' | 'skipped' | 'stopped' | 'ended'
+  task_id: string | null
+  task_title: string | null
+  created_at: string
+}
+
+export function trackedSessionFromRow(row: TrackedSessionRow): TrackedSession {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    kind: row.kind,
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+    plannedSeconds: row.planned_seconds,
+    activeSeconds: row.active_seconds,
+    outcome: row.outcome,
+    taskId: row.task_id,
+    taskTitle: row.task_title,
+    createdAt: row.created_at,
+  }
+}
+
+export function trackedSessionToRow(
+  value: Partial<TrackedSession> & { id?: string },
+): Partial<TrackedSessionRow> {
+  const row: Partial<TrackedSessionRow> = {}
+  if (value.id !== undefined) row.id = value.id
+  if (value.userId !== undefined) row.user_id = value.userId
+  if (value.kind !== undefined) row.kind = value.kind
+  if (value.startedAt !== undefined) row.started_at = value.startedAt
+  if (value.endedAt !== undefined) row.ended_at = value.endedAt
+  if (value.plannedSeconds !== undefined)
+    row.planned_seconds = value.plannedSeconds
+  if (value.activeSeconds !== undefined) row.active_seconds = value.activeSeconds
+  if (value.outcome !== undefined) row.outcome = value.outcome
+  if (value.taskId !== undefined) row.task_id = value.taskId
+  if (value.taskTitle !== undefined) row.task_title = value.taskTitle
+  if (value.createdAt !== undefined) row.created_at = value.createdAt
   return row
 }
 

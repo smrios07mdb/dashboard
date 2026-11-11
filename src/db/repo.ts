@@ -41,6 +41,8 @@ import {
   taskToRow,
   todayMarkFromRow,
   todayMarkToRow,
+  trackedSessionFromRow,
+  trackedSessionToRow,
   type CategoryRow,
   type NoteRow,
   type PushSubscriptionRow,
@@ -51,6 +53,7 @@ import {
   type SubcategoryRow,
   type TaskRow,
   type TodayMarkRow,
+  type TrackedSessionRow,
 } from './mappers'
 import { syncStore } from './syncStore'
 import {
@@ -68,6 +71,7 @@ import {
   type TableName,
   type Task,
   type TodayMark,
+  type TrackedSession,
 } from './types'
 
 // ---------- error & offline helpers ----------
@@ -78,7 +82,8 @@ type SupabaseError = {
   code?: string
 }
 
-function isClientError(e: unknown): boolean {
+/** A 4xx from Supabase: the request itself was refused, a retry cannot help. */
+export function isClientError(e: unknown): boolean {
   const status = (e as { status?: number } | null)?.status
   return typeof status === 'number' && status >= 400 && status < 500
 }
@@ -1400,6 +1405,123 @@ const todayMarksRepo = {
   },
 }
 
+// ---------- tracked_sessions (chunk 98) ----------
+
+const trackedSessionsRepo = {
+  /**
+   * The sessions that started in `[fromIso, toIso)` — what Insights reads for
+   * its range. Online path puts the rows into the Dexie mirror without
+   * clearing it (a range is not the whole set); the fallback filters the
+   * mirror by `startedAt` in JS.
+   */
+  async listInRange(fromIso: string, toIso: string): Promise<TrackedSession[]> {
+    return readWithFallback({
+      online: async () => {
+        const { data, error } = await supabase
+          .from('tracked_sessions')
+          .select('*')
+          .gte('started_at', fromIso)
+          .lt('started_at', toIso)
+          .order('started_at', { ascending: true })
+        throwIfClientError(error)
+        const mapped = ((data ?? []) as TrackedSessionRow[]).map(
+          trackedSessionFromRow,
+        )
+        await db.tracked_sessions.bulkPut(mapped)
+        return mapped
+      },
+      fallback: async () => {
+        const from = Date.parse(fromIso)
+        const to = Date.parse(toIso)
+        const all = await db.tracked_sessions.toArray()
+        return all
+          .filter((s) => {
+            const at = Date.parse(s.startedAt)
+            return at >= from && at < to
+          })
+          .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt))
+      },
+    })
+  },
+
+  /**
+   * Save one finished session. The id is derived from the session
+   * (`lib/trackedSessions.sessionId`), so this is an upsert on `id`: the same
+   * session written twice — a lost ack, two drains — lands on one row.
+   * Offline it goes to the cache and the outbox like any other write.
+   */
+  async save(input: Omit<TrackedSession, 'createdAt'>): Promise<TrackedSession> {
+    const full: TrackedSession = {
+      ...input,
+      createdAt: new Date().toISOString(),
+    }
+    return writeRow({
+      op: 'insert',
+      table: TABLES.trackedSessions,
+      optimistic: full,
+      cacheApply: async () => {
+        await db.tracked_sessions.put(full)
+      },
+      online: async () => {
+        const { data, error } = await supabase
+          .from('tracked_sessions')
+          // `created_at` is the server's to stamp.
+          .upsert(trackedSessionToRow(input), { onConflict: 'id' })
+          .select()
+          .single()
+        throwIfClientError(error)
+        return trackedSessionFromRow(data as TrackedSessionRow)
+      },
+    })
+  },
+
+  /** Every session the user owns — for "Wipe my data" only. */
+  async listAll(): Promise<TrackedSession[]> {
+    return readWithFallback({
+      online: async () => {
+        const { data, error } = await supabase
+          .from('tracked_sessions')
+          .select('*')
+          .order('started_at', { ascending: true })
+        throwIfClientError(error)
+        const mapped = ((data ?? []) as TrackedSessionRow[]).map(
+          trackedSessionFromRow,
+        )
+        await db.transaction('rw', db.tracked_sessions, async () => {
+          await db.tracked_sessions.clear()
+          await db.tracked_sessions.bulkPut(mapped)
+        })
+        return mapped
+      },
+      fallback: async () => db.tracked_sessions.toArray(),
+    })
+  },
+
+  /** For "Wipe my data" only — nothing edits or deletes a single session. */
+  async delete(id: string): Promise<void> {
+    if (!isOnline()) {
+      markOffline()
+      await db.tracked_sessions.delete(id)
+      await enqueueOutbox('delete', TABLES.trackedSessions, { id })
+      return
+    }
+    try {
+      const { error } = await supabase
+        .from('tracked_sessions')
+        .delete()
+        .eq('id', id)
+      throwIfClientError(error)
+      await db.tracked_sessions.delete(id)
+      markSyncedNow()
+    } catch (e) {
+      if (isClientError(e)) throw e
+      markOffline()
+      await db.tracked_sessions.delete(id)
+      await enqueueOutbox('delete', TABLES.trackedSessions, { id })
+    }
+  },
+}
+
 // ---------- shared write engine ----------
 
 async function writeRow<T>(args: {
@@ -1470,6 +1592,9 @@ async function applyServerEcho(table: TableName, row: unknown): Promise<void> {
       return
     case TABLES.todayMarks:
       await db.today_marks.put(row as TodayMark)
+      return
+    case TABLES.trackedSessions:
+      await db.tracked_sessions.put(row as TrackedSession)
       return
   }
 }
@@ -1658,5 +1783,6 @@ export const repo = {
   scheduledBlocks: scheduledBlocksRepo,
   notes: notesRepo,
   todayMarks: todayMarksRepo,
+  trackedSessions: trackedSessionsRepo,
   routing: routingRepo,
 }

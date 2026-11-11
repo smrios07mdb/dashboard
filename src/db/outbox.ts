@@ -42,6 +42,8 @@ import {
   taskToRow,
   todayMarkFromRow,
   todayMarkToRow,
+  trackedSessionFromRow,
+  trackedSessionToRow,
 } from './mappers'
 import { outboxUser } from './repo'
 import { syncStore } from './syncStore'
@@ -295,6 +297,18 @@ const SPECS: Record<string, TableSpec> = {
     deleteKeyColumn: 'id',
     deleteKeyValue: byId,
     cacheDelete: (p) => db.today_marks.delete(p.id as string),
+    upsertOnConflict: 'id',
+  },
+  // Chunk 98: the id is derived from the session itself, so a replay of a
+  // session that was already written lands on the same row.
+  tracked_sessions: {
+    toRow: trackedSessionToRow,
+    cachePut: (r) => db.tracked_sessions.put(trackedSessionFromRow(r)),
+    updateKeyColumn: 'id',
+    updateKeyValue: byId,
+    deleteKeyColumn: 'id',
+    deleteKeyValue: byId,
+    cacheDelete: (p) => db.tracked_sessions.delete(p.id as string),
     upsertOnConflict: 'id',
   },
   push_subscriptions: {

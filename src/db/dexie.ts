@@ -27,6 +27,7 @@ import type {
   Subcategory,
   Task,
   TodayMark,
+  TrackedSession,
 } from './types'
 
 export class DashboardCacheDB extends Dexie {
@@ -42,6 +43,7 @@ export class DashboardCacheDB extends Dexie {
   scheduled_blocks!: EntityTable<ScheduledBlock, 'id'>
   notes!: EntityTable<Note, 'id'>
   today_marks!: EntityTable<TodayMark, 'id'>
+  tracked_sessions!: EntityTable<TrackedSession, 'id'>
   outbox!: EntityTable<OutboxRow, 'id'>
   // Cache-only (not a Postgres mirror): one local day's busy ranges keyed by
   // dateKey, with a short TTL applied in lib/busyCache. camelCase name since
@@ -109,6 +111,15 @@ export class DashboardCacheDB extends Dexie {
     // in JS.
     this.version(7).stores({
       today_marks: '&id, day',
+    })
+    // v8: chunk 98 adds the `tracked_sessions` mirror (saved focus and
+    // breathing sessions from the menu bar app). New store only — unchanged
+    // stores are inherited, so no .upgrade() is needed. `startedAt` and
+    // `kind` are indexed per the chunk prompt; Insights filters a range in
+    // JS, because a server row and an optimistic one spell the same instant
+    // differently (`+00:00` / `Z`).
+    this.version(8).stores({
+      tracked_sessions: '&id, startedAt, kind',
     })
   }
 }

@@ -4,7 +4,8 @@
  * which ⌥H opens from anywhere — and the Sound section (chunk 95) under them.
  * A meditation reminder (chunk 96) sits above it all while one is showing.
  * The footer's Settings button (chunk 97) swaps everything under that
- * reminder for the Settings view.
+ * reminder for the Settings view. Finished focus and breathing sessions
+ * (chunk 98) are written from here, with nothing to show for it.
  */
 import {
   type CSSProperties,
@@ -18,7 +19,7 @@ import {
 import { flushSync } from 'react-dom'
 import { Toaster } from 'sonner'
 
-import { repo } from '@/db/repo'
+import { isClientError, repo } from '@/db/repo'
 import { useSession } from '@/lib/auth'
 import { signOutUser } from '@/lib/signOutCleanup'
 import { offerCompleteUndo } from '@/lib/taskUndo'
@@ -50,6 +51,9 @@ import {
   popoverIsShown,
   quitApp,
   registerShortcut,
+  sessionsAck,
+  sessionsClear,
+  sessionsPending,
   setPopoverHeight,
   setTrayTitle,
   showPopover,
@@ -58,6 +62,7 @@ import {
   watchMeditation,
   watchPomodoro,
   watchPopover,
+  watchSessions,
 } from './native'
 import { createPomodoro } from './pomodoro'
 import PopoverTabs from './PopoverTabs'
@@ -70,6 +75,7 @@ import {
   type ScratchLists,
   type ScratchResult,
 } from './scratchpad'
+import { createSessionSync } from './sessions'
 import SettingsView from './SettingsView'
 import SignIn from './SignIn'
 import { presetFor } from './sound'
@@ -158,6 +164,9 @@ function createSession(userId: string, onLoaded: (l: Loaded) => void) {
     },
   }
 }
+
+/** Quit and Sign out wait this long for the saved sessions, then go on. */
+const DRAIN_MS = 3000
 
 const IDLE: CheckOffState = {
   optimistic: new Map(),
@@ -257,6 +266,34 @@ export default function App() {
     ),
   )
   const hk = useSyncExternalStore(hotkeys.subscribe, hotkeys.getState)
+  // Saved sessions (chunk 98): the shell keeps each finished focus phase and
+  // breathing session until this has written it. Signed in only.
+  const sessions = useMemo(
+    () =>
+      userId
+        ? createSessionSync({
+            pending: sessionsPending,
+            ack: sessionsAck,
+            clear: sessionsClear,
+            write: (row) => repo.trackedSessions.save(row),
+            isClientError,
+            userId,
+          })
+        : null,
+    [userId],
+  )
+  // A session just ended, or the popover is shown: write what is waiting.
+  useEffect(() => {
+    if (!sessions) return
+    const offEvent = watchSessions(() => void sessions.drain())
+    const offShown = watchPopover((shown) => {
+      if (shown) void sessions.drain()
+    })
+    return () => {
+      offEvent()
+      offShown()
+    }
+  }, [sessions])
 
   useEffect(() => {
     void hotkeys.start()
@@ -309,11 +346,32 @@ export default function App() {
       void soundConfigure(sound.auto, presetFor(sound, sound.preset).uri)
       // Meditation (chunk 96, D2): reminders run only while signed in.
       void meditation.signedIn()
+      // Saved sessions (chunk 98): whatever a previous run left behind.
+      void sessions?.drain()
     } else {
-      void pomodoro.signedOut()
-      void meditation.signedOut()
+      // The stop and the end can each put one last session in the ledger;
+      // it is emptied after them (chunk 98, D15), so the next account never
+      // receives this one's entries.
+      void Promise.allSettled([
+        pomodoro.signedOut(),
+        meditation.signedOut(),
+      ]).then(() =>
+        sessionsClear().catch((e: unknown) =>
+          console.error('menubar: sessions not cleared', e),
+        ),
+      )
     }
-  }, [loading, userId, pomodoro, meditation])
+  }, [loading, userId, pomodoro, meditation, sessions])
+
+  // Quit and Sign out write what is waiting first, and give up after 3 s.
+  async function quit() {
+    await sessions?.drainWithin(DRAIN_MS)
+    quitApp()
+  }
+  async function signOut() {
+    await sessions?.drainWithin(DRAIN_MS)
+    await signOutUser()
+  }
 
   useEffect(() => watchSystemTheme(theme), [theme])
 
@@ -450,7 +508,7 @@ export default function App() {
             <button
               type="button"
               className="mb-foot-btn"
-              onClick={() => void signOutUser()}
+              onClick={() => void signOut()}
             >
               Sign out
             </button>
@@ -466,7 +524,7 @@ export default function App() {
             Theme: {THEME_LABEL[theme]}
           </button>
         )}
-        <button type="button" className="mb-foot-btn" onClick={quitApp}>
+        <button type="button" className="mb-foot-btn" onClick={() => void quit()}>
           Quit
         </button>
       </footer>

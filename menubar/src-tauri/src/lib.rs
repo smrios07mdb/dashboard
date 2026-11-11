@@ -11,13 +11,17 @@
 //! `sound.rs`: Spotify on this Mac through `osascript`, on its own thread.
 //! Meditation (chunk 96) lives in `meditation.rs`: the reminder clock, the
 //! session and its overlay windows. Open at login (chunk 97) lives in
-//! `login.rs`: one LaunchAgent plist, the only file the shell writes.
+//! `login.rs`: one LaunchAgent plist. Saved sessions (chunk 98) live in
+//! `sessions.rs`: the ledger of finished focus and breathing sessions, kept
+//! until the web view has written each one. The plist and the ledger are the
+//! two files the shell writes.
 //!
 //! Commands are named in `menubar/src/native.ts` — keep the two in step.
 
 mod login;
 mod meditation;
 mod pomodoro;
+mod sessions;
 mod sound;
 
 use std::sync::Mutex;
@@ -248,6 +252,7 @@ pub fn run() {
         .manage(pomodoro::Pomodoro::default())
         .manage(sound)
         .manage(meditation::Meditation::default())
+        .manage(sessions::Sessions::default())
         .invoke_handler(tauri::generate_handler![
             set_tray_title,
             set_popover_height,
@@ -279,7 +284,10 @@ pub fn run() {
             meditation::meditation_skip,
             meditation::meditation_end,
             login::login_item_state,
-            login::login_item_set
+            login::login_item_set,
+            sessions::sessions_pending,
+            sessions::sessions_ack,
+            sessions::sessions_clear
         ])
         .on_window_event(|w, event| {
             // Hidden on blur (D7).
@@ -326,6 +334,12 @@ pub fn run() {
                     }
                 })
                 .build(app)?;
+
+            // Saved sessions (chunk 98): read the ledger a previous run left,
+            // before either loop can end a session.
+            if let Ok(dir) = app.path().app_data_dir() {
+                app.state::<sessions::Sessions>().load(dir);
+            }
 
             // The pomodoro timer (chunk 94): one thread, the only writer of
             // the tray's title and icon from here on.

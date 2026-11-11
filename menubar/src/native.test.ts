@@ -4,13 +4,19 @@ import { resolve } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
+  listeners: [] as { event: string; handler: () => void }[],
   invoke: vi.fn<(command: string, args?: unknown) => Promise<unknown>>(
     async () => null,
   ),
 }))
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: h.invoke }))
-vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }))
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: async (event: string, handler: () => void) => {
+    h.listeners.push({ event, handler })
+    return () => {}
+  },
+}))
 vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
   register: async () => {},
   unregister: async () => {},
@@ -26,6 +32,9 @@ import {
   meditationStart,
   meditationState,
   openAutomationSettings,
+  sessionsAck,
+  sessionsClear,
+  sessionsPending,
   soundConfigure,
   spotifyNext,
   spotifyPause,
@@ -316,5 +325,105 @@ describe('native.ts — open at login (chunk 97, D12)', () => {
     expect(await loginItemState()).toBeNull()
     expect(await loginItemSet(true)).toBeNull()
     expect(h.invoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('native.ts — saved sessions (chunk 98)', () => {
+  const SESSIONS = readFileSync(
+    resolve(process.cwd(), 'menubar/src-tauri/src/sessions.rs'),
+    'utf8',
+  )
+
+  /** The argument names of a `sessions.rs` command, minus the handle. */
+  function sessionArgs(command: string): string[] {
+    const m = new RegExp(
+      `#\\[tauri::command\\]\\s*pub fn ${command}\\(([^)]*)\\)`,
+    ).exec(SESSIONS)
+    if (!m) throw new Error(`no command ${command} in sessions.rs`)
+    return m[1]
+      .split(',')
+      .map((a) => a.trim().split(':')[0].trim())
+      .filter((name) => name && name !== 'app')
+  }
+
+  beforeEach(() => {
+    h.invoke.mockClear()
+    h.invoke.mockImplementation(async () => null)
+    h.listeners.length = 0
+    vi.stubGlobal('__TAURI_INTERNALS__', {})
+  })
+
+  it('names the three commands as the shell does, with the `seqs` argument', async () => {
+    await sessionsPending()
+    await sessionsAck([3, 4])
+    await sessionsClear()
+    expect(h.invoke.mock.calls).toEqual([
+      ['sessions_pending'],
+      ['sessions_ack', { seqs: [3, 4] }],
+      ['sessions_clear'],
+    ])
+    expect(sessionArgs('sessions_pending')).toEqual([])
+    expect(sessionArgs('sessions_ack')).toEqual(['seqs'])
+    expect(sessionArgs('sessions_clear')).toEqual([])
+    expect(LIB).toContain('sessions::sessions_pending')
+    expect(LIB).toContain('sessions::sessions_ack')
+    expect(LIB).toContain('sessions::sessions_clear')
+  })
+
+  it('answers the ledger the shell sends', async () => {
+    const ledger = [
+      {
+        seq: 1,
+        kind: 'focus',
+        startedAt: 1,
+        endedAt: 2,
+        plannedMs: 3,
+        activeMs: 4,
+        outcome: 'completed',
+        taskId: null,
+        taskTitle: null,
+      },
+    ]
+    h.invoke.mockResolvedValueOnce(ledger)
+    expect(await sessionsPending()).toEqual(ledger)
+  })
+
+  it('the keys of an entry are the ones the shell writes', () => {
+    for (const key of [
+      'seq',
+      'kind',
+      'startedAt',
+      'endedAt',
+      'plannedMs',
+      'activeMs',
+      'outcome',
+      'taskId',
+      'taskTitle',
+    ]) {
+      expect(SESSIONS).toContain(`\\"${key}\\":`)
+    }
+  })
+
+  it('watchSessions listens for the shell\'s `sessions` event', async () => {
+    const { watchSessions } = await import('./native')
+    const onAdded = vi.fn()
+    const off = watchSessions(onAdded)
+    await vi.waitFor(() => expect(h.listeners).toHaveLength(1))
+    expect(h.listeners[0].event).toBe('sessions')
+    expect(SESSIONS).toContain('app.emit("sessions"')
+    h.listeners[0].handler()
+    expect(onAdded).toHaveBeenCalledTimes(1)
+    off()
+  })
+
+  it('outside Tauri nothing is sent', async () => {
+    vi.unstubAllGlobals()
+    const { watchSessions } = await import('./native')
+    expect(await sessionsPending()).toBeNull()
+    expect(await sessionsAck([1])).toBeNull()
+    await sessionsClear()
+    watchSessions(() => {})()
+    expect(h.invoke).not.toHaveBeenCalled()
+    expect(h.listeners).toHaveLength(0)
   })
 })

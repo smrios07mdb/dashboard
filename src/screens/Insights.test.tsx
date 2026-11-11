@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Category, Subcategory, Task } from '@/db/types'
+import type { Category, Subcategory, Task, TrackedSession } from '@/db/types'
 
 /*
  * Behavioral guard for the Insights screen's *derived* surfaces — the Chunk 29
@@ -15,7 +15,10 @@ import type { Category, Subcategory, Task } from '@/db/types'
  * stays untested-here — it has its own unit suite.
  */
 
-const { tasksList, subsList, catsList } = vi.hoisted(() => ({
+const { tasksList, subsList, catsList, liveTasksList, sessionsList } =
+  vi.hoisted(() => ({
+  liveTasksList: vi.fn(),
+  sessionsList: vi.fn(),
   tasksList: vi.fn(),
   subsList: vi.fn(),
   catsList: vi.fn(),
@@ -23,7 +26,8 @@ const { tasksList, subsList, catsList } = vi.hoisted(() => ({
 
 vi.mock('@/db/repo', () => ({
   repo: {
-    tasks: { listCompletedInRange: tasksList },
+    tasks: { listCompletedInRange: tasksList, list: liveTasksList },
+    trackedSessions: { listInRange: sessionsList },
     subcategories: { list: subsList },
     categories: { list: catsList },
   },
@@ -116,6 +120,9 @@ function setup(tasks: Task[], allTime: Task[] = []) {
   )
   subsList.mockResolvedValue(SUBS)
   catsList.mockResolvedValue(CATS)
+  // Chunk 98: no tracked sessions unless a test says so.
+  sessionsList.mockResolvedValue([])
+  liveTasksList.mockResolvedValue([])
 }
 
 /** The stat card containing `label` (label + value + hint are siblings). */
@@ -267,5 +274,257 @@ describe('Insights', () => {
     ).toHaveLength(0)
     expect(screen.getByText('Est. time')).toBeInTheDocument()
     expect(screen.getByText('What got done')).toBeInTheDocument()
+  })
+})
+
+/*
+ * Chunk 98 — the tracked section under the estimates: focus and breathing
+ * sessions saved by the menu bar app. As above, derived text and roles only.
+ */
+describe('Insights — Focus and breathing (chunk 98)', () => {
+  let sessionSeq = 0
+  const tracked = (over: Partial<TrackedSession> = {}): TrackedSession => {
+    sessionSeq += 1
+    return {
+      id: `ts-${sessionSeq}`,
+      userId: 'u1',
+      kind: 'focus',
+      startedAt: `${dayKeyAgo(2)}T12:00:00.000Z`,
+      endedAt: `${dayKeyAgo(2)}T12:25:00.000Z`,
+      plannedSeconds: 1500,
+      activeSeconds: 1500,
+      outcome: 'completed',
+      taskId: null,
+      taskTitle: null,
+      createdAt: `${dayKeyAgo(2)}T12:25:01.000Z`,
+      ...over,
+    }
+  }
+
+  const liveTask = (id: string, subcategoryId: string, title: string): Task => ({
+    ...task(subcategoryId, 0, 1),
+    id,
+    title,
+    completedAt: null,
+  })
+
+  /** 60 min of focus on a Work task, 10 on a Personal one, a bare 25 and 5 of breathing. */
+  const SESSIONS: TrackedSession[] = [
+    tracked({ taskId: 'lt-atlas', taskTitle: 'Old title' }),
+    tracked({
+      taskId: 'lt-atlas',
+      taskTitle: 'Old title',
+      activeSeconds: 2100,
+      outcome: 'skipped',
+    }),
+    tracked({
+      taskId: 'lt-gym',
+      taskTitle: 'Stretch',
+      activeSeconds: 600,
+      outcome: 'stopped',
+    }),
+    tracked(),
+    tracked({
+      kind: 'meditation',
+      outcome: 'ended',
+      plannedSeconds: 300,
+      activeSeconds: 300,
+    }),
+  ]
+  const LIVE = [
+    liveTask('lt-atlas', 's1', 'Ship the Atlas deck'),
+    liveTask('lt-gym', 's3', 'Stretch'),
+  ]
+
+  const section = () =>
+    screen.findByRole('region', { name: 'Focus and breathing' })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders the heading, the four cards and the chart', async () => {
+    setup(POPULATED)
+    sessionsList.mockResolvedValue(SESSIONS)
+    liveTasksList.mockResolvedValue(LIVE)
+    render(<Insights />)
+
+    const s = within(await section())
+    expect(
+      s.getByRole('heading', { name: 'Focus and breathing' }),
+    ).toBeInTheDocument()
+    expect(s.getByText('Tracked in the menu bar app')).toBeInTheDocument()
+
+    // 25 + 35 + 10 + 25 = 95 min of focus.
+    const focus = within(s.getByText('Focus time').parentElement!)
+    expect(focus.getByText('1h 35m')).toBeInTheDocument()
+    expect(focus.getByText('tracked, pauses excluded')).toBeInTheDocument()
+
+    const count = within(s.getByText('Focus sessions').parentElement!)
+    expect(count.getByText('4')).toBeInTheDocument()
+    expect(count.getByText('2 ran to the end')).toBeInTheDocument()
+
+    const breathing = within(
+      s.getAllByText('Breathing')[0].parentElement as HTMLElement,
+    )
+    expect(breathing.getByText('5m')).toBeInTheDocument()
+    expect(breathing.getByText('1 sessions')).toBeInTheDocument()
+
+    // The live title, not the one the session saved.
+    const most = within(s.getByText('Most focused').parentElement!)
+    expect(most.getByText('Ship the Atlas deck')).toBeInTheDocument()
+    expect(most.getByText('by tracked time')).toBeInTheDocument()
+    expect(s.queryByText('Old title')).not.toBeInTheDocument()
+
+    // The chart, labelled, with its two-series legend.
+    expect(
+      s.getByRole('img', {
+        name: 'Tracked focus and breathing minutes per day for the last 30 days.',
+      }),
+    ).toBeInTheDocument()
+    expect(s.getByText('Focus')).toBeInTheDocument()
+    expect(s.getAllByText('Breathing')).toHaveLength(2)
+    // Under All there is no category note.
+    expect(
+      s.queryByText('Bare focus sessions and breathing show under All.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reads the sessions for the same window as the estimates', async () => {
+    setup(POPULATED)
+    render(<Insights />)
+    await section()
+    expect(sessionsList).toHaveBeenCalledTimes(1)
+    const [from, to] = sessionsList.mock.calls[0]
+    expect([from, to]).toEqual(tasksList.mock.calls[0].slice(0, 2))
+    expect(from).toBe(`${dayKeyAgo(29)}T00:00:00.000Z`)
+  })
+
+  it('a category keeps only focus on its live tasks, and says so', async () => {
+    setup(POPULATED)
+    sessionsList.mockResolvedValue(SESSIONS)
+    liveTasksList.mockResolvedValue(LIVE)
+    const user = userEvent.setup()
+    render(<Insights />)
+    await section()
+
+    await user.click(screen.getByRole('button', { name: 'Work' }))
+    let s = within(await section())
+    expect(
+      s.getByText('Bare focus sessions and breathing show under All.'),
+    ).toBeInTheDocument()
+    expect(
+      within(s.getByText('Focus time').parentElement!).getByText('1h'),
+    ).toBeInTheDocument()
+    expect(
+      within(s.getByText('Focus sessions').parentElement!).getByText('2'),
+    ).toBeInTheDocument()
+    expect(
+      within(s.getAllByText('Breathing')[0].parentElement as HTMLElement).getByText(
+        '0m',
+      ),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Personal' }))
+    s = within(await section())
+    expect(
+      within(s.getByText('Focus time').parentElement!).getByText('10m'),
+    ).toBeInTheDocument()
+    expect(
+      within(s.getByText('Most focused').parentElement!).getByText('Stretch'),
+    ).toBeInTheDocument()
+  })
+
+  it('a category with no session on its tasks shows the empty line and the note', async () => {
+    setup(POPULATED)
+    // Only a bare focus and breathing: nothing belongs to a category.
+    sessionsList.mockResolvedValue([SESSIONS[3], SESSIONS[4]])
+    liveTasksList.mockResolvedValue(LIVE)
+    const user = userEvent.setup()
+    render(<Insights />)
+    const all = within(await section())
+    expect(all.getByText('Focus time')).toBeInTheDocument()
+    expect(
+      within(all.getByText('Most focused').parentElement!).getByText('—'),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Work' }))
+    const s = within(await section())
+    expect(
+      s.getByText(
+        'No focus or breathing sessions in the last 30 days. Sessions from the menu bar app show here.',
+      ),
+    ).toBeInTheDocument()
+    expect(s.queryByText('Focus time')).not.toBeInTheDocument()
+    expect(s.queryByRole('img')).not.toBeInTheDocument()
+    expect(
+      s.getByText('Bare focus sessions and breathing show under All.'),
+    ).toBeInTheDocument()
+  })
+
+  it('with no sessions: the empty line, no cards, no chart', async () => {
+    setup(POPULATED)
+    render(<Insights />)
+    const s = within(await section())
+    expect(
+      s.getByText(
+        'No focus or breathing sessions in the last 30 days. Sessions from the menu bar app show here.',
+      ),
+    ).toBeInTheDocument()
+    expect(s.queryByText('Focus time')).not.toBeInTheDocument()
+    expect(s.queryByText('Most focused')).not.toBeInTheDocument()
+    expect(s.queryByRole('img')).not.toBeInTheDocument()
+    // The estimate chart is still the page's one chart.
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+  })
+
+  it('the empty line follows the range', async () => {
+    setup(POPULATED)
+    const user = userEvent.setup()
+    render(<Insights />)
+    await section()
+    await user.click(screen.getByRole('button', { name: '7 days' }))
+    expect(
+      await screen.findByText(
+        'No focus or breathing sessions in the last 7 days. Sessions from the menu bar app show here.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('a failed sessions read leaves the estimate cards intact', async () => {
+    setup(POPULATED)
+    sessionsList.mockRejectedValue(new Error('tracked_sessions unreachable'))
+    liveTasksList.mockRejectedValue(new Error('tasks unreachable'))
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<Insights />)
+
+    await screen.findByText('Estimated time')
+    expect(within(cardFor('Estimated time')).getByText('8h')).toBeInTheDocument()
+    expect(
+      within(cardFor('Most-touched')).getByText('Project Atlas'),
+    ).toBeInTheDocument()
+    expect(within(cardFor('Last 30 days')).getByText('5')).toBeInTheDocument()
+    // The tracked section falls back to its empty line.
+    expect(
+      within(await section()).getByText(/No focus or breathing sessions/),
+    ).toBeInTheDocument()
+    expect(error).toHaveBeenCalledWith(
+      'Insights tracked sessions load failed',
+      expect.any(Error),
+    )
+    error.mockRestore()
+  })
+
+  it('the headline cards and their wording do not change', async () => {
+    setup(POPULATED)
+    sessionsList.mockResolvedValue(SESSIONS)
+    liveTasksList.mockResolvedValue(LIVE)
+    render(<Insights />)
+    await section()
+    expect(within(cardFor('Estimated time')).getByText('sum of task estimates')).toBeInTheDocument()
+    expect(
+      within(cardFor('Daily average')).getByText('estimated, across all categories'),
+    ).toBeInTheDocument()
+    expect(within(cardFor('Most-touched')).getByText('by estimated time')).toBeInTheDocument()
   })
 })

@@ -24,6 +24,8 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+use crate::sessions::{Kind, Outcome, Record};
+
 const MINUTE_MS: u64 = 60_000;
 const DAY_MS: u64 = 24 * 60 * MINUTE_MS;
 /// A due reminder nobody answered becomes missed after this long.
@@ -332,6 +334,32 @@ pub fn end(state: &MedState, now: u64) -> MedState {
     s
 }
 
+/// The breathing session a state change ended, for the ledger (chunk 98,
+/// D3/D8). `prev` is the state before time was applied, `next` the final one:
+/// `Some` when `prev` held a session and `next` holds none, or another. One
+/// that reached its end is `completed` and ends there — also when the Mac
+/// slept through it; otherwise it was `ended` at `now`.
+pub fn ended_session(prev: &MedState, next: &MedState, now: u64) -> Option<Record> {
+    let s = prev.session?;
+    if next.session.is_some_and(|n| n.started_at == s.started_at) {
+        return None;
+    }
+    let (ended_at, outcome) = if now >= s.ends_at {
+        (s.ends_at, Outcome::Completed)
+    } else {
+        (now, Outcome::Ended)
+    };
+    Some(Record {
+        kind: Kind::Meditation,
+        started_at: s.started_at,
+        ended_at,
+        planned_ms: s.ends_at.saturating_sub(s.started_at),
+        active_ms: ended_at.saturating_sub(s.started_at),
+        outcome,
+        task: None,
+    })
+}
+
 /// The snapshot the web view reads, written by hand like the pomodoro's.
 /// `dueAt` is the reminder that is showing; `nextDueAt` the one after it, or
 /// the next one when none is showing.
@@ -521,7 +549,7 @@ impl Meditation {
         f: impl FnOnce(&MedState, u64) -> Result<MedState, String>,
     ) -> Result<Response, String> {
         let now = epoch_ms(SystemTime::now());
-        let (json, changed, rejected, started, ended, pause_spotify) = {
+        let (json, changed, rejected, started, ended, pause_spotify, record) = {
             let mut g = self.lock();
             let base = tick(&g.state, now);
             let mut ended = g.state.session.is_some() && base.session.is_none();
@@ -531,6 +559,8 @@ impl Meditation {
             };
             ended |= base.session.is_some() && next.session.is_none();
             let started = base.session.is_none() && next.session.is_some();
+            // From the state before `tick` (chunk 98, D8).
+            let record = ended_session(&g.state, &next, now);
             let json = snapshot_json(&next, now);
             let changed = json != g.last_json;
             if changed || next != g.state {
@@ -541,8 +571,10 @@ impl Meditation {
             if changed {
                 g.last_json = json.clone();
             }
-            (json, changed, rejected, started, ended, pause_spotify)
+            (json, changed, rejected, started, ended, pause_spotify, record)
         };
+        // The ledger's lock is never taken under this one.
+        crate::sessions::record(app, record);
         let sound = app.try_state::<crate::sound::Sound>();
         if ended {
             // Resumes Spotify only if this session paused it (D14).
@@ -835,6 +867,81 @@ mod tests {
         let mut s = state.clone();
         s.config.heads_up = minutes;
         s
+    }
+
+    // ---- ended_session (chunk 98, D3/D8) ----
+
+    fn running_session() -> MedState {
+        start(&MedState::default(), T0).unwrap()
+    }
+
+    #[test]
+    fn a_session_that_reaches_its_end_is_completed() {
+        let s = running_session();
+        // Noticed 300 ms late: the record still ends at the scheduled time.
+        let now = t(5 * MIN + 300);
+        let next = tick(&s, now);
+        assert_eq!(
+            ended_session(&s, &next, now),
+            Some(Record {
+                kind: Kind::Meditation,
+                started_at: T0,
+                ended_at: t(5 * MIN),
+                planned_ms: 5 * MIN,
+                active_ms: 5 * MIN,
+                outcome: Outcome::Completed,
+                task: None,
+            })
+        );
+        // Not a moment before.
+        let early = t(5 * MIN - 1);
+        assert_eq!(ended_session(&s, &tick(&s, early), early), None);
+    }
+
+    #[test]
+    fn ending_early_is_ended_with_the_time_spent() {
+        let s = running_session();
+        let now = t(70 * SEC);
+        let r = ended_session(&s, &end(&s, now), now).unwrap();
+        assert_eq!(r.outcome, Outcome::Ended);
+        assert_eq!(r.ended_at, now);
+        assert_eq!(r.active_ms, 70 * SEC);
+        assert_eq!(r.planned_ms, 5 * MIN);
+        assert_eq!(r.task, None);
+    }
+
+    #[test]
+    fn a_session_that_ended_while_the_mac_slept_is_completed_at_its_end() {
+        let s = running_session();
+        let now = t(3 * 60 * MIN);
+        let r = ended_session(&s, &tick(&s, now), now).unwrap();
+        assert_eq!(r.outcome, Outcome::Completed);
+        assert_eq!(r.ended_at, t(5 * MIN));
+        assert_eq!(r.active_ms, 5 * MIN);
+        // Also when the first thing after the sleep is Esc, or a new start.
+        let ended = end(&tick(&s, now), now);
+        assert_eq!(ended_session(&s, &ended, now).unwrap().outcome, Outcome::Completed);
+        let again = start(&tick(&s, now), now).unwrap();
+        let r = ended_session(&s, &again, now).unwrap();
+        assert_eq!((r.started_at, r.ended_at), (T0, t(5 * MIN)));
+    }
+
+    #[test]
+    fn nothing_is_recorded_when_no_session_ended() {
+        // Nothing ran.
+        let idle = with_due(&[60]);
+        let now = t(60 * MIN);
+        assert_eq!(ended_session(&idle, &tick(&idle, now), now), None);
+        assert_eq!(ended_session(&idle, &end(&idle, now), now), None);
+        // `start`, `snooze` and `skip` end nothing.
+        assert_eq!(ended_session(&idle, &start(&idle, now).unwrap(), now), None);
+        assert_eq!(ended_session(&idle, &snooze(&idle, 5, now).unwrap(), now), None);
+        assert_eq!(ended_session(&idle, &skip(&idle, now).unwrap(), now), None);
+        // A session still running, and a reconfigure during it.
+        let s = running_session();
+        assert_eq!(ended_session(&s, &tick(&s, t(MIN)), t(MIN)), None);
+        let cfg = configure(&s, vec![t(60 * MIN)], 5, 10, true, 0, t(MIN)).unwrap();
+        assert_eq!(ended_session(&s, &cfg, t(MIN)), None);
     }
 
     // ---- heads-up and due ----

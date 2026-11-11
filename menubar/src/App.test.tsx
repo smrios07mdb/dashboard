@@ -1,20 +1,27 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => ({
   session: { user: null as { id: string } | null, loading: false },
   native: {} as Record<string, ReturnType<typeof vi.fn>>,
   /** Every `watchPopover` listener, so a test can show the popover. */
   popover: new Set<(shown: boolean) => void>(),
+  /** Every `watchSessions` listener, so a test can send the shell's event. */
+  sessions: new Set<() => void>(),
+  save: vi.fn(async (row: unknown) => row),
+  signOutUser: vi.fn(async () => {}),
 }))
 
 vi.mock('@/lib/auth', () => ({ useSession: () => h.session }))
-vi.mock('@/lib/signOutCleanup', () => ({ signOutUser: vi.fn() }))
+vi.mock('@/lib/signOutCleanup', () => ({ signOutUser: h.signOutUser }))
 vi.mock('@/lib/syncRunner', () => ({
   startSyncRunner: () => ({ stop: () => {} }),
 }))
 vi.mock('@/lib/taskUndo', () => ({ offerCompleteUndo: vi.fn() }))
-vi.mock('@/db/repo', () => ({ repo: { tasks: {} } }))
+vi.mock('@/db/repo', () => ({
+  isClientError: (e: unknown) => (e as { status?: number } | null)?.status === 400,
+  repo: { tasks: {}, trackedSessions: { save: h.save } },
+}))
 vi.mock('@/lib/supabase', () => ({ supabase: { auth: {} } }))
 vi.mock('./loadToday', () => ({
   loadToday: async () => ({
@@ -52,6 +59,9 @@ vi.mock('./native', () => {
     'meditationEnd',
     'loginItemState',
     'loginItemSet',
+    'sessionsPending',
+    'sessionsAck',
+    'sessionsClear',
   ]
   for (const n of names) h.native[n] = vi.fn(nothing)
   for (const n of ['setTrayTitle', 'setPopoverHeight', 'hidePopover', 'openDashboard', 'quitApp', 'openAutomationSettings']) {
@@ -66,6 +76,10 @@ vi.mock('./native', () => {
     },
     watchPomodoro: () => () => {},
     watchMeditation: () => () => {},
+    watchSessions: (on: () => void) => {
+      h.sessions.add(on)
+      return () => h.sessions.delete(on)
+    },
   }
 })
 
@@ -350,5 +364,197 @@ describe('menubar App — Settings (chunk 97)', () => {
     h.session = { user: { id: 'u1' }, loading: false }
     render(<App />)
     await waitFor(() => expect(h.native.soundConfigure).toHaveBeenCalledWith(true, MINE))
+  })
+})
+
+describe('menubar App — saved sessions (chunk 98)', () => {
+  const ENTRY = {
+    seq: 7,
+    kind: 'focus',
+    startedAt: 1_800_000_000_000,
+    endedAt: 1_800_000_060_000,
+    plannedMs: 60_000,
+    activeMs: 60_000,
+    outcome: 'completed',
+    taskId: null,
+    taskTitle: null,
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+    localStorage.clear()
+    for (const f of Object.values(h.native)) f.mockClear()
+    h.native.sessionsPending.mockImplementation(async () => null)
+    h.popover.clear()
+    h.sessions.clear()
+    h.save.mockReset()
+    h.save.mockImplementation(async (row: unknown) => row)
+    h.signOutUser.mockClear()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  async function signedIn() {
+    h.session = { user: { id: 'u1' }, loading: false }
+    const view = render(<App />)
+    await screen.findByText('Focus · 25 min')
+    await waitFor(() => expect(h.native.sessionsPending).toHaveBeenCalled())
+    // Let the sign-in drain finish before a test counts further ones.
+    await act(async () => {})
+    return view
+  }
+
+  it('signed in: drains what a previous run left, writes it and acknowledges', async () => {
+    h.native.sessionsPending.mockImplementationOnce(async () => [ENTRY])
+    await signedIn()
+    await waitFor(() => expect(h.native.sessionsAck).toHaveBeenCalledWith([7]))
+    expect(h.save).toHaveBeenCalledTimes(1)
+    expect(h.save.mock.calls[0][0]).toMatchObject({
+      userId: 'u1',
+      kind: 'focus',
+      outcome: 'completed',
+      plannedSeconds: 60,
+      activeSeconds: 60,
+      startedAt: '2027-01-15T08:00:00.000Z',
+      taskId: null,
+    })
+    expect(h.native.sessionsClear).not.toHaveBeenCalled()
+  })
+
+  it('drains on each `sessions` event and on each show', async () => {
+    await signedIn()
+    const before = h.native.sessionsPending.mock.calls.length
+
+    await act(async () => {
+      for (const on of h.sessions) on()
+    })
+    await waitFor(() =>
+      expect(h.native.sessionsPending.mock.calls.length).toBe(before + 1),
+    )
+
+    await show()
+    await waitFor(() =>
+      expect(h.native.sessionsPending.mock.calls.length).toBe(before + 2),
+    )
+    // Hiding is not a trigger.
+    await hide()
+    await act(async () => {})
+    expect(h.native.sessionsPending.mock.calls.length).toBe(before + 2)
+  })
+
+  it('signed out or loading: nothing is drained', async () => {
+    h.session = { user: null, loading: true }
+    render(<App />)
+    await act(async () => {})
+    expect(h.native.sessionsPending).not.toHaveBeenCalled()
+    expect(h.native.sessionsClear).not.toHaveBeenCalled()
+    expect(h.sessions.size).toBe(0)
+  })
+
+  it('Quit drains first, then quits', async () => {
+    await signedIn()
+    let release: () => void = () => {}
+    h.native.sessionsPending.mockImplementationOnce(async () => [ENTRY])
+    h.save.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quit' }))
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(1))
+    expect(h.native.quitApp).not.toHaveBeenCalled()
+
+    await act(async () => release())
+    await waitFor(() => expect(h.native.quitApp).toHaveBeenCalledTimes(1))
+    expect(h.native.sessionsAck).toHaveBeenCalledWith([7])
+    expect(h.native.sessionsAck.mock.invocationCallOrder[0]).toBeLessThan(
+      h.native.quitApp.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('Quit gives up on the drain after 3 s', async () => {
+    await signedIn()
+    h.native.sessionsPending.mockImplementationOnce(async () => [ENTRY])
+    h.save.mockImplementationOnce(() => new Promise<void>(() => {}))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quit' }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2999)
+    })
+    expect(h.native.quitApp).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(h.native.quitApp).toHaveBeenCalledTimes(1)
+    expect(h.native.sessionsAck).not.toHaveBeenCalled()
+  })
+
+  it('Sign out drains first, then signs out', async () => {
+    await signedIn()
+    let release: () => void = () => {}
+    h.native.sessionsPending.mockImplementationOnce(async () => [ENTRY])
+    h.save.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        }),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(h.save).toHaveBeenCalledTimes(1))
+    expect(h.signOutUser).not.toHaveBeenCalled()
+
+    await act(async () => release())
+    await waitFor(() => expect(h.signOutUser).toHaveBeenCalledTimes(1))
+    expect(h.native.sessionsAck).toHaveBeenCalledWith([7])
+  })
+
+  it('Sign out gives up on the drain after 3 s', async () => {
+    await signedIn()
+    h.native.sessionsPending.mockImplementationOnce(async () => [ENTRY])
+    h.save.mockImplementationOnce(() => new Promise<void>(() => {}))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2999)
+    })
+    expect(h.signOutUser).not.toHaveBeenCalled()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(h.signOutUser).toHaveBeenCalledTimes(1)
+  })
+
+  it('signed out: the ledger is cleared after the stop and the end', async () => {
+    const { rerender } = await signedIn()
+    expect(h.native.sessionsClear).not.toHaveBeenCalled()
+
+    h.session = { user: null, loading: false }
+    rerender(<App />)
+    await waitFor(() => expect(h.native.sessionsClear).toHaveBeenCalledTimes(1))
+    const cleared = h.native.sessionsClear.mock.invocationCallOrder[0]
+    expect(h.native.pomodoroStop.mock.invocationCallOrder[0]).toBeLessThan(cleared)
+    expect(h.native.meditationEnd.mock.invocationCallOrder[0]).toBeLessThan(
+      cleared,
+    )
+    // The `sessions` event no longer reaches a drain.
+    expect(h.sessions.size).toBe(0)
+  })
+
+  it('signed out: Quit quits at once', async () => {
+    h.session = { user: null, loading: false }
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Quit' }))
+    await waitFor(() => expect(h.native.quitApp).toHaveBeenCalledTimes(1))
+    expect(h.native.sessionsPending).not.toHaveBeenCalled()
   })
 })

@@ -376,6 +376,14 @@ export async function wipeMyData(userId: string): Promise<void> {
     await repo.notes.delete(n.id)
   }
 
+  // tracked sessions (chunk 98) — saved focus and breathing sessions from the
+  // menu bar app. Nothing references them (`task_id` has no foreign key);
+  // they go after notes and before tasks.
+  const sessions = await repo.trackedSessions.listAll()
+  for (const s of sessions) {
+    await repo.trackedSessions.delete(s.id)
+  }
+
   // tasks (real delete — repo supports it; ON DELETE RESTRICT from
   // subcategories means we MUST take these out before archiving subs).
   const tasks = await repo.tasks.list()

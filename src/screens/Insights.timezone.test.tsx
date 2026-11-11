@@ -11,7 +11,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * is asserted through a passthrough spy on `aggregateForChart`.
  */
 
-const { tasksList, subsList, catsList, aggregateSpy } = vi.hoisted(() => ({
+const {
+  tasksList,
+  subsList,
+  catsList,
+  aggregateSpy,
+  liveTasksList,
+  sessionsList,
+} = vi.hoisted(() => ({
+  liveTasksList: vi.fn(async () => []),
+  sessionsList: vi.fn(async () => []),
   tasksList: vi.fn(),
   subsList: vi.fn(),
   catsList: vi.fn(),
@@ -20,7 +29,8 @@ const { tasksList, subsList, catsList, aggregateSpy } = vi.hoisted(() => ({
 
 vi.mock('@/db/repo', () => ({
   repo: {
-    tasks: { listCompletedInRange: tasksList },
+    tasks: { listCompletedInRange: tasksList, list: liveTasksList },
+    trackedSessions: { listInRange: sessionsList },
     subcategories: { list: subsList },
     categories: { list: catsList },
   },

@@ -20,6 +20,7 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::meditation::{countdown, MedTray, Meditation};
+use crate::sessions::{Kind, Outcome, Record};
 
 const MINUTE_MS: u64 = 60_000;
 /// `pomodoro_extend` adds this much to the current phase.
@@ -121,6 +122,9 @@ pub struct State {
     pub config: Config,
     /// The last open-Today count the web view sent; the idle tray title.
     pub idle_title: String,
+    /// When the running focus began (chunk 98); `UNIX_EPOCH` outside focus.
+    /// Not part of the snapshot.
+    pub started_at: SystemTime,
 }
 
 impl Default for State {
@@ -135,6 +139,7 @@ impl Default for State {
             task: None,
             config: Config::DEFAULT,
             idle_title: String::new(),
+            started_at: UNIX_EPOCH,
         }
     }
 }
@@ -169,6 +174,7 @@ fn to_idle(mut s: State) -> State {
     s.phase_len_ms = 0;
     s.remaining_ms = 0;
     s.task = None;
+    s.started_at = UNIX_EPOCH;
     s
 }
 
@@ -187,6 +193,7 @@ fn end_phase(mut s: State, at: SystemTime) -> State {
             s.phase_len_ms = minutes as u64 * MINUTE_MS;
             s.remaining_ms = 0;
             s.ends_at = at + ms(s.phase_len_ms);
+            s.started_at = UNIX_EPOCH;
             s
         }
         Phase::ShortBreak => {
@@ -231,6 +238,7 @@ pub fn start(state: &State, task: Option<Task>, now: SystemTime) -> Result<State
     s.phase_len_ms = s.config.focus as u64 * MINUTE_MS;
     s.remaining_ms = 0;
     s.ends_at = now + ms(s.phase_len_ms);
+    s.started_at = now;
     s.task = task.map(|t| Task {
         id: t.id.chars().take(ID_MAX).collect(),
         title: t.title.chars().take(TITLE_MAX).collect(),
@@ -319,6 +327,45 @@ pub fn music_edge(prev: &State, next: &State) -> Option<MusicAction> {
         (true, false) => Some(MusicAction::Pause),
         _ => None,
     }
+}
+
+/// The focus phase a state change ended, for the ledger (chunk 98, D2/D7).
+/// `prev` is the state before time was applied, `next` the final one. `Some`
+/// only when `prev` is in focus and `next` is not in that same focus. A focus
+/// that reached its scheduled end is `completed` and ends at that scheduled
+/// time — also when the Mac slept through it; otherwise it was cut short at
+/// `now`: `skipped` into a break, else `stopped`. Pauses are outside the
+/// active time by the arithmetic: length minus what was left.
+pub fn ended_focus(prev: &State, next: &State, now: SystemTime) -> Option<Record> {
+    if prev.phase != Phase::Focus {
+        return None;
+    }
+    // Still the same focus. (Another `started_at` is a focus that ran out
+    // and a new one started by the same command.)
+    if next.phase == Phase::Focus && next.started_at == prev.started_at {
+        return None;
+    }
+    let task = prev.task.as_ref().map(|t| (t.id.clone(), t.title.clone()));
+    let natural = !prev.paused && now >= prev.ends_at;
+    let (ended_at, active_ms, outcome) = if natural {
+        (prev.ends_at, prev.phase_len_ms, Outcome::Completed)
+    } else {
+        let active = prev.phase_len_ms.saturating_sub(remaining_ms(prev, now));
+        let outcome = match next.phase {
+            Phase::ShortBreak | Phase::LongBreak => Outcome::Skipped,
+            _ => Outcome::Stopped,
+        };
+        (now, active, outcome)
+    };
+    Some(Record {
+        kind: Kind::Focus,
+        started_at: epoch_ms(prev.started_at),
+        ended_at: epoch_ms(ended_at),
+        planned_ms: prev.phase_len_ms,
+        active_ms,
+        outcome,
+        task,
+    })
 }
 
 /// The idle tray title: a number of up to four digits, else nothing — the
@@ -568,7 +615,7 @@ impl Pomodoro {
         f: impl FnOnce(&State, SystemTime) -> Result<State, String>,
     ) -> Result<Response, String> {
         let now = SystemTime::now();
-        let (json, changed, rejected, music) = {
+        let (json, changed, rejected, music, ended) = {
             let mut g = self.lock();
             let base = advance(&g.state, now);
             let (next, rejected) = match f(&base, now) {
@@ -577,14 +624,18 @@ impl Pomodoro {
             };
             let changed = next != g.state;
             let music = music_edge(&g.state, &next);
+            // From the state before `advance` (chunk 98, D7).
+            let ended = ended_focus(&g.state, &next, now);
             if changed {
                 g.state = next;
                 g.generation += 1;
             }
-            (snapshot_json(&g.state, now), changed, rejected, music)
+            (snapshot_json(&g.state, now), changed, rejected, music, ended)
         };
-        // After the lock is gone: the music is another thread's work.
+        // After the lock is gone: the music is another thread's work, and
+        // the ledger's lock is never taken under this one.
         send_music(app, music);
+        crate::sessions::record(app, ended);
         if changed {
             self.wake.notify_all();
             let _ = app.emit_str("pomodoro", json.clone());
@@ -747,16 +798,18 @@ pub fn spawn_loop(app: AppHandle, tray_id: &'static str) -> std::io::Result<()> 
                 let hint = app
                     .try_state::<Meditation>()
                     .and_then(|m| m.tray_hint(now));
-                let (title, icon, event, music) = {
+                let (title, icon, event, music, ended) = {
                     let mut g = pomo.lock();
                     let next = advance(&g.state, now);
                     let event = (next != g.state).then(|| snapshot_json(&next, now));
                     let music = music_edge(&g.state, &next);
+                    let ended = ended_focus(&g.state, &next, now);
                     g.state = next;
                     let (title, icon) = tray_view(&g.state, hint.as_ref(), now);
-                    (title, icon, event, music)
+                    (title, icon, event, music, ended)
                 };
                 send_music(&app, music);
+                crate::sessions::record(&app, ended);
                 if let Some(json) = event {
                     let _ = app.emit_str("pomodoro", json);
                 }
@@ -896,6 +949,181 @@ mod tests {
         assert_eq!(music_edge(&idle, &configure(&idle, config)), None);
         assert_eq!(music_edge(&idle, &idle), None);
         assert_eq!(music_edge(&focus, &focus), None);
+    }
+
+    // ---- ended_focus (chunk 98, D2/D7) ----
+
+    fn task() -> Option<Task> {
+        Some(Task {
+            id: "t-1".into(),
+            title: "Write the report".into(),
+        })
+    }
+
+    fn ms_of(t: SystemTime) -> u64 {
+        epoch_ms(t)
+    }
+
+    #[test]
+    fn a_focus_that_runs_out_is_completed_at_its_scheduled_end() {
+        let focus = start(&State::default(), task(), at(0)).unwrap();
+        // Noticed 400 ms late: the record still ends at the scheduled time.
+        let now = at(25 * MIN + 400);
+        let next = advance(&focus, now);
+        assert_eq!(
+            ended_focus(&focus, &next, now),
+            Some(Record {
+                kind: Kind::Focus,
+                started_at: ms_of(at(0)),
+                ended_at: ms_of(at(25 * MIN)),
+                planned_ms: 25 * MIN,
+                active_ms: 25 * MIN,
+                outcome: Outcome::Completed,
+                task: Some(("t-1".into(), "Write the report".into())),
+            })
+        );
+    }
+
+    #[test]
+    fn sleeping_through_focus_and_break_is_one_completed_record() {
+        let focus = focus_at_zero();
+        let now = at(3 * 60 * MIN);
+        let woke = advance(&focus, now);
+        assert_eq!(woke.phase, Phase::Idle);
+        let r = ended_focus(&focus, &woke, now).unwrap();
+        assert_eq!(r.outcome, Outcome::Completed);
+        assert_eq!(r.ended_at, ms_of(at(25 * MIN)));
+        assert_eq!(r.active_ms, 25 * MIN);
+        assert_eq!(r.task, None);
+        // The state it woke to ends nothing more.
+        assert_eq!(ended_focus(&woke, &advance(&woke, now), now), None);
+    }
+
+    #[test]
+    fn skip_while_running_is_skipped_with_the_time_spent() {
+        let focus = focus_at_zero();
+        let now = at(7 * MIN + 30_000);
+        let next = skip(&focus, now).unwrap();
+        let r = ended_focus(&focus, &next, now).unwrap();
+        assert_eq!(r.outcome, Outcome::Skipped);
+        assert_eq!(r.started_at, ms_of(at(0)));
+        assert_eq!(r.ended_at, ms_of(now));
+        assert_eq!(r.active_ms, 7 * MIN + 30_000);
+        assert_eq!(r.planned_ms, 25 * MIN);
+        // The fourth focus skips into the long break: still skipped.
+        let fourth = start(&with_pos(4), None, at(0)).unwrap();
+        let long = skip(&fourth, now).unwrap();
+        assert_eq!(long.phase, Phase::LongBreak);
+        assert_eq!(ended_focus(&fourth, &long, now).unwrap().outcome, Outcome::Skipped);
+    }
+
+    #[test]
+    fn skip_while_paused_leaves_the_pause_out() {
+        let focus = focus_at_zero();
+        let paused = pause(&focus, at(2 * MIN)).unwrap();
+        // Ten minutes paused, then skipped without resuming.
+        let now = at(12 * MIN);
+        let r = ended_focus(&paused, &skip(&paused, now).unwrap(), now).unwrap();
+        assert_eq!(r.outcome, Outcome::Skipped);
+        assert_eq!(r.active_ms, 2 * MIN);
+        assert_eq!(r.ended_at, ms_of(now));
+
+        // Paused 10 minutes, resumed, skipped 3 minutes later: 5 active.
+        let resumed = resume(&paused, at(12 * MIN)).unwrap();
+        let now = at(15 * MIN);
+        let r = ended_focus(&resumed, &skip(&resumed, now).unwrap(), now).unwrap();
+        assert_eq!(r.active_ms, 5 * MIN);
+        assert_eq!(r.ended_at - r.started_at, 15 * MIN);
+    }
+
+    #[test]
+    fn a_paused_focus_past_its_old_end_is_not_completed() {
+        let paused = pause(&focus_at_zero(), at(MIN)).unwrap();
+        // `ends_at` is stale while paused; an hour later it is still paused.
+        let now = at(60 * MIN);
+        let r = ended_focus(&paused, &stop(&paused), now).unwrap();
+        assert_eq!(r.outcome, Outcome::Stopped);
+        assert_eq!(r.active_ms, MIN);
+    }
+
+    #[test]
+    fn stop_is_stopped_with_the_time_spent() {
+        let focus = start(&State::default(), task(), at(0)).unwrap();
+        let now = at(90_000);
+        let r = ended_focus(&focus, &stop(&focus), now).unwrap();
+        assert_eq!(r.outcome, Outcome::Stopped);
+        assert_eq!(r.active_ms, 90_000);
+        assert_eq!(r.ended_at, ms_of(now));
+        assert_eq!(r.task, Some(("t-1".into(), "Write the report".into())));
+    }
+
+    #[test]
+    fn plus_five_counts_in_planned_and_active() {
+        let extended = extend(&focus_at_zero()).unwrap();
+        let now = at(30 * MIN);
+        let r = ended_focus(&extended, &advance(&extended, now), now).unwrap();
+        assert_eq!(r.outcome, Outcome::Completed);
+        assert_eq!(r.planned_ms, 30 * MIN);
+        assert_eq!(r.active_ms, 30 * MIN);
+        assert_eq!(r.ended_at, ms_of(at(30 * MIN)));
+        // Not over at the old end.
+        let early = at(25 * MIN);
+        assert_eq!(ended_focus(&extended, &advance(&extended, early), early), None);
+    }
+
+    #[test]
+    fn nothing_but_a_focus_ending_makes_a_record() {
+        let focus = focus_at_zero();
+        let brk = advance(&focus, at(25 * MIN));
+        // A break ending, by time, skip or stop.
+        assert_eq!(ended_focus(&brk, &advance(&brk, at(30 * MIN)), at(30 * MIN)), None);
+        assert_eq!(ended_focus(&brk, &skip(&brk, at(26 * MIN)).unwrap(), at(26 * MIN)), None);
+        assert_eq!(ended_focus(&brk, &stop(&brk), at(26 * MIN)), None);
+        // `start` from a break and from idle.
+        let again = start(&brk, None, at(26 * MIN)).unwrap();
+        assert_eq!(ended_focus(&brk, &again, at(26 * MIN)), None);
+        assert_eq!(ended_focus(&State::default(), &focus, at(0)), None);
+        // Pause, resume, extend, configure, and no change at all.
+        let paused = pause(&focus, at(MIN)).unwrap();
+        assert_eq!(ended_focus(&focus, &paused, at(MIN)), None);
+        let resumed = resume(&paused, at(2 * MIN)).unwrap();
+        assert_eq!(ended_focus(&paused, &resumed, at(2 * MIN)), None);
+        assert_eq!(ended_focus(&focus, &extend(&focus).unwrap(), at(MIN)), None);
+        let config = Config::validated(50, 10, 20, 2, true).unwrap();
+        assert_eq!(ended_focus(&focus, &configure(&focus, config), at(MIN)), None);
+        assert_eq!(ended_focus(&focus, &focus, at(MIN)), None);
+    }
+
+    #[test]
+    fn a_focus_that_ran_out_under_a_new_start_is_still_recorded() {
+        // The command arrives before the loop noticed the end: `advance`
+        // takes the old focus to its break and `start` begins another.
+        let focus = focus_at_zero();
+        let now = at(25 * MIN + 5);
+        let next = start(&advance(&focus, now), None, now).unwrap();
+        assert_eq!(next.phase, Phase::Focus);
+        let r = ended_focus(&focus, &next, now).unwrap();
+        assert_eq!(r.outcome, Outcome::Completed);
+        assert_eq!(r.ended_at, ms_of(at(25 * MIN)));
+    }
+
+    #[test]
+    fn started_at_is_set_by_start_and_cleared_outside_focus() {
+        assert_eq!(State::default().started_at, UNIX_EPOCH);
+        let focus = start(&State::default(), None, at(5)).unwrap();
+        assert_eq!(focus.started_at, at(5));
+        // Kept through pause, resume and extend.
+        let paused = pause(&focus, at(MIN)).unwrap();
+        assert_eq!(paused.started_at, at(5));
+        assert_eq!(resume(&paused, at(2 * MIN)).unwrap().started_at, at(5));
+        assert_eq!(extend(&focus).unwrap().started_at, at(5));
+        // Cleared when the focus ends, however it ends.
+        assert_eq!(advance(&focus, at(26 * MIN)).started_at, UNIX_EPOCH);
+        assert_eq!(skip(&focus, at(MIN)).unwrap().started_at, UNIX_EPOCH);
+        assert_eq!(stop(&focus).started_at, UNIX_EPOCH);
+        assert_eq!(advance(&focus, at(60 * MIN)).started_at, UNIX_EPOCH);
+        // Not in the snapshot.
+        assert!(!snapshot_json(&focus, at(5)).contains("started"));
     }
 
     // ---- advance ----

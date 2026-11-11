@@ -11,7 +11,7 @@ import {
 } from 'recharts'
 
 import { repo } from '@/db/repo'
-import type { Category, Subcategory, Task } from '@/db/types'
+import type { Category, Subcategory, Task, TrackedSession } from '@/db/types'
 import { chartLabel } from '@/lib/chartLabel'
 import { dateKeyDaysAgo, startOfDayIso, today } from '@/lib/clock'
 import {
@@ -21,6 +21,12 @@ import {
   summaryTable,
   type ChartModel,
 } from '@/lib/insights'
+import {
+  categoryScope,
+  sessionDays,
+  sessionsInScope,
+  sessionTotals,
+} from '@/lib/sessionInsights'
 import { browserTimezone, loadUserTimezone } from '@/lib/userTimezone'
 
 type Range = 7 | 30 | 90
@@ -63,6 +69,12 @@ function fmtLastCompletion(iso: string, tz: string): string {
     ...(yearIn(at) !== yearIn(new Date()) ? { year: 'numeric' as const } : {}),
   }).format(at)
 }
+
+/** The tracked chart's two series (chunk 98), in stacking order. */
+const SESSION_SERIES = [
+  { key: 'focus', name: 'Focus', color: 'var(--jewel-jade)' },
+  { key: 'breathing', name: 'Breathing', color: 'var(--jewel-coral)' },
+] as const
 
 const PILL_GROUP =
   'inline-flex rounded-full border border-line bg-bg-alt p-0.5'
@@ -140,6 +152,10 @@ export default function Insights() {
   // Latest all-time completion (chunk 70) — only looked up when the range came
   // back empty, so the empty state can say when the last one was.
   const [lastCompletedAt, setLastCompletedAt] = useState<string | null>(null)
+  // Tracked sessions from the menu bar app, and every live task — for the
+  // category filter and the live titles (chunk 98).
+  const [sessions, setSessions] = useState<TrackedSession[]>([])
+  const [liveTasks, setLiveTasks] = useState<Task[]>([])
 
   useEffect(() => {
     // `loading` is toggled true in the range handler (event-driven) and reset
@@ -152,10 +168,24 @@ export default function Insights() {
       const days = lastNDays(range, zone)
       const from = startOfDayIso(days[0], zone)
       const to = new Date().toISOString()
-      const [t, s, c] = await Promise.all([
+      // The tracked reads are caught on their own (chunk 98, D18): a failure
+      // there must never empty the estimates.
+      const [t, s, c, tracked, live] = await Promise.all([
         repo.tasks.listCompletedInRange(from, to),
         repo.subcategories.list(),
         repo.categories.list(),
+        Promise.resolve()
+          .then(() => repo.trackedSessions.listInRange(from, to))
+          .catch((e: unknown): TrackedSession[] => {
+            console.error('Insights tracked sessions load failed', e)
+            return []
+          }),
+        Promise.resolve()
+          .then(() => repo.tasks.list())
+          .catch((e: unknown): Task[] => {
+            console.error('Insights tasks load failed', e)
+            return []
+          }),
       ])
       let last: string | null = null
       if (t.length === 0) {
@@ -169,16 +199,18 @@ export default function Insights() {
           }
         }
       }
-      return [zone, t, s, c, last] as const
+      return [zone, t, s, c, last, tracked, live] as const
     }
     load()
-      .then(([zone, t, s, c, last]) => {
+      .then(([zone, t, s, c, last, tracked, live]) => {
         if (cancelled) return
         setTz(zone)
         setLastCompletedAt(last)
         setTasks(t)
         setSubcategories(s)
         setCategories(c)
+        setSessions(tracked)
+        setLiveTasks(live)
       })
       .catch((e) => {
         console.error('Insights load failed', e)
@@ -283,6 +315,67 @@ export default function Insights() {
         ink: 'var(--jewel-coral-ink)',
       },
     ]
+
+  // ---- Tracked sessions (chunk 98) — measured in the menu bar app, unlike
+  // the estimates above. All arithmetic lives in lib/sessionInsights. ----
+  const sessionScope = useMemo(
+    () =>
+      catFilter === 'all'
+        ? null
+        : categoryScope(
+            catFilter === 'work' ? 'Work' : 'Personal',
+            liveTasks,
+            subcategories,
+            categories,
+          ),
+    [catFilter, liveTasks, subcategories, categories],
+  )
+  const liveTitles = useMemo(
+    () => new Map(liveTasks.map((t) => [t.id, t.title])),
+    [liveTasks],
+  )
+  const tracked = useMemo(
+    () => sessionTotals(sessions, sessionScope, liveTitles),
+    [sessions, sessionScope, liveTitles],
+  )
+  const trackedDays = useMemo(
+    () => sessionDays(sessionsInScope(sessions, sessionScope), dayKeys, tz),
+    [sessions, sessionScope, dayKeys, tz],
+  )
+  const trackedByLabel = useMemo(
+    () => new Map(trackedDays.map((d) => [d.label, d])),
+    [trackedDays],
+  )
+  const trackedCards: typeof statCards = [
+    {
+      label: 'Focus time',
+      value: fmtMinutes(tracked.focusMinutes),
+      hint: 'tracked, pauses excluded',
+      accent: 'var(--jewel-jade)',
+      ink: 'var(--jewel-jade-ink)',
+    },
+    {
+      label: 'Focus sessions',
+      value: String(tracked.focusSessions),
+      hint: `${tracked.focusCompleted} ran to the end`,
+      accent: 'var(--jewel-coral)',
+      ink: 'var(--jewel-coral-ink)',
+    },
+    {
+      label: 'Breathing',
+      value: fmtMinutes(tracked.breathingMinutes),
+      hint: `${tracked.breathingSessions} sessions`,
+      accent: 'var(--jewel-jade)',
+      ink: 'var(--jewel-jade-ink)',
+    },
+    {
+      label: 'Most focused',
+      value: tracked.mostFocused?.title ?? '—',
+      hint: 'by tracked time',
+      accent: 'var(--jewel-coral)',
+      ink: 'var(--jewel-coral-ink)',
+    },
+  ]
 
   // Trend = second-half vs first-half daily average, over per-day chart totals
   // (folding "Other" doesn't change per-day totals).
@@ -595,6 +688,182 @@ export default function Insights() {
           </tbody>
         </table>
         </div>
+      )}
+
+      {/*
+       * Tracked sessions (chunk 98): focus and breathing time measured by the
+       * menu bar app. Same range, zone and category filter as the screen; the
+       * headline cards above stay estimates.
+       */}
+      {!loading && (
+        <section aria-label="Focus and breathing" className="mt-10">
+          <div className="mb-4 flex flex-wrap items-baseline gap-3">
+            <h2
+              className="m-0 font-display text-[24px] font-medium text-ink"
+              style={{ letterSpacing: '-0.02em' }}
+            >
+              Focus and breathing
+            </h2>
+            <span className="label pb-1">Tracked in the menu bar app</span>
+          </div>
+
+          {tracked.count === 0 ? (
+            <p className="rounded-md border border-line bg-surface px-5 py-6 text-[13px] leading-relaxed text-ink-3 shadow-md">
+              No focus or breathing sessions in the last {range} days. Sessions
+              from the menu bar app show here.
+            </p>
+          ) : (
+            <>
+              <div
+                className="mb-6 grid gap-px overflow-hidden rounded-md border border-line shadow-md"
+                style={{
+                  background: 'var(--line)',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                }}
+              >
+                {trackedCards.map((c) => (
+                  <div
+                    key={c.label}
+                    className="relative min-w-0 bg-surface px-[18px] py-4"
+                  >
+                    <div
+                      className="absolute inset-x-0 top-0 h-0.5"
+                      aria-hidden
+                      style={{
+                        background: `linear-gradient(90deg, ${c.accent}, transparent 70%)`,
+                      }}
+                    />
+                    <div className="label mb-1.5" style={{ color: c.ink }}>
+                      {c.label}
+                    </div>
+                    <div
+                      className="line-clamp-2 break-words font-display text-[22px] font-semibold"
+                      style={{ letterSpacing: '-0.02em' }}
+                      title={c.value}
+                    >
+                      {c.value}
+                    </div>
+                    <div className="mt-1 text-[11px] text-ink-3">{c.hint}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="rounded-md border border-line bg-surface px-5 py-[18px] shadow-md">
+                <div
+                  role="img"
+                  aria-label={`Tracked focus and breathing minutes per day for the last ${range} days.`}
+                >
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart
+                      accessibilityLayer={false}
+                      data={trackedDays}
+                      margin={{ top: 8, right: 8, bottom: 0, left: -12 }}
+                    >
+                      <CartesianGrid
+                        vertical={false}
+                        stroke="var(--line)"
+                        strokeDasharray="2 4"
+                      />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: 'var(--ink-3)', fontSize: 11 }}
+                        axisLine={{ stroke: 'var(--line)' }}
+                        tickLine={false}
+                        interval="preserveStartEnd"
+                        minTickGap={20}
+                      />
+                      <YAxis
+                        tick={{ fill: 'var(--ink-3)', fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        tickFormatter={(v: number) => `${v}m`}
+                        width={48}
+                      />
+                      <Tooltip
+                        cursor={{ fill: 'var(--accent-soft)' }}
+                        content={({ active, label }) => {
+                          if (!active || typeof label !== 'string') return null
+                          const day = trackedByLabel.get(label)
+                          if (!day) return null
+                          const rows = SESSION_SERIES.filter(
+                            (s) => day[s.key] > 0,
+                          )
+                          if (rows.length === 0) return null
+                          return (
+                            <div
+                              className="rounded-md px-3 py-2 text-[12px] shadow-lg"
+                              style={{ background: 'var(--ink)' }}
+                            >
+                              <div
+                                className="mb-1 font-medium"
+                                style={{ color: 'var(--bg)' }}
+                              >
+                                {label}
+                              </div>
+                              {rows.map((s) => (
+                                <div
+                                  key={s.key}
+                                  className="flex items-center gap-2"
+                                  style={{ color: 'var(--bg-alt)' }}
+                                >
+                                  <span
+                                    className="inline-block h-2 w-2 rounded-[2px]"
+                                    style={{ background: s.color }}
+                                  />
+                                  <span className="mr-3">{s.name}</span>
+                                  <span
+                                    className="num ml-auto"
+                                    style={{ color: 'var(--bg)' }}
+                                  >
+                                    {day[s.key]}m
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        }}
+                      />
+                      {SESSION_SERIES.map((s, i) => (
+                        <Bar
+                          key={s.key}
+                          dataKey={s.key}
+                          stackId="tracked"
+                          fill={s.color}
+                          name={s.name}
+                          isAnimationActive={false}
+                          radius={
+                            i === SESSION_SERIES.length - 1
+                              ? [2, 2, 0, 0]
+                              : undefined
+                          }
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Legend — shape + text, like the estimate chart's. */}
+                <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 border-t border-line pt-4">
+                  {SESSION_SERIES.map((s, i) => (
+                    <span
+                      key={s.key}
+                      className="inline-flex items-center gap-1.5 text-[12px] text-ink-2"
+                    >
+                      <SeriesMarker index={i} color={s.color} />
+                      {s.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {catFilter !== 'all' && (
+            <p className="mt-2 text-[11px] text-ink-3">
+              Bare focus sessions and breathing show under All.
+            </p>
+          )}
+        </section>
       )}
     </div>
   )

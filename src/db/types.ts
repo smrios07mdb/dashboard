@@ -97,6 +97,29 @@ export type TodayMark = {
   updatedAt: string
 }
 
+/**
+ * A saved focus phase or breathing session from the menu bar app (chunk 98,
+ * ARCHITECTURE.md §4). `id` is derived from `(userId, kind, startedAt)` by
+ * `lib/trackedSessions.sessionId`, so the same session written twice lands on
+ * one row. `activeSeconds` excludes pauses. `taskId` has no foreign key: the
+ * task may be gone, and `taskTitle` keeps its name as it was. Breathing never
+ * has a task.
+ */
+export type TrackedSession = {
+  id: string
+  userId: string
+  kind: 'focus' | 'meditation'
+  startedAt: string
+  endedAt: string
+  plannedSeconds: number
+  activeSeconds: number
+  /** Focus: completed | skipped | stopped. Breathing: completed | ended. */
+  outcome: 'completed' | 'skipped' | 'stopped' | 'ended'
+  taskId: string | null
+  taskTitle: string | null
+  createdAt: string
+}
+
 export type RoutineItem = {
   id: string
   userId: string
@@ -230,5 +253,6 @@ export const TABLES = {
   scheduledBlocks: 'scheduled_blocks',
   notes: 'notes',
   todayMarks: 'today_marks',
+  trackedSessions: 'tracked_sessions',
 } as const
 export type TableName = (typeof TABLES)[keyof typeof TABLES]

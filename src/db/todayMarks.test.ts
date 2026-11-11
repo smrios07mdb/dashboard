@@ -175,8 +175,8 @@ describe('Dexie v7 (chunk 64)', () => {
     await Dexie.delete(NAME)
   })
 
-  it('the real DashboardCacheDB is at v7 with the today_marks store', () => {
-    expect(db.verno).toBe(7)
+  it('the real DashboardCacheDB (v8 since chunk 98) has the today_marks store', () => {
+    expect(db.verno).toBe(8)
     expect(db.today_marks.schema.primKey.name).toBe('id')
     expect(db.today_marks.schema.indexes.map((i) => i.name)).toEqual(['day'])
   })

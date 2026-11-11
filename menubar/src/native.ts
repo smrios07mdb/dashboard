@@ -15,6 +15,7 @@ import {
 import type { MeditationConfig, MeditationSnapshot } from './meditation'
 import type { PomodoroSnapshot, PomodoroTask } from './pomodoro'
 import type { PomodoroConfig } from './pomodoroPrefs'
+import type { LedgerEntry } from './sessions'
 import type { SpotifyState } from './sound'
 
 /** The live PWA — the fallback target when there is no shell to open it. */
@@ -293,4 +294,45 @@ export async function loginItemState(): Promise<LoginItemState | null> {
 export async function loginItemSet(on: boolean): Promise<LoginItemState | null> {
   if (!inTauri()) return null
   return invoke<LoginItemState>('login_item_set', { on })
+}
+
+/*
+ * Saved sessions (chunk 98). The shell keeps finished focus and breathing
+ * sessions in a ledger (`sessions.rs`) until the web view has written each
+ * one. Outside Tauri: `null`, and nothing is sent.
+ */
+
+/** Every session still waiting to be written, oldest first. */
+export async function sessionsPending(): Promise<LedgerEntry[] | null> {
+  if (!inTauri()) return null
+  return invoke<LedgerEntry[]>('sessions_pending')
+}
+
+/** These are written: the shell drops them and answers what still waits. */
+export async function sessionsAck(seqs: number[]): Promise<LedgerEntry[] | null> {
+  if (!inTauri()) return null
+  return invoke<LedgerEntry[]>('sessions_ack', { seqs })
+}
+
+/** Signed out: the ledger is emptied. */
+export async function sessionsClear(): Promise<void> {
+  if (!inTauri()) return
+  await invoke('sessions_clear')
+}
+
+/** The shell's `sessions` event: a session was just added to the ledger. */
+export function watchSessions(onAdded: () => void): () => void {
+  if (!inTauri()) return () => {}
+  let stopped = false
+  let off: (() => void) | null = null
+  listen('sessions', () => onAdded())
+    .then((unlisten) => {
+      if (stopped) unlisten()
+      else off = unlisten
+    })
+    .catch((e: unknown) => console.error('menubar: watchSessions failed', e))
+  return () => {
+    stopped = true
+    off?.()
+  }
 }

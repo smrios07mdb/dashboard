@@ -59,6 +59,13 @@ const { calls, repoMock } = vi.hoisted(() => {
       removeByEndpoint: async () => undefined,
     },
     settings: { update: async () => undefined },
+    // Chunk 98: the wipe also deletes tracked sessions (after notes).
+    trackedSessions: {
+      listAll: async () => [{ id: 'ts-1' }],
+      delete: async (id: string) => {
+        calls.push(`trackedSessions.delete:${id}`)
+      },
+    },
     _tasks: tasks,
     _notes: notes,
   }
@@ -118,5 +125,9 @@ describe('sample data — notes (chunk 58)', () => {
     const firstTask = calls.findIndex((c) => c.startsWith('tasks.delete'))
     expect(firstTask).toBeGreaterThan(-1)
     expect(lastNote).toBeLessThan(firstTask)
+    // Tracked sessions go between the two (chunk 98, D13).
+    const session = calls.indexOf('trackedSessions.delete:ts-1')
+    expect(session).toBeGreaterThan(lastNote)
+    expect(session).toBeLessThan(firstTask)
   })
 })
