@@ -120,6 +120,30 @@ export type TrackedSession = {
   createdAt: string
 }
 
+/**
+ * A block group (chunk 99, ARCHITECTURE.md §4): a named list of domains the
+ * menu bar app keeps out of the active browser tab during focus and/or on a
+ * schedule. Domains are normalized (`lib/blockRules.normalizeDomain`).
+ * `scheduleDays` uses JS `getDay()` (0 = Sunday); `scheduleFrom` /
+ * `scheduleTo` are `HH:MM` in the Mac's own clock, `to <= from` running past
+ * midnight.
+ */
+export type BlockGroup = {
+  id: string
+  userId: string
+  name: string
+  domains: string[]
+  enabled: boolean
+  blockInFocus: boolean
+  blockOnSchedule: boolean
+  scheduleDays: number[]
+  scheduleFrom: string
+  scheduleTo: string
+  sortOrder: number
+  createdAt: string
+  updatedAt: string
+}
+
 export type RoutineItem = {
   id: string
   userId: string
@@ -254,5 +278,6 @@ export const TABLES = {
   notes: 'notes',
   todayMarks: 'today_marks',
   trackedSessions: 'tracked_sessions',
+  blockGroups: 'block_groups',
 } as const
 export type TableName = (typeof TABLES)[keyof typeof TABLES]

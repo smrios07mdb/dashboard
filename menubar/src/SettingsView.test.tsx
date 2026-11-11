@@ -13,7 +13,11 @@ import { MEDITATION_KEY, readMeditationPrefs } from './meditationPrefs'
 import type { LoginItemState } from './native'
 import type { Pomodoro } from './pomodoro'
 import { DEFAULT_POMODORO, POMODORO_KEY } from './pomodoroPrefs'
-import SettingsView, { type SettingsBackend } from './SettingsView'
+import type { BlockGroup } from '@/db/types'
+
+import { BLOCKER_KEY } from './blockerPrefs'
+import type { BlockerState } from './blocker'
+import SettingsView, { type BlockingBackend, type SettingsBackend } from './SettingsView'
 import { readSoundPrefs, SOUND_KEY } from './soundPrefs'
 
 const ID = '37i9dQZF1DWZeKCadgRdKQ'
@@ -37,7 +41,12 @@ function keyBackend(fail: string[] = []) {
 function setup({
   login = { status: 'off', path: null },
   failKeys = [],
-}: { login?: LoginItemState | null; failKeys?: string[] } = {}) {
+  blocking,
+}: {
+  login?: LoginItemState | null
+  failKeys?: string[]
+  blocking?: BlockingBackend
+} = {}) {
   const pomodoro = { saveConfig: vi.fn(async () => {}) }
   const meditation = { savePrefs: vi.fn(async () => {}) }
   const keys = keyBackend(failKeys)
@@ -62,6 +71,7 @@ function setup({
       onTheme={onTheme}
       onDone={onDone}
       backend={backend}
+      blocking={blocking}
     />,
   )
   return { pomodoro, meditation, keys, handlers, hotkeys, backend, onDone, onTheme, view }
@@ -461,5 +471,144 @@ describe('SettingsView (chunk 97)', () => {
     expect(
       screen.getByText(/Takes effect at your next login\. macOS may list it under Login Items/),
     ).toBeInTheDocument()
+  })
+})
+
+describe('SettingsView — Blocking (chunk 99, D21)', () => {
+  beforeEach(() => localStorage.clear())
+
+  function aGroup(over: Partial<BlockGroup> = {}): BlockGroup {
+    return {
+      id: 'g-1',
+      userId: 'u-1',
+      name: 'Social',
+      domains: ['x.com', 'reddit.com'],
+      enabled: true,
+      blockInFocus: true,
+      blockOnSchedule: true,
+      scheduleDays: [1, 2, 3, 4, 5],
+      scheduleFrom: '09:00',
+      scheduleTo: '17:00',
+      sortOrder: 0,
+      createdAt: 'x',
+      updatedAt: 'x',
+      ...over,
+    }
+  }
+
+  function blockingBackend(
+    groups: BlockGroup[],
+    state: BlockerState | null = null,
+  ) {
+    let emit: ((s: BlockerState) => void) | null = null
+    const b = {
+      listGroups: vi.fn(async () => groups),
+      setGroupEnabled: vi.fn(async (id: string, enabled: boolean) => ({
+        ...groups.find((g) => g.id === id)!,
+        enabled,
+      })),
+      state: vi.fn(async () => state),
+      check: vi.fn(async () => state),
+      watch: vi.fn((on: (s: BlockerState) => void) => {
+        emit = on
+        return () => {
+          emit = null
+        }
+      }),
+      openAutomation: vi.fn(),
+      sync: vi.fn(async () => {}),
+    }
+    return { b, emit: (s: BlockerState) => emit?.(s) }
+  }
+
+  it('sits between Meditation and Hotkeys', async () => {
+    const { b } = blockingBackend([])
+    setup({ blocking: b })
+    await settle()
+    const order = screen
+      .getAllByRole('group')
+      .map((g) => g.getAttribute('aria-label'))
+      .filter((n) => ['Meditation', 'Blocking', 'Hotkeys'].includes(n!))
+    expect(order).toEqual(['Meditation', 'Blocking', 'Hotkeys'])
+    expect(screen.getByText('No groups yet.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Add and edit sites on the dashboard, under Settings › Site blocking. Quitting this app lifts every block.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('the Mac switch saves hup:mb:blocker and syncs', async () => {
+    const { b } = blockingBackend([])
+    setup({ blocking: b })
+    await settle()
+    expect(sw('Block sites on this Mac')).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(sw('Block sites on this Mac'))
+    expect(localStorage.getItem(BLOCKER_KEY)).toBe('{"enabled":false}')
+    expect(sw('Block sites on this Mac')).toHaveAttribute('aria-checked', 'false')
+    expect(b.sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('lists each group with its summary; its switch saves and syncs', async () => {
+    const { b } = blockingBackend([aGroup()])
+    setup({ blocking: b })
+    await settle()
+    expect(screen.getByText(/2 sites · Focus · Mon–Fri 9:00 AM – 5:00 PM/)).toBeInTheDocument()
+    fireEvent.click(sw('Social'))
+    await settle()
+    expect(b.setGroupEnabled).toHaveBeenCalledWith('g-1', false)
+    expect(sw('Social')).toHaveAttribute('aria-checked', 'false')
+    expect(b.sync).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows each installed browser\'s status; denied offers the settings button', async () => {
+    const { b, emit } = blockingBackend([], {
+      enabled: true,
+      active: true,
+      browsers: [
+        { name: 'Google Chrome', status: 'ok' },
+        { name: 'Safari', status: 'denied' },
+        { name: 'Brave Browser', status: 'not_installed' },
+        { name: 'Microsoft Edge', status: 'unknown' },
+      ],
+    })
+    const { view } = setup({ blocking: b })
+    await settle()
+    const row = (name: string) =>
+      view.container.querySelector(`[data-browser="${name}"]`) as HTMLElement | null
+    expect(row('Google Chrome')?.textContent).toContain('Allowed')
+    expect(row('Safari')?.textContent).toContain('Needs permission')
+    expect(row('Brave Browser')).toBeNull()
+    expect(row('Microsoft Edge')?.textContent).toContain('Checked when a block starts')
+    fireEvent.click(btn('Open Automation settings'))
+    expect(b.openAutomation).toHaveBeenCalledTimes(1)
+
+    act(() =>
+      emit({
+        enabled: true,
+        active: true,
+        browsers: [{ name: 'Safari', status: 'timeout' }],
+      }),
+    )
+    expect(row('Safari')?.textContent).toContain("Didn't respond")
+  })
+
+  it('Check browsers asks the shell', async () => {
+    const { b } = blockingBackend([], {
+      enabled: true,
+      active: false,
+      browsers: [{ name: 'Google Chrome', status: 'not_running' }],
+    })
+    setup({ blocking: b })
+    await settle()
+    fireEvent.click(btn('Check browsers'))
+    await waitFor(() => expect(b.check).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('Not running')).toBeInTheDocument()
+  })
+
+  it('without a blocking backend there is no Blocking section', async () => {
+    setup()
+    await settle()
+    expect(screen.queryByRole('group', { name: 'Blocking' })).toBeNull()
   })
 })

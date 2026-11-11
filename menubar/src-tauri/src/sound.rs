@@ -36,7 +36,8 @@ const AUTOMATION_SETTINGS_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation";
 
 // ---------------------------------------------------------------------------
-// Templates. The only AppleScript this app ever runs.
+// Templates. The only Spotify AppleScript this app runs; the browser
+// scripts are `blocker.rs`'s own fixed templates (chunk 99).
 // ---------------------------------------------------------------------------
 
 /// The one read. `application "Spotify" is running` sends no Apple Event, so

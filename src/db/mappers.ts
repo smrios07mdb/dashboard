@@ -7,6 +7,7 @@
  * — the keys that come out are only the keys you passed in.
  */
 import type {
+  BlockGroup,
   Category,
   Note,
   PushSubscription,
@@ -299,6 +300,69 @@ export function trackedSessionToRow(
   if (value.taskId !== undefined) row.task_id = value.taskId
   if (value.taskTitle !== undefined) row.task_title = value.taskTitle
   if (value.createdAt !== undefined) row.created_at = value.createdAt
+  return row
+}
+
+// ---------- block_groups (chunk 99) ----------
+
+export type BlockGroupRow = {
+  id: string
+  user_id: string
+  name: string
+  domains: string[]
+  enabled: boolean
+  block_in_focus: boolean
+  block_on_schedule: boolean
+  schedule_days: number[]
+  /** Postgres `time` comes back as `HH:MM:SS`. */
+  schedule_from: string
+  schedule_to: string
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+/** `HH:MM:SS` (or `HH:MM`) → `HH:MM`. */
+function hhmm(t: string): string {
+  return t.slice(0, 5)
+}
+
+export function blockGroupFromRow(row: BlockGroupRow): BlockGroup {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    domains: row.domains ?? [],
+    enabled: row.enabled,
+    blockInFocus: row.block_in_focus,
+    blockOnSchedule: row.block_on_schedule,
+    scheduleDays: row.schedule_days ?? [],
+    scheduleFrom: hhmm(row.schedule_from),
+    scheduleTo: hhmm(row.schedule_to),
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
+}
+
+export function blockGroupToRow(
+  value: Partial<BlockGroup> & { id?: string },
+): Partial<BlockGroupRow> {
+  const row: Partial<BlockGroupRow> = {}
+  if (value.id !== undefined) row.id = value.id
+  if (value.userId !== undefined) row.user_id = value.userId
+  if (value.name !== undefined) row.name = value.name
+  if (value.domains !== undefined) row.domains = value.domains
+  if (value.enabled !== undefined) row.enabled = value.enabled
+  if (value.blockInFocus !== undefined) row.block_in_focus = value.blockInFocus
+  if (value.blockOnSchedule !== undefined)
+    row.block_on_schedule = value.blockOnSchedule
+  if (value.scheduleDays !== undefined) row.schedule_days = value.scheduleDays
+  if (value.scheduleFrom !== undefined) row.schedule_from = value.scheduleFrom
+  if (value.scheduleTo !== undefined) row.schedule_to = value.scheduleTo
+  if (value.sortOrder !== undefined) row.sort_order = value.sortOrder
+  if (value.createdAt !== undefined) row.created_at = value.createdAt
+  if (value.updatedAt !== undefined) row.updated_at = value.updatedAt
   return row
 }
 

@@ -25,6 +25,11 @@ import { signOutUser } from '@/lib/signOutCleanup'
 import { offerCompleteUndo } from '@/lib/taskUndo'
 import { startSyncRunner } from '@/lib/syncRunner'
 
+import {
+  createBlockerSync,
+  DISABLED_CONFIG,
+} from './blocker'
+import { readBlockerPrefs } from './blockerPrefs'
 import { createCheckOff, type CheckOff, type CheckOffState } from './checkOff'
 import FocusHeader from './FocusHeader'
 import { createHotkeys } from './hotkeys'
@@ -32,6 +37,9 @@ import { loadToday } from './loadToday'
 import { createMeditation } from './meditation'
 import MeditationPanel from './MeditationPanel'
 import {
+  blockerCheck,
+  blockerConfigure,
+  blockerState,
   hidePopover,
   meditationConfigure,
   meditationEnd,
@@ -39,6 +47,7 @@ import {
   meditationSnooze,
   meditationStart,
   meditationState,
+  openAutomationSettings,
   openDashboard,
   pomodoroConfigure,
   pomodoroExtend,
@@ -59,6 +68,7 @@ import {
   showPopover,
   soundConfigure,
   unregisterShortcut,
+  watchBlocker,
   watchMeditation,
   watchPomodoro,
   watchPopover,
@@ -76,7 +86,7 @@ import {
   type ScratchResult,
 } from './scratchpad'
 import { createSessionSync } from './sessions'
-import SettingsView from './SettingsView'
+import SettingsView, { type BlockingBackend } from './SettingsView'
 import SignIn from './SignIn'
 import { presetFor } from './sound'
 import { readSoundPrefs } from './soundPrefs'
@@ -115,7 +125,11 @@ type Loaded = { userId: string } & TodayState
  * and the list keeps what was checked off here. Building it starts nothing;
  * `start` does, and its cleanup stops it.
  */
-function createSession(userId: string, onLoaded: (l: Loaded) => void) {
+function createSession(
+  userId: string,
+  onLoaded: (l: Loaded) => void,
+  onTick: () => void = () => {},
+) {
   let cancelled = false
   const checkOff: CheckOff = createCheckOff({
     write: (id, completed) => repo.tasks.markComplete(id, completed),
@@ -129,6 +143,8 @@ function createSession(userId: string, onLoaded: (l: Loaded) => void) {
   })
   let last: Loaded = { userId, ...NOT_LOADED }
   const refresher = createRefresher(async () => {
+    // Site blocking (chunk 99, D20): the rules ride the same tick.
+    onTick()
     try {
       const { view, offline, lists } = await loadToday(
         userId,
@@ -199,9 +215,27 @@ export default function App() {
   const { user, loading } = useSession()
   const userId = user?.id ?? null
   const [loaded, setLoaded] = useState<Loaded | null>(null)
-  const session = useMemo(
-    () => (userId ? createSession(userId, setLoaded) : null),
+  // Site blocking (chunk 99, D19/D20): the rules go to the shell, signed in
+  // only. The refresher reaches it through a ref (it is built first).
+  const blocker = useMemo(
+    () =>
+      userId
+        ? createBlockerSync({
+            listGroups: () => repo.blockGroups.list(),
+            configure: blockerConfigure,
+            enabled: () => readBlockerPrefs().enabled,
+          })
+        : null,
     [userId],
+  )
+  useEffect(() => () => blocker?.stop(), [blocker])
+  const session = useMemo(
+    () =>
+      userId
+        ? createSession(userId, setLoaded, () => void blocker?.sync())
+        : null,
+    // `blocker` is memoized on `userId` too, so this is one session per user.
+    [userId, blocker],
   )
   useEffect(() => session?.start(), [session])
   const co = useSyncExternalStore(
@@ -325,6 +359,36 @@ export default function App() {
 
   useEffect(() => pomodoro.start(), [pomodoro])
   useEffect(() => meditation.start(), [meditation])
+  // Site blocking (chunk 99, D20): each show and each pomodoro event sends
+  // the rules again — the hidden web view is suspended, so these and the
+  // refresher tick are when a dashboard change reaches the Mac.
+  useEffect(() => {
+    if (!blocker) return
+    const offShown = watchPopover((shown) => {
+      if (shown) void blocker.sync()
+    })
+    const offPomo = watchPomodoro(() => void blocker.sync())
+    return () => {
+      offShown()
+      offPomo()
+    }
+  }, [blocker])
+  const blocking = useMemo<BlockingBackend | undefined>(
+    () =>
+      blocker
+        ? {
+            listGroups: () => repo.blockGroups.list(),
+            setGroupEnabled: (id, enabled) =>
+              repo.blockGroups.update(id, { enabled }),
+            state: blockerState,
+            check: blockerCheck,
+            watch: watchBlocker,
+            openAutomation: openAutomationSettings,
+            sync: () => blocker.sync(),
+          }
+        : undefined,
+    [blocker],
+  )
   // Every show sends the next 14 days of due times again (chunk 96, D2).
   useEffect(
     () =>
@@ -348,7 +412,13 @@ export default function App() {
       void meditation.signedIn()
       // Saved sessions (chunk 98): whatever a previous run left behind.
       void sessions?.drain()
+      // Site blocking (chunk 99): the rules, once the rest is set up.
+      void blocker?.sync()
     } else {
+      // Site blocking (chunk 99, D7): signed out lifts every block.
+      void blockerConfigure(DISABLED_CONFIG).catch((e: unknown) =>
+        console.error('menubar: blocker not cleared', e),
+      )
       // The stop and the end can each put one last session in the ledger;
       // it is emptied after them (chunk 98, D15), so the next account never
       // receives this one's entries.
@@ -361,7 +431,7 @@ export default function App() {
         ),
       )
     }
-  }, [loading, userId, pomodoro, meditation, sessions])
+  }, [loading, userId, pomodoro, meditation, sessions, blocker])
 
   // Quit and Sign out first stop the focus and end the breathing, so a
   // session still running reaches the ledger (60 s or more, as always), then
@@ -375,7 +445,8 @@ export default function App() {
     quitApp()
   }
   async function signOut() {
-    await stopRunning()
+    blocker?.stop()
+    await Promise.allSettled([stopRunning(), blockerConfigure(DISABLED_CONFIG)])
     await sessions?.drainWithin(DRAIN_MS)
     await signOutUser()
   }
@@ -450,6 +521,7 @@ export default function App() {
               theme={theme}
               onTheme={chooseTheme}
               onDone={closeSettings}
+              blocking={blocking}
             />
           ) : (
             <>

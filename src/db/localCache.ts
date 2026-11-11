@@ -25,6 +25,7 @@ export async function wipeLocalCache(): Promise<void> {
       db.notes,
       db.today_marks,
       db.tracked_sessions,
+      db.block_groups,
       db.busyCache,
     ],
     async () => {
@@ -39,6 +40,7 @@ export async function wipeLocalCache(): Promise<void> {
       await db.notes.clear()
       await db.today_marks.clear()
       await db.tracked_sessions.clear()
+      await db.block_groups.clear()
       await db.busyCache.clear()
     },
   )

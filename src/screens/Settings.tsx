@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 
 import About from '@/components/About'
 import DeleteConfirm from '@/components/DeleteConfirm'
+import SiteBlockingSection from '@/components/SiteBlockingSection'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -1508,7 +1509,7 @@ function DataSection() {
   }
 
   return (
-    <SettingsSection kicker="06" title="Data">
+    <SettingsSection kicker="07" title="Data">
       <SettingsRow
         title="Export"
         hint="Pulls your data from the server as a single JSON file. The encrypted calendar password is never included."
@@ -1723,6 +1724,7 @@ export default function Settings() {
       <CalendarSection />
       <AiKeySection />
       <NotificationsSection />
+      <SiteBlockingSection />
       <DataSection />
 
       {isDevSurface && (

@@ -18,6 +18,7 @@
 //!
 //! Commands are named in `menubar/src/native.ts` — keep the two in step.
 
+mod blocker;
 mod login;
 mod meditation;
 mod pomodoro;
@@ -253,6 +254,7 @@ pub fn run() {
         .manage(sound)
         .manage(meditation::Meditation::default())
         .manage(sessions::Sessions::default())
+        .manage(blocker::Blocker::default())
         .invoke_handler(tauri::generate_handler![
             set_tray_title,
             set_popover_height,
@@ -287,7 +289,10 @@ pub fn run() {
             login::login_item_set,
             sessions::sessions_pending,
             sessions::sessions_ack,
-            sessions::sessions_clear
+            sessions::sessions_clear,
+            blocker::blocker_configure,
+            blocker::blocker_state,
+            blocker::blocker_check
         ])
         .on_window_event(|w, event| {
             // Hidden on blur (D7).
@@ -346,6 +351,9 @@ pub fn run() {
             pomodoro::spawn_loop(app.handle().clone(), TRAY_ID)?;
             // Meditation (chunk 96): the reminder clock and the session.
             meditation::spawn_loop(app.handle().clone())?;
+            // Site blocking (chunk 99): the tab watcher. Idle until a block
+            // is active.
+            blocker::spawn_loop(app.handle().clone())?;
             Ok(())
         })
         .run(tauri::generate_context!())

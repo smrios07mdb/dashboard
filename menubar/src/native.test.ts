@@ -23,6 +23,10 @@ vi.mock('@tauri-apps/plugin-global-shortcut', () => ({
 }))
 
 import {
+  blockerCheck,
+  blockerConfigure,
+  blockerState,
+  watchBlocker,
   loginItemSet,
   loginItemState,
   meditationConfigure,
@@ -423,6 +427,85 @@ describe('native.ts — saved sessions (chunk 98)', () => {
     expect(await sessionsAck([1])).toBeNull()
     await sessionsClear()
     watchSessions(() => {})()
+    expect(h.invoke).not.toHaveBeenCalled()
+    expect(h.listeners).toHaveLength(0)
+  })
+})
+
+describe('native.ts — site blocking (chunk 99, D22)', () => {
+  const BLOCKER = readFileSync(
+    resolve(process.cwd(), 'menubar/src-tauri/src/blocker.rs'),
+    'utf8',
+  )
+
+  /** The argument names of a `blocker.rs` command, minus the handle. */
+  function blockerArgs(command: string): string[] {
+    const m = new RegExp(
+      `#\\[tauri::command\\][\\s\\S]*?pub (?:async )?fn ${command}\\(([^)]*)\\)`,
+    ).exec(BLOCKER)
+    if (!m) throw new Error(`no command ${command} in blocker.rs`)
+    return m[1]
+      .split(',')
+      .map((a) => a.trim().split(':')[0].trim())
+      .filter((name) => name && name !== 'app')
+  }
+
+  const config = {
+    enabled: true,
+    names: ['Social'],
+    domains: [['x.com']],
+    focus: [true],
+    starts: [[1]],
+    ends: [[2]],
+  }
+
+  beforeEach(() => {
+    h.invoke.mockClear()
+    h.invoke.mockImplementation(async () => null)
+    h.listeners.length = 0
+    vi.stubGlobal('__TAURI_INTERNALS__', {})
+  })
+
+  it('names the three commands and every argument as the shell does', async () => {
+    await blockerConfigure(config)
+    await blockerState()
+    await blockerCheck()
+    expect(h.invoke.mock.calls).toEqual([
+      ['blocker_configure', config],
+      ['blocker_state'],
+      ['blocker_check'],
+    ])
+    expect(blockerArgs('blocker_configure')).toEqual([
+      'enabled',
+      'names',
+      'domains',
+      'focus',
+      'starts',
+      'ends',
+    ])
+    expect(Object.keys(h.invoke.mock.calls[0][1] as object)).toEqual(
+      blockerArgs('blocker_configure'),
+    )
+    expect(blockerArgs('blocker_state')).toEqual([])
+    expect(blockerArgs('blocker_check')).toEqual([])
+    expect(LIB).toContain('blocker::blocker_configure')
+    expect(LIB).toContain('blocker::blocker_state')
+    expect(LIB).toContain('blocker::blocker_check')
+  })
+
+  it('listens to the shell\'s `blocker` event', () => {
+    const seen: unknown[] = []
+    watchBlocker((s) => seen.push(s))
+    expect(h.listeners.map((l) => l.event)).toEqual(['blocker'])
+    expect(BLOCKER).toContain('emit_str("blocker"')
+  })
+
+  it('outside Tauri nothing is sent', async () => {
+    vi.unstubAllGlobals()
+    expect(await blockerConfigure(config)).toBeNull()
+    expect(await blockerState()).toBeNull()
+    expect(await blockerCheck()).toBeNull()
+    watchBlocker(() => {})()
     expect(h.invoke).not.toHaveBeenCalled()
     expect(h.listeners).toHaveLength(0)
   })

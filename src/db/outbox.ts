@@ -23,6 +23,8 @@ import { supabase } from '@/lib/supabase'
 
 import { db } from './dexie'
 import {
+  blockGroupFromRow,
+  blockGroupToRow,
   noteFromRow,
   noteToRow,
   pushSubscriptionFromRow,
@@ -310,6 +312,15 @@ const SPECS: Record<string, TableSpec> = {
     deleteKeyValue: byId,
     cacheDelete: (p) => db.tracked_sessions.delete(p.id as string),
     upsertOnConflict: 'id',
+  },
+  block_groups: {
+    toRow: blockGroupToRow,
+    cachePut: (r) => db.block_groups.put(blockGroupFromRow(r)),
+    updateKeyColumn: 'id',
+    updateKeyValue: byId,
+    deleteKeyColumn: 'id',
+    deleteKeyValue: byId,
+    cacheDelete: (p) => db.block_groups.delete(p.id as string),
   },
   push_subscriptions: {
     toRow: pushSubscriptionToRow,

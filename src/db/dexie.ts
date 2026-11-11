@@ -15,6 +15,7 @@
 import Dexie, { type EntityTable, type Transaction } from 'dexie'
 
 import type {
+  BlockGroup,
   BusyCacheEntry,
   Category,
   Note,
@@ -44,6 +45,7 @@ export class DashboardCacheDB extends Dexie {
   notes!: EntityTable<Note, 'id'>
   today_marks!: EntityTable<TodayMark, 'id'>
   tracked_sessions!: EntityTable<TrackedSession, 'id'>
+  block_groups!: EntityTable<BlockGroup, 'id'>
   outbox!: EntityTable<OutboxRow, 'id'>
   // Cache-only (not a Postgres mirror): one local day's busy ranges keyed by
   // dateKey, with a short TTL applied in lib/busyCache. camelCase name since
@@ -120,6 +122,12 @@ export class DashboardCacheDB extends Dexie {
     // differently (`+00:00` / `Z`).
     this.version(8).stores({
       tracked_sessions: '&id, startedAt, kind',
+    })
+    // v9: chunk 99 adds the `block_groups` mirror (site-blocking rules the
+    // menu bar app enforces). New store only — unchanged stores are
+    // inherited, so no .upgrade() is needed.
+    this.version(9).stores({
+      block_groups: '&id, sortOrder',
     })
   }
 }

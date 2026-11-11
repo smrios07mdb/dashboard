@@ -200,8 +200,8 @@ describe('Dexie v8 (chunk 98)', () => {
     await Dexie.delete(NAME)
   })
 
-  it('the real DashboardCacheDB is at v8 with the tracked_sessions store', () => {
-    expect(db.verno).toBe(8)
+  it('the real DashboardCacheDB (v9 since chunk 99) has the tracked_sessions store', () => {
+    expect(db.verno).toBe(9) // v9 = block_groups (chunk 99)
     expect(db.tracked_sessions.schema.primKey.name).toBe('id')
     expect(db.tracked_sessions.schema.indexes.map((i) => i.name)).toEqual([
       'startedAt',

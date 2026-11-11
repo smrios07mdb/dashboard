@@ -4,7 +4,8 @@
  * settings already stored under `hup:mb:*` plus the two that have no key:
  * hotkey bindings and open at login. Every change saves at once.
  *
- * Sections, in order (D2): Focus, Sound, Meditation, Hotkeys, General. The
+ * Sections, in order (D2): Focus, Sound, Meditation, Blocking (chunk 99,
+ * when a blocking backend is given), Hotkeys, General. The
  * body scrolls inside the popover's 852 pt cap.
  *
  * Esc closes the view (and is marked handled, so the popover stays) — unless
@@ -19,6 +20,11 @@ import {
   useSyncExternalStore,
 } from 'react'
 
+import type { BlockGroup } from '@/db/types'
+import { ruleSummary } from '@/lib/blockRules'
+
+import type { BlockerState, BrowserStatus } from './blocker'
+import { readBlockerPrefs, saveBlockerPrefs } from './blockerPrefs'
 import {
   accelFromEvent,
   ACTION_LABEL,
@@ -75,6 +81,21 @@ const NATIVE: SettingsBackend = {
   loginSet: loginItemSet,
 }
 
+/**
+ * Site blocking's side (chunk 99, D21): the block groups (read and the
+ * `enabled` switch), the shell's blocker state, and `sync` to send the
+ * rules again after a change here. Injected by App.
+ */
+export type BlockingBackend = {
+  listGroups: () => Promise<BlockGroup[]>
+  setGroupEnabled: (id: string, enabled: boolean) => Promise<BlockGroup>
+  state: () => Promise<BlockerState | null>
+  check: () => Promise<BlockerState | null>
+  watch: (onState: (s: BlockerState) => void) => () => void
+  openAutomation: () => void
+  sync: () => Promise<void>
+}
+
 /** A key handler a section lends the view; true when it took the key. */
 type KeyGrab = MutableRefObject<((e: KeyboardEvent) => boolean) | null>
 
@@ -86,6 +107,7 @@ export default function SettingsView({
   onTheme,
   onDone,
   backend = NATIVE,
+  blocking,
 }: {
   pomodoro: Pomodoro
   meditation: Meditation
@@ -94,6 +116,7 @@ export default function SettingsView({
   onTheme: (choice: ThemeChoice) => void
   onDone: () => void
   backend?: SettingsBackend
+  blocking?: BlockingBackend
 }) {
   const grabRef: KeyGrab = useRef(null)
 
@@ -123,6 +146,7 @@ export default function SettingsView({
         <FocusSettings pomodoro={pomodoro} />
         <SoundSettings configure={backend.soundConfigure} />
         <MeditationSettings meditation={meditation} />
+        {blocking ? <BlockingSettings backend={blocking} /> : null}
         <HotkeySettings hotkeys={hotkeys} grabRef={grabRef} />
         <GeneralSettings theme={theme} onTheme={onTheme} backend={backend} />
       </div>
@@ -594,6 +618,127 @@ function MeditationSettings({ meditation }: { meditation: Meditation }) {
         onChange={(pauseSpotify) => save({ ...prefs, pauseSpotify })}
       />
       <p className="mb-hint">Sessions never start on their own. You press Start.</p>
+    </Section>
+  )
+}
+
+/* ---- Blocking (chunk 99, D21) ---- */
+
+const BROWSER_STATUS: Record<BrowserStatus, string> = {
+  ok: 'Allowed',
+  not_installed: 'Not installed',
+  not_running: 'Not running',
+  denied: 'Needs permission',
+  timeout: "Didn't respond",
+  error: "Couldn't be read",
+  unknown: 'Checked when a block starts',
+}
+
+function BlockingSettings({ backend }: { backend: BlockingBackend }) {
+  const [onMac, setOnMac] = useState(() => readBlockerPrefs().enabled)
+  const [groups, setGroups] = useState<BlockGroup[] | null>(null)
+  const [state, setState] = useState<BlockerState | null>(null)
+  const [checking, setChecking] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    backend
+      .listGroups()
+      .then((g) => {
+        if (live) setGroups(g)
+      })
+      .catch((e: unknown) => {
+        console.error('menubar: block groups not read', e)
+        if (live) setGroups([])
+      })
+    backend
+      .state()
+      .then((s) => {
+        if (live && s) setState(s)
+      })
+      .catch((e: unknown) => console.error('menubar: blocker state not read', e))
+    const off = backend.watch((s) => {
+      if (live) setState(s)
+    })
+    return () => {
+      live = false
+      off()
+    }
+  }, [backend])
+
+  function setMac(enabled: boolean) {
+    saveBlockerPrefs({ enabled })
+    setOnMac(enabled)
+    void backend.sync()
+  }
+
+  async function setGroup(id: string, enabled: boolean) {
+    try {
+      const next = await backend.setGroupEnabled(id, enabled)
+      setGroups((prev) => (prev ?? []).map((g) => (g.id === id ? next : g)))
+    } catch (e) {
+      console.error('menubar: block group not changed', e)
+    }
+    void backend.sync()
+  }
+
+  async function check() {
+    setChecking(true)
+    try {
+      const s = await backend.check()
+      if (s) setState(s)
+    } catch (e) {
+      console.error('menubar: blocker_check failed', e)
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const browsers = (state?.browsers ?? []).filter((b) => b.status !== 'not_installed')
+
+  return (
+    <Section label="Blocking">
+      <Switch label="Block sites on this Mac" on={onMac} onChange={setMac} />
+      {groups !== null && groups.length === 0 ? (
+        <span className="mb-set-note">No groups yet.</span>
+      ) : null}
+      {(groups ?? []).map((g) => (
+        <div key={g.id}>
+          <Switch
+            label={g.name}
+            on={g.enabled}
+            onChange={(on) => void setGroup(g.id, on)}
+          />
+          <span className="mb-set-note">
+            {`${g.domains.length} sites`} · {ruleSummary(g)}
+          </span>
+        </div>
+      ))}
+      {browsers.map((b) => (
+        <div className="mb-set" key={b.name} data-browser={b.name}>
+          <span>{b.name}</span>
+          <span className="mb-set-wrap">{BROWSER_STATUS[b.status]}</span>
+          {b.status === 'denied' ? (
+            <button type="button" className="mb-fbtn" onClick={backend.openAutomation}>
+              Open Automation settings
+            </button>
+          ) : null}
+        </div>
+      ))}
+      <div className="mb-set">
+        <button
+          type="button"
+          className="mb-fbtn"
+          disabled={checking}
+          onClick={() => void check()}
+        >
+          Check browsers
+        </button>
+      </div>
+      <p className="mb-hint">
+        Add and edit sites on the dashboard, under Settings › Site blocking.
+        Quitting this app lifts every block.
+      </p>
     </Section>
   )
 }

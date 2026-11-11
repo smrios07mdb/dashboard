@@ -24,6 +24,7 @@ const {
 vi.mock('@/db/repo', () => ({
   repo: {
     settings: { get: settingsGetMock, update: settingsUpdateMock },
+    blockGroups: { list: vi.fn(async () => []) },
     data: {
       archivedCounts: archivedCountsMock,
       purgeArchived: purgeArchivedMock,
@@ -273,7 +274,7 @@ describe('Settings — re-skin (chunk 30)', () => {
   // Chunk 79 (D6): main sections numbered in render order; Developer and
   // About take word kickers, like Sync issues. vitest runs with DEV, so the
   // Developer section renders.
-  it('numbers the section kickers 01–06, then Developer and About', async () => {
+  it('numbers the section kickers 01–07, then Developer and About', async () => {
     devSection.real = true
     try {
       const { container } = render(<Settings />)
@@ -288,6 +289,7 @@ describe('Settings — re-skin (chunk 30)', () => {
         '04',
         '05',
         '06',
+        '07',
         'Developer',
         'About',
       ])

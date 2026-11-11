@@ -12,6 +12,7 @@ import {
   unregister as unregisterGlobal,
 } from '@tauri-apps/plugin-global-shortcut'
 
+import type { BlockerConfig, BlockerState } from './blocker'
 import type { MeditationConfig, MeditationSnapshot } from './meditation'
 import type { PomodoroSnapshot, PomodoroTask } from './pomodoro'
 import type { PomodoroConfig } from './pomodoroPrefs'
@@ -331,6 +332,56 @@ export function watchSessions(onAdded: () => void): () => void {
       else off = unlisten
     })
     .catch((e: unknown) => console.error('menubar: watchSessions failed', e))
+  return () => {
+    stopped = true
+    off?.()
+  }
+}
+
+/*
+ * Site blocking (chunk 99). The shell watches the active tab of each
+ * supported browser (`blocker.rs`) with its own fixed AppleScript; nothing
+ * here carries script text, and no URL ever comes back. Each command
+ * answers the state. Outside Tauri: `null`, and nothing is sent.
+ */
+
+/** The rules as parallel lists; rejected whole when any of it is invalid. */
+export async function blockerConfigure(
+  config: BlockerConfig,
+): Promise<BlockerState | null> {
+  if (!inTauri()) return null
+  return invoke<BlockerState>('blocker_configure', {
+    enabled: config.enabled,
+    names: config.names,
+    domains: config.domains,
+    focus: config.focus,
+    starts: config.starts,
+    ends: config.ends,
+  })
+}
+
+export async function blockerState(): Promise<BlockerState | null> {
+  if (!inTauri()) return null
+  return invoke<BlockerState>('blocker_state')
+}
+
+/** One read of every running browser now — meets the Automation prompt. */
+export async function blockerCheck(): Promise<BlockerState | null> {
+  if (!inTauri()) return null
+  return invoke<BlockerState>('blocker_check')
+}
+
+/** The shell's `blocker` event: the state, when it changed. */
+export function watchBlocker(onState: (s: BlockerState) => void): () => void {
+  if (!inTauri()) return () => {}
+  let stopped = false
+  let off: (() => void) | null = null
+  listen<BlockerState>('blocker', (event) => onState(event.payload))
+    .then((unlisten) => {
+      if (stopped) unlisten()
+      else off = unlisten
+    })
+    .catch((e: unknown) => console.error('menubar: watchBlocker failed', e))
   return () => {
     stopped = true
     off?.()

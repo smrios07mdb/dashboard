@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Blocked · Hupomnemata</title>
+    <link rel="icon" href="hupomnemata-mark.svg" type="image/svg+xml" />
+    <style>
+      html {
+        font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f6f4f7;
+        color: #221f28;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 16px;
+        box-sizing: border-box;
+      }
+      main {
+        max-width: 420px;
+        text-align: center;
+      }
+      img {
+        width: 48px;
+        height: 48px;
+      }
+      h1 {
+        font-size: 22px;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+        margin: 18px 0 10px;
+      }
+      p {
+        font-size: 14px;
+        line-height: 1.55;
+        color: #5b5663;
+        margin: 0 0 18px;
+      }
+      .reason {
+        display: none;
+      }
+      .reason:target {
+        display: block;
+      }
+      a {
+        color: #221f28;
+        font-size: 14px;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="hupomnemata-mark.svg" alt="" />
+      <h1>This site is blocked right now</h1>
+      <p id="focus" class="reason">
+        A focus session is running. It opens again when the focus phase ends.
+      </p>
+      <p id="schedule" class="reason">
+        It is inside a scheduled block. It opens again when the block ends.
+      </p>
+      <a href="./">Open Hupomnemata</a>
+    </main>
+  </body>
+</html>

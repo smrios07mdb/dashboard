@@ -23,6 +23,7 @@ import { useUIStore } from '@/state/uiStore'
 
 import { db } from './dexie'
 import {
+  blockGroupFromRow,
   categoryFromRow,
   noteFromRow,
   pushSubscriptionFromRow,
@@ -44,6 +45,7 @@ import {
   type SubcategoryRow,
   type TaskRow,
   type TodayMarkRow,
+  type BlockGroupRow,
 } from './mappers'
 
 type PostgresChangePayload<Row> = {
@@ -171,6 +173,14 @@ const handlers = {
       await db.today_marks.delete(id)
     },
   }),
+  block_groups: makeHandler<BlockGroupRow>({
+    apply: async (row) => {
+      await db.block_groups.put(blockGroupFromRow(row))
+    },
+    remove: async (id) => {
+      await db.block_groups.delete(id)
+    },
+  }),
 }
 
 /** Settings is keyed by user_id — handler uses the same as PK. */
@@ -260,6 +270,12 @@ export function startRealtime(userId: string): void {
       'postgres_changes' as any,
       { event: '*', schema: 'public', table: 'today_marks', filter },
       handlers.today_marks,
+    )
+    .on(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      'postgres_changes' as any,
+      { event: '*', schema: 'public', table: 'block_groups', filter },
+      handlers.block_groups,
     )
     .on(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

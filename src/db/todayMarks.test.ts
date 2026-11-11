@@ -175,8 +175,8 @@ describe('Dexie v7 (chunk 64)', () => {
     await Dexie.delete(NAME)
   })
 
-  it('the real DashboardCacheDB (v8 since chunk 98) has the today_marks store', () => {
-    expect(db.verno).toBe(8)
+  it('the real DashboardCacheDB (v9 since chunk 99) has the today_marks store', () => {
+    expect(db.verno).toBe(9) // v9 = block_groups (chunk 99)
     expect(db.today_marks.schema.primKey.name).toBe('id')
     expect(db.today_marks.schema.indexes.map((i) => i.name)).toEqual(['day'])
   })
@@ -342,8 +342,9 @@ describe('realtime — today_marks', () => {
     startRealtime('u-1')
     const handler = bindings.get('today_marks')
     expect(handler).toBeDefined()
-    // Ten user-scoped tables plus routing_proposals (chunk 89) on the one channel.
-    expect(bindings.size).toBe(11)
+    // Eleven user-scoped tables (block_groups since chunk 99) plus
+    // routing_proposals (chunk 89) on the one channel.
+    expect(bindings.size).toBe(12)
 
     await handler!({ eventType: 'INSERT', new: aRow(), old: {} })
     expect(await db.today_marks.get('t-1')).toMatchObject({ kind: 'pin' })

@@ -384,6 +384,12 @@ export async function wipeMyData(userId: string): Promise<void> {
     await repo.trackedSessions.delete(s.id)
   }
 
+  // block groups (chunk 99) — site-blocking rules. Nothing references them.
+  const groups = await repo.blockGroups.listAll()
+  for (const g of groups) {
+    await repo.blockGroups.delete(g.id)
+  }
+
   // tasks (real delete — repo supports it; ON DELETE RESTRICT from
   // subcategories means we MUST take these out before archiving subs).
   const tasks = await repo.tasks.list()

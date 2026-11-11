@@ -9,6 +9,9 @@ const h = vi.hoisted(() => ({
   /** Every `watchSessions` listener, so a test can send the shell's event. */
   sessions: new Set<() => void>(),
   save: vi.fn(async (row: unknown) => row),
+  /** Every `watchPomodoro` listener, so a test can send a snapshot. */
+  pomodoro: new Set<() => void>(),
+  listGroups: vi.fn(async () => [] as unknown[]),
   signOutUser: vi.fn(async () => {}),
 }))
 
@@ -20,7 +23,11 @@ vi.mock('@/lib/syncRunner', () => ({
 vi.mock('@/lib/taskUndo', () => ({ offerCompleteUndo: vi.fn() }))
 vi.mock('@/db/repo', () => ({
   isClientError: (e: unknown) => (e as { status?: number } | null)?.status === 400,
-  repo: { tasks: {}, trackedSessions: { save: h.save } },
+  repo: {
+    tasks: {},
+    trackedSessions: { save: h.save },
+    blockGroups: { list: h.listGroups },
+  },
 }))
 vi.mock('@/lib/supabase', () => ({ supabase: { auth: {} } }))
 vi.mock('./loadToday', () => ({
@@ -62,6 +69,9 @@ vi.mock('./native', () => {
     'sessionsPending',
     'sessionsAck',
     'sessionsClear',
+    'blockerConfigure',
+    'blockerState',
+    'blockerCheck',
   ]
   for (const n of names) h.native[n] = vi.fn(nothing)
   for (const n of ['setTrayTitle', 'setPopoverHeight', 'hidePopover', 'openDashboard', 'quitApp', 'openAutomationSettings']) {
@@ -74,7 +84,11 @@ vi.mock('./native', () => {
       h.popover.add(on)
       return () => h.popover.delete(on)
     },
-    watchPomodoro: () => () => {},
+    watchPomodoro: (on: () => void) => {
+      h.pomodoro.add(on)
+      return () => h.pomodoro.delete(on)
+    },
+    watchBlocker: () => () => {},
     watchMeditation: () => () => {},
     watchSessions: (on: () => void) => {
       h.sessions.add(on)
@@ -596,5 +610,102 @@ describe('menubar App — saved sessions (chunk 98)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Quit' }))
     await waitFor(() => expect(h.native.quitApp).toHaveBeenCalledTimes(1))
     expect(h.native.sessionsPending).not.toHaveBeenCalled()
+  })
+})
+
+describe('menubar App — site blocking (chunk 99, D20)', () => {
+  const group = {
+    id: 'g1',
+    userId: 'u1',
+    name: 'Social',
+    domains: ['x.com'],
+    enabled: true,
+    blockInFocus: true,
+    blockOnSchedule: false,
+    scheduleDays: [1, 2, 3, 4, 5],
+    scheduleFrom: '09:00',
+    scheduleTo: '17:00',
+    sortOrder: 0,
+    createdAt: '2026-11-01T00:00:00Z',
+    updatedAt: '2026-11-01T00:00:00Z',
+  }
+  const DISABLED = {
+    enabled: false,
+    names: [],
+    domains: [],
+    focus: [],
+    starts: [],
+    ends: [],
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }))
+    localStorage.clear()
+    for (const f of Object.values(h.native)) f.mockClear()
+    h.popover.clear()
+    h.pomodoro.clear()
+    h.listGroups.mockReset()
+    h.listGroups.mockResolvedValue([group])
+  })
+
+  const configured = () =>
+    h.native.blockerConfigure.mock.calls.filter(
+      (c) => (c[0] as { enabled: boolean }).enabled,
+    ).length
+
+  it('sign-in sends the rules', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await waitFor(() =>
+      expect(h.native.blockerConfigure).toHaveBeenCalledWith({
+        enabled: true,
+        names: ['Social'],
+        domains: [['x.com']],
+        focus: [true],
+        starts: [[]],
+        ends: [[]],
+      }),
+    )
+  })
+
+  it('each show and each pomodoro event sends them again', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await waitFor(() => expect(configured()).toBeGreaterThan(0))
+    await act(async () => {})
+    const before = configured()
+    // A show is also a refresher tick, so it may send twice.
+    show()
+    await waitFor(() => expect(configured()).toBeGreaterThan(before))
+    await act(async () => {})
+    const afterShow = configured()
+    await act(async () => {
+      for (const on of h.pomodoro) on()
+    })
+    await waitFor(() => expect(configured()).toBe(afterShow + 1))
+  })
+
+  it('signed out sends the disabled configuration', async () => {
+    h.session = { user: null, loading: false }
+    render(<App />)
+    await waitFor(() =>
+      expect(h.native.blockerConfigure).toHaveBeenCalledWith(DISABLED),
+    )
+    expect(h.listGroups).not.toHaveBeenCalled()
+  })
+
+  it('Sign out lifts every block', async () => {
+    h.session = { user: { id: 'u1' }, loading: false }
+    render(<App />)
+    await waitFor(() => expect(configured()).toBeGreaterThan(0))
+    h.native.blockerConfigure.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() =>
+      expect(h.native.blockerConfigure).toHaveBeenCalledWith(DISABLED),
+    )
   })
 })

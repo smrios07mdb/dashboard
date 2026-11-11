@@ -329,6 +329,14 @@ pub fn music_edge(prev: &State, next: &State) -> Option<MusicAction> {
     }
 }
 
+/// Site blocking's focus edge (chunk 99, D15): `Some(next.phase == Focus)`
+/// when "in a focus phase" changed. Running or paused is the same here — a
+/// pause keeps the block; a break, Skip to break and End lift it.
+pub fn focus_edge(prev: &State, next: &State) -> Option<bool> {
+    let (was, is) = (prev.phase == Phase::Focus, next.phase == Phase::Focus);
+    (was != is).then_some(is)
+}
+
 /// The focus phase a state change ended, for the ledger (chunk 98, D2/D7).
 /// `prev` is the state before time was applied, `next` the final one. `Some`
 /// only when `prev` is in focus and `next` is not in that same focus. A focus
@@ -615,7 +623,7 @@ impl Pomodoro {
         f: impl FnOnce(&State, SystemTime) -> Result<State, String>,
     ) -> Result<Response, String> {
         let now = SystemTime::now();
-        let (json, changed, rejected, music, ended) = {
+        let (json, changed, rejected, music, ended, focus) = {
             let mut g = self.lock();
             let base = advance(&g.state, now);
             let (next, rejected) = match f(&base, now) {
@@ -624,17 +632,19 @@ impl Pomodoro {
             };
             let changed = next != g.state;
             let music = music_edge(&g.state, &next);
+            let focus = focus_edge(&g.state, &next);
             // From the state before `advance` (chunk 98, D7).
             let ended = ended_focus(&g.state, &next, now);
             if changed {
                 g.state = next;
                 g.generation += 1;
             }
-            (snapshot_json(&g.state, now), changed, rejected, music, ended)
+            (snapshot_json(&g.state, now), changed, rejected, music, ended, focus)
         };
         // After the lock is gone: the music is another thread's work, and
-        // the ledger's lock is never taken under this one.
+        // the ledger's and the blocker's locks are never taken under this one.
         send_music(app, music);
+        send_focus(app, focus);
         crate::sessions::record(app, ended);
         if changed {
             self.wake.notify_all();
@@ -691,6 +701,16 @@ fn send_music(app: &AppHandle, action: Option<MusicAction>) {
     if let Some(action) = action {
         if let Some(sound) = app.try_state::<crate::sound::Sound>() {
             sound.edge(action);
+        }
+    }
+}
+
+/// Hand a focus edge to `blocker.rs` (chunk 99, D15). Never called while
+/// the pomodoro lock is held.
+fn send_focus(app: &AppHandle, on: Option<bool>) {
+    if let Some(on) = on {
+        if let Some(blocker) = app.try_state::<crate::blocker::Blocker>() {
+            blocker.set_focus(on);
         }
     }
 }
@@ -798,17 +818,19 @@ pub fn spawn_loop(app: AppHandle, tray_id: &'static str) -> std::io::Result<()> 
                 let hint = app
                     .try_state::<Meditation>()
                     .and_then(|m| m.tray_hint(now));
-                let (title, icon, event, music, ended) = {
+                let (title, icon, event, music, ended, focus) = {
                     let mut g = pomo.lock();
                     let next = advance(&g.state, now);
                     let event = (next != g.state).then(|| snapshot_json(&next, now));
                     let music = music_edge(&g.state, &next);
+                    let focus = focus_edge(&g.state, &next);
                     let ended = ended_focus(&g.state, &next, now);
                     g.state = next;
                     let (title, icon) = tray_view(&g.state, hint.as_ref(), now);
-                    (title, icon, event, music, ended)
+                    (title, icon, event, music, ended, focus)
                 };
                 send_music(&app, music);
+                send_focus(&app, focus);
                 crate::sessions::record(&app, ended);
                 if let Some(json) = event {
                     let _ = app.emit_str("pomodoro", json);
@@ -949,6 +971,44 @@ mod tests {
         assert_eq!(music_edge(&idle, &configure(&idle, config)), None);
         assert_eq!(music_edge(&idle, &idle), None);
         assert_eq!(music_edge(&focus, &focus), None);
+    }
+
+    // ---- focus_edge (chunk 99, D15) ----
+
+    #[test]
+    fn focus_edge_on_when_focus_starts() {
+        let idle = State::default();
+        assert_eq!(focus_edge(&idle, &focus_at_zero()), Some(true));
+    }
+
+    #[test]
+    fn focus_edge_ignores_pause_resume_extend_and_configure() {
+        let focus = focus_at_zero();
+        let paused = pause(&focus, at(MIN)).unwrap();
+        assert_eq!(focus_edge(&focus, &paused), None);
+        assert_eq!(focus_edge(&paused, &resume(&paused, at(2 * MIN)).unwrap()), None);
+        assert_eq!(focus_edge(&focus, &extend(&focus).unwrap()), None);
+        let config = Config::validated(50, 10, 20, 2, true).unwrap();
+        assert_eq!(focus_edge(&focus, &configure(&focus, config)), None);
+    }
+
+    #[test]
+    fn focus_edge_off_on_natural_end_skip_and_stop() {
+        let focus = focus_at_zero();
+        assert_eq!(focus_edge(&focus, &advance(&focus, at(25 * MIN))), Some(false));
+        assert_eq!(focus_edge(&focus, &skip(&focus, at(MIN)).unwrap()), Some(false));
+        assert_eq!(focus_edge(&focus, &stop(&focus)), Some(false));
+        let paused = pause(&focus, at(MIN)).unwrap();
+        assert_eq!(focus_edge(&paused, &stop(&paused)), Some(false));
+    }
+
+    #[test]
+    fn focus_edge_on_from_a_break_and_none_from_a_break_to_idle() {
+        let brk = advance(&focus_at_zero(), at(25 * MIN));
+        assert_eq!(focus_edge(&brk, &start(&brk, None, at(26 * MIN)).unwrap()), Some(true));
+        let idle = advance(&brk, at(30 * MIN));
+        assert_eq!(idle.phase, Phase::Idle);
+        assert_eq!(focus_edge(&brk, &idle), None);
     }
 
     // ---- ended_focus (chunk 98, D2/D7) ----

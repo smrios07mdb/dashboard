@@ -43,6 +43,9 @@ import {
   todayMarkToRow,
   trackedSessionFromRow,
   trackedSessionToRow,
+  blockGroupFromRow,
+  blockGroupToRow,
+  type BlockGroupRow,
   type CategoryRow,
   type NoteRow,
   type PushSubscriptionRow,
@@ -58,6 +61,7 @@ import {
 import { syncStore } from './syncStore'
 import {
   TABLES,
+  type BlockGroup,
   type Category,
   type Note,
   type OutboxOp,
@@ -1522,6 +1526,148 @@ const trackedSessionsRepo = {
   },
 }
 
+// ---------- block_groups (chunk 99) ----------
+
+/** By `sortOrder`, then `createdAt` — the order Settings shows. */
+function byGroupOrder(a: BlockGroup, b: BlockGroup): number {
+  return a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)
+}
+
+export type BlockGroupPatch = Partial<
+  Pick<
+    BlockGroup,
+    | 'name'
+    | 'domains'
+    | 'enabled'
+    | 'blockInFocus'
+    | 'blockOnSchedule'
+    | 'scheduleDays'
+    | 'scheduleFrom'
+    | 'scheduleTo'
+    | 'sortOrder'
+  >
+>
+
+const blockGroupsRepo = {
+  /**
+   * Every block group, in Settings order. Online path replaces the Dexie
+   * mirror (clear-then-bulkPut, the `notes` shape); the fallback reads and
+   * sorts the cache — the menu bar app syncs its rules from this.
+   */
+  async list(): Promise<BlockGroup[]> {
+    return readWithFallback({
+      online: async () => {
+        const { data, error } = await supabase
+          .from('block_groups')
+          .select('*')
+          .order('sort_order', { ascending: true })
+          .order('created_at', { ascending: true })
+        throwIfClientError(error)
+        const mapped = ((data ?? []) as BlockGroupRow[])
+          .map(blockGroupFromRow)
+          .sort(byGroupOrder)
+        await db.transaction('rw', db.block_groups, async () => {
+          await db.block_groups.clear()
+          await db.block_groups.bulkPut(mapped)
+        })
+        return mapped
+      },
+      fallback: async () => (await db.block_groups.toArray()).sort(byGroupOrder),
+    })
+  },
+
+  /** Every group the user owns — for "Wipe my data". */
+  async listAll(): Promise<BlockGroup[]> {
+    return blockGroupsRepo.list()
+  },
+
+  async create(
+    input: { userId: string; id?: string } & BlockGroupPatch,
+  ): Promise<BlockGroup> {
+    const now = new Date().toISOString()
+    const full: BlockGroup = {
+      id: input.id ?? crypto.randomUUID(),
+      userId: input.userId,
+      name: input.name ?? 'New group',
+      domains: input.domains ?? [],
+      enabled: input.enabled ?? true,
+      blockInFocus: input.blockInFocus ?? true,
+      blockOnSchedule: input.blockOnSchedule ?? false,
+      scheduleDays: input.scheduleDays ?? [1, 2, 3, 4, 5],
+      scheduleFrom: input.scheduleFrom ?? '09:00',
+      scheduleTo: input.scheduleTo ?? '17:00',
+      sortOrder: input.sortOrder ?? 0,
+      createdAt: now,
+      updatedAt: now,
+    }
+    return writeRow({
+      op: 'insert',
+      table: TABLES.blockGroups,
+      optimistic: full,
+      cacheApply: async () => {
+        await db.block_groups.put(full)
+      },
+      online: async () => {
+        const { data, error } = await supabase
+          .from('block_groups')
+          .insert(blockGroupToRow(full))
+          .select()
+          .single()
+        throwIfClientError(error)
+        return blockGroupFromRow(data as BlockGroupRow)
+      },
+    })
+  },
+
+  async update(id: string, changes: BlockGroupPatch): Promise<BlockGroup> {
+    const existing = await db.block_groups.get(id)
+    const next: BlockGroup = {
+      ...(existing as BlockGroup),
+      ...changes,
+      id,
+      updatedAt: new Date().toISOString(),
+    }
+    return writeRow({
+      op: 'update',
+      table: TABLES.blockGroups,
+      optimistic: next,
+      cacheApply: async () => {
+        await db.block_groups.put(next)
+      },
+      online: async () => {
+        const { data, error } = await supabase
+          .from('block_groups')
+          .update(blockGroupToRow({ ...changes, updatedAt: next.updatedAt }))
+          .eq('id', id)
+          .select()
+          .single()
+        throwIfClientError(error)
+        return blockGroupFromRow(data as BlockGroupRow)
+      },
+    })
+  },
+
+  async delete(id: string): Promise<void> {
+    if (!isOnline()) {
+      markOffline()
+      await db.block_groups.delete(id)
+      await enqueueOutbox('delete', TABLES.blockGroups, { id })
+      return
+    }
+    try {
+      const { error } = await supabase.from('block_groups').delete().eq('id', id)
+      throwIfClientError(error)
+      await db.block_groups.delete(id)
+      markSyncedNow()
+    } catch (e) {
+      if (isClientError(e)) throw e
+      markOffline()
+      await db.block_groups.delete(id)
+      await enqueueOutbox('delete', TABLES.blockGroups, { id })
+    }
+  },
+}
+
 // ---------- shared write engine ----------
 
 async function writeRow<T>(args: {
@@ -1595,6 +1741,9 @@ async function applyServerEcho(table: TableName, row: unknown): Promise<void> {
       return
     case TABLES.trackedSessions:
       await db.tracked_sessions.put(row as TrackedSession)
+      return
+    case TABLES.blockGroups:
+      await db.block_groups.put(row as BlockGroup)
       return
   }
 }
@@ -1784,5 +1933,6 @@ export const repo = {
   notes: notesRepo,
   todayMarks: todayMarksRepo,
   trackedSessions: trackedSessionsRepo,
+  blockGroups: blockGroupsRepo,
   routing: routingRepo,
 }

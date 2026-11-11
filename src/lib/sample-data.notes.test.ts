@@ -66,6 +66,12 @@ const { calls, repoMock } = vi.hoisted(() => {
         calls.push(`trackedSessions.delete:${id}`)
       },
     },
+    blockGroups: {
+      listAll: async () => [{ id: 'bg-1' }],
+      delete: async (id: string) => {
+        calls.push(`blockGroups.delete:${id}`)
+      },
+    },
     _tasks: tasks,
     _notes: notes,
   }
@@ -129,5 +135,7 @@ describe('sample data — notes (chunk 58)', () => {
     const session = calls.indexOf('trackedSessions.delete:ts-1')
     expect(session).toBeGreaterThan(lastNote)
     expect(session).toBeLessThan(firstTask)
+    // Every block group goes too (chunk 99, D10).
+    expect(calls).toContain('blockGroups.delete:bg-1')
   })
 })

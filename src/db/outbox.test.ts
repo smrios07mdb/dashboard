@@ -918,8 +918,8 @@ describe('Dexie v4 (chunk 37)', () => {
     await Dexie.delete(NAME)
   })
 
-  it('the real DashboardCacheDB is at v8 with scheduled_blocks (v8 = tracked_sessions, chunk 98)', () => {
-    expect(db.verno).toBe(8)
+  it('the real DashboardCacheDB is at v9 with scheduled_blocks (v9 = block_groups, chunk 99)', () => {
+    expect(db.verno).toBe(9) // v9 = block_groups (chunk 99)
     expect(db.tables.map((t) => t.name)).toContain('scheduled_blocks')
   })
 })
