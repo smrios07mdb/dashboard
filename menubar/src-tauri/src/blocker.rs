@@ -11,8 +11,9 @@
 //! alone until they become the active tab; nothing is closed.
 //!
 //! The AppleScript comes only from the fixed templates below; the one
-//! variable in their text is the application name from the fixed browser
-//! table. A window id and the URLs travel as `osascript` arguments after the
+//! variable in their text is the bundle id from the fixed browser table
+//! (by bundle id, not by name: by name, `application "Microsoft Edge"`
+//! resolved to Microsoft Teams' WebView helper on a Mac with Teams). A window id and the URLs travel as `osascript` arguments after the
 //! script, never inside its text. A URL read from a browser stays in this
 //! file, in memory: it is never in the state JSON, an event, a log line or a
 //! file.
@@ -20,8 +21,9 @@
 //! Nothing active (the usual case) means no `osascript` at all: the thread
 //! waits on its condvar until a change, or until the next scheduled start
 //! (capped at 30 s, so a start after sleep is at most 30 s late). Active, it
-//! reads every 2 s; a browser that answered `denied`, `timeout` or `error`
-//! is tried again after 30 s.
+//! reads every 2 s; a browser that answered `not_running` is tried again
+//! after 10 s (so a browser opened during a block is caught within 10 s),
+//! and one that answered `denied`, `timeout` or `error` after 30 s.
 //!
 //! The `Blocker` lock is a leaf: never taken under the pomodoro, meditation
 //! or sessions lock, and never held across an `osascript` run or an emit.
@@ -48,6 +50,9 @@ const SEP: char = '\u{1f}';
 
 pub const ACTIVE_WAIT: Duration = Duration::from_secs(2);
 pub const RETRY_MS: u64 = 30_000;
+/// A browser that answered "not running" is read again after this, not on
+/// every pass: a browser opened during a block is caught within 10 s.
+pub const NOT_RUNNING_MS: u64 = 10_000;
 pub const IDLE_CAP: Duration = Duration::from_secs(30);
 
 const DAY_MS: u64 = 24 * 60 * 60 * 1000;
@@ -256,8 +261,12 @@ pub enum Dialect {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Browser {
-    /// The application name, the only variable in a script's text.
+    /// The application name, for display only (Settings › Blocking).
     pub name: &'static str,
+    /// What every script addresses: the only variable in a script's text.
+    /// By name, `application "Microsoft Edge"` resolved to Microsoft Teams'
+    /// WebView helper on a Mac with Teams (chunk 99 gate).
+    pub bundle_id: &'static str,
     pub app_file: &'static str,
     pub dialect: Dialect,
 }
@@ -266,21 +275,25 @@ pub struct Browser {
 pub const BROWSERS: [Browser; 4] = [
     Browser {
         name: "Google Chrome",
+        bundle_id: "com.google.Chrome",
         app_file: "Google Chrome.app",
         dialect: Dialect::Chromium,
     },
     Browser {
         name: "Safari",
+        bundle_id: "com.apple.Safari",
         app_file: "Safari.app",
         dialect: Dialect::Safari,
     },
     Browser {
         name: "Brave Browser",
+        bundle_id: "com.brave.Browser",
         app_file: "Brave Browser.app",
         dialect: Dialect::Chromium,
     },
     Browser {
         name: "Microsoft Edge",
+        bundle_id: "com.microsoft.edgemac",
         app_file: "Microsoft Edge.app",
         dialect: Dialect::Chromium,
     },
@@ -301,10 +314,10 @@ fn tab_ref(d: Dialect) -> &'static str {
 /// window, an empty tab) does not lose the others.
 pub fn read_script(b: &Browser) -> String {
     format!(
-        r#"if application "{name}" is running then
+        r#"if application id "{id}" is running then
 set sep to character id 31
 set out to ""
-tell application "{name}"
+tell application id "{id}"
 repeat with w in windows
 try
 set out to out & ((id of w) as text) & sep & (URL of {tab} of w) & linefeed
@@ -313,7 +326,7 @@ end repeat
 end tell
 return out & "ok"
 end if"#,
-        name = b.name,
+        id = b.bundle_id,
         tab = tab_ref(b.dialect)
     )
 }
@@ -327,8 +340,8 @@ pub fn write_script(b: &Browser) -> String {
 set wid to (item 1 of argv) as integer
 set seen to item 2 of argv
 set target to item 3 of argv
-if application "{name}" is running then
-tell application "{name}"
+if application id "{id}" is running then
+tell application id "{id}"
 set w to window id wid
 considering case
 if (URL of {tab} of w) is equal to seen then
@@ -338,7 +351,7 @@ end considering
 end tell
 end if
 end run"#,
-        name = b.name,
+        id = b.bundle_id,
         tab = tab_ref(b.dialect)
     )
 }
@@ -356,7 +369,7 @@ pub fn parse_tabs(stdout: &str) -> Vec<(i64, String)> {
 }
 
 /// Whether `<app_file>` is in one of these folders. Checked before any
-/// script that names a browser: compiling `tell application "X"` without it
+/// script that names a browser: compiling `tell application id "X"` without it
 /// opens a "Where is X?" dialog (the Spotify rule).
 pub fn installed(folders: &[PathBuf], app_file: &str) -> bool {
     folders.iter().any(|f| f.join(app_file).exists())
@@ -442,7 +455,8 @@ pub type ScriptRun<'a> = dyn FnMut(&str, &[String]) -> Run + 'a;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Track {
     pub statuses: [Status; 4],
-    /// Epoch ms before which a backed-off browser is not read.
+    /// Epoch ms before which a browser is not read (not running: 10 s;
+    /// backed off: 30 s).
     pub retry_at: [u64; 4],
 }
 
@@ -465,7 +479,11 @@ fn read_one(b: &Browser, i: usize, now: u64, track: &mut Track, run: &mut Script
         Run::Timeout => (Status::Timeout, Vec::new()),
     };
     track.statuses[i] = status;
-    track.retry_at[i] = if status.backs_off() { now + RETRY_MS } else { 0 };
+    track.retry_at[i] = match status {
+        s if s.backs_off() => now + RETRY_MS,
+        Status::NotRunning => now + NOT_RUNNING_MS,
+        _ => 0,
+    };
     tabs
 }
 
@@ -918,10 +936,10 @@ mod tests {
     fn read_script_golden_chrome() {
         assert_eq!(
             read_script(&BROWSERS[0]),
-            "if application \"Google Chrome\" is running then\n\
+            "if application id \"com.google.Chrome\" is running then\n\
 set sep to character id 31\n\
 set out to \"\"\n\
-tell application \"Google Chrome\"\n\
+tell application id \"com.google.Chrome\"\n\
 repeat with w in windows\n\
 try\n\
 set out to out & ((id of w) as text) & sep & (URL of active tab of w) & linefeed\n\
@@ -936,10 +954,36 @@ end if"
     #[test]
     fn read_script_golden_safari() {
         let s = read_script(&BROWSERS[1]);
-        assert!(s.starts_with("if application \"Safari\" is running then\n"));
-        assert!(s.contains("tell application \"Safari\"\n"));
+        assert!(s.starts_with("if application id \"com.apple.Safari\" is running then\n"));
+        assert!(s.contains("tell application id \"com.apple.Safari\"\n"));
         assert!(s.contains("(URL of current tab of w)"));
         assert!(!s.contains("active tab"));
+    }
+
+    // Chunk 99 gate: by name, `application "Microsoft Edge"` resolved to
+    // Microsoft Teams' WebView helper on a Mac with Teams. By bundle id, never.
+    #[test]
+    fn read_script_golden_edge() {
+        let s = read_script(&BROWSERS[3]);
+        assert!(s.starts_with("if application id \"com.microsoft.edgemac\" is running then\n"));
+        assert!(s.contains("tell application id \"com.microsoft.edgemac\"\n"));
+        assert!(s.contains("(URL of active tab of w)"));
+        assert!(!s.contains("Microsoft Edge"));
+        let w = write_script(&BROWSERS[3]);
+        assert!(w.contains("if application id \"com.microsoft.edgemac\" is running then\n"));
+        assert!(w.contains("tell application id \"com.microsoft.edgemac\"\n"));
+        assert!(!w.contains("Microsoft Edge"));
+    }
+
+    #[test]
+    fn browsers_carry_their_bundle_ids() {
+        let ids: Vec<&str> = BROWSERS.iter().map(|b| b.bundle_id).collect();
+        assert_eq!(ids, ["com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "com.microsoft.edgemac"]);
+        // The name is for display only: no script holds it.
+        for b in &BROWSERS {
+            assert!(!read_script(b).contains(&format!("\"{}\"", b.name)));
+            assert!(!write_script(b).contains(&format!("\"{}\"", b.name)));
+        }
     }
 
     #[test]
@@ -950,8 +994,8 @@ end if"
 set wid to (item 1 of argv) as integer\n\
 set seen to item 2 of argv\n\
 set target to item 3 of argv\n\
-if application \"Google Chrome\" is running then\n\
-tell application \"Google Chrome\"\n\
+if application id \"com.google.Chrome\" is running then\n\
+tell application id \"com.google.Chrome\"\n\
 set w to window id wid\n\
 considering case\n\
 if (URL of active tab of w) is equal to seen then\n\
@@ -963,7 +1007,7 @@ end if\n\
 end run"
         );
         let safari = write_script(&BROWSERS[1]);
-        assert!(safari.contains("tell application \"Safari\"\n"));
+        assert!(safari.contains("tell application id \"com.apple.Safari\"\n"));
         assert!(safari.contains("if (URL of current tab of w) is equal to seen then\n"));
         assert!(safari.contains("set URL of current tab of w to target\n"));
     }
@@ -1211,21 +1255,47 @@ end run"
     }
 
     #[test]
-    fn timeout_and_error_back_off_and_not_running_does_not() {
+    fn retry_cadence_per_status() {
+        // ok: next pass (2 s). not running: 10 s. timeout / error: 30 s.
         let c = cfg(vec![group(&["x.com"], true, &[])]);
-        for (reply, status, backs) in [
-            (Run::Timeout, Status::Timeout, true),
-            (Run::Failed("boom".into()), Status::Error, true),
-            (Run::Failed("Application isn't running. (-600)".into()), Status::NotRunning, false),
-            (Run::Ok("\n".into()), Status::NotRunning, false),
+        for (reply, status, retry) in [
+            (Run::Ok("ok\n".into()), Status::Ok, 0),
+            (Run::Timeout, Status::Timeout, NOW + 30_000),
+            (Run::Failed("boom".into()), Status::Error, NOW + 30_000),
+            (Run::Failed("Application isn't running. (-600)".into()), Status::NotRunning, NOW + 10_000),
+            (Run::Ok("\n".into()), Status::NotRunning, NOW + 10_000),
         ] {
             let mut calls = Calls::new();
             let mut track = Track::default();
             let r = reply.clone();
             pass(&c, true, NOW, CHROME_ONLY, &mut track, &mut runner(&mut calls, move |_| r.clone()));
             assert_eq!(track.statuses[0], status);
-            assert_eq!(track.retry_at[0] > 0, backs, "{status:?}");
+            assert_eq!(track.retry_at[0], retry, "{status:?}");
         }
+    }
+
+    #[test]
+    fn not_running_is_tried_again_after_10_s() {
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        let c = cfg(vec![group(&["x.com"], true, &[])]);
+        let closed = |_: &str| Run::Ok(String::new());
+        pass(&c, true, NOW, CHROME_ONLY, &mut track, &mut runner(&mut calls, closed));
+        assert_eq!(track.statuses[0], Status::NotRunning);
+        assert_eq!(calls.len(), 1);
+        // 2 s and 9.999 s later: not tried.
+        pass(&c, true, NOW + 2_000, CHROME_ONLY, &mut track, &mut runner(&mut calls, closed));
+        pass(&c, true, NOW + 9_999, CHROME_ONLY, &mut track, &mut runner(&mut calls, closed));
+        assert_eq!(calls.len(), 1);
+        // 10 s later: tried again.
+        pass(&c, true, NOW + 10_000, CHROME_ONLY, &mut track, &mut runner(&mut calls, closed));
+        assert_eq!(calls.len(), 2);
+        // A running browser is read on every pass.
+        let mut calls = Calls::new();
+        let mut track = Track::default();
+        pass(&c, true, NOW, CHROME_ONLY, &mut track, &mut runner(&mut calls, |_| Run::Ok("ok\n".into())));
+        pass(&c, true, NOW + 2_000, CHROME_ONLY, &mut track, &mut runner(&mut calls, |_| Run::Ok("ok\n".into())));
+        assert_eq!(calls.len(), 2);
     }
 
     #[test]
