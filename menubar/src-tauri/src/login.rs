@@ -3,7 +3,8 @@
 //! No crate, no plugin, no `launchctl`, no AppleScript. On writes
 //! `~/Library/LaunchAgents/net.mdblabs.hupomnemata.menubar.plist`, which
 //! macOS reads at the next login and runs `/usr/bin/open -a <this bundle>`;
-//! off removes it. That file is the only one the shell ever writes.
+//! off removes it. The shell writes one other file, the saved-sessions
+//! ledger (`sessions.rs`, chunk 98).
 //!
 //! The top half is pure and tested: finding the bundle from the binary's
 //! path, the plist text, reading the bundle path back, and the state JSON.

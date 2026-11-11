@@ -363,12 +363,19 @@ export default function App() {
     }
   }, [loading, userId, pomodoro, meditation, sessions])
 
-  // Quit and Sign out write what is waiting first, and give up after 3 s.
+  // Quit and Sign out first stop the focus and end the breathing, so a
+  // session still running reaches the ledger (60 s or more, as always), then
+  // write what is waiting, giving up after 3 s (chunk 98 gate).
+  async function stopRunning() {
+    await Promise.allSettled([pomodoro.signedOut(), meditation.signedOut()])
+  }
   async function quit() {
+    await stopRunning()
     await sessions?.drainWithin(DRAIN_MS)
     quitApp()
   }
   async function signOut() {
+    await stopRunning()
     await sessions?.drainWithin(DRAIN_MS)
     await signOutUser()
   }

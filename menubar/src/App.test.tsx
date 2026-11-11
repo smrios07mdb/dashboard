@@ -534,6 +534,46 @@ describe('menubar App — saved sessions (chunk 98)', () => {
     expect(h.signOutUser).toHaveBeenCalledTimes(1)
   })
 
+  // Chunk 98 gate (F1): a session still running at Quit or Sign out is
+  // stopped / ended first, so the shell puts it in the ledger, and the drain
+  // that follows writes it.
+  function lastCall(f: ReturnType<typeof vi.fn>) {
+    const order = f.mock.invocationCallOrder
+    return order[order.length - 1]
+  }
+
+  it('Quit stops the focus and ends the breathing first, then drains, then quits', async () => {
+    await signedIn()
+    expect(h.native.pomodoroStop).not.toHaveBeenCalled()
+    const before = h.native.sessionsPending.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quit' }))
+    await waitFor(() => expect(h.native.quitApp).toHaveBeenCalledTimes(1))
+    expect(h.native.pomodoroStop).toHaveBeenCalledTimes(1)
+    expect(h.native.meditationEnd).toHaveBeenCalledTimes(1)
+    expect(h.native.sessionsPending.mock.calls.length).toBe(before + 1)
+    const drained = lastCall(h.native.sessionsPending)
+    expect(lastCall(h.native.pomodoroStop)).toBeLessThan(drained)
+    expect(lastCall(h.native.meditationEnd)).toBeLessThan(drained)
+    expect(drained).toBeLessThan(lastCall(h.native.quitApp))
+  })
+
+  it('Sign out stops the focus and ends the breathing first, then drains, then signs out', async () => {
+    await signedIn()
+    expect(h.native.pomodoroStop).not.toHaveBeenCalled()
+    const before = h.native.sessionsPending.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(h.signOutUser).toHaveBeenCalledTimes(1))
+    expect(h.native.pomodoroStop).toHaveBeenCalledTimes(1)
+    expect(h.native.meditationEnd).toHaveBeenCalledTimes(1)
+    expect(h.native.sessionsPending.mock.calls.length).toBe(before + 1)
+    const drained = lastCall(h.native.sessionsPending)
+    expect(lastCall(h.native.pomodoroStop)).toBeLessThan(drained)
+    expect(lastCall(h.native.meditationEnd)).toBeLessThan(drained)
+    expect(drained).toBeLessThan(lastCall(h.signOutUser))
+  })
+
   it('signed out: the ledger is cleared after the stop and the end', async () => {
     const { rerender } = await signedIn()
     expect(h.native.sessionsClear).not.toHaveBeenCalled()
