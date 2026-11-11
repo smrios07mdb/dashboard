@@ -2413,4 +2413,26 @@ end if"
         // Never a URL or a domain.
         assert!(!json.contains("x.com"));
     }
+
+    // Chunk 100 gate, #18: an idle pass forgets the previous read, so the
+    // first read after it adds nothing.
+    #[test]
+    fn an_idle_pass_forgets_the_previous_read() {
+        let c = day_cfg(vec![limited("a", &["x.com"], 30)]);
+        let off = Config { enabled: false, ..c.clone() };
+        let (mut track, mut allow, mut calls) = (Track::default(), Allowance::default(), Calls::new());
+        step(&c, false, NOW, &mut track, &mut allow, &mut calls, FRONT_X);
+        step(&c, false, NOW + 5 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 5 * SEC);
+        // Nothing to block or count: no read, and the last one is forgotten.
+        let reads = calls.len();
+        step(&off, false, NOW + 6 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(calls.len(), reads);
+        assert_eq!(allow.last_pass, None);
+        // Counting again: the first read adds nothing, the next its own 5 s.
+        step(&c, false, NOW + 8 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 5 * SEC);
+        step(&c, false, NOW + 13 * SEC, &mut track, &mut allow, &mut calls, FRONT_X);
+        assert_eq!(allow.usage.used_ms(DAY0, "a"), 10 * SEC);
+    }
 }
