@@ -85,12 +85,21 @@ describe('buildTodayView — membership', () => {
     expect(v.rows.map((r) => r.id)).toEqual(['p1b'])
   })
 
-  it('ignores marks dated yesterday, pin and remove alike', () => {
+  it('keeps a pin made yesterday, but not a removal (chunk 101)', () => {
     const v = view(
       [task({ id: 'p1', priority: 1 }), task({ id: 'plain' })],
       [mark('plain', 'pin', YESTERDAY), mark('p1', 'remove', YESTERDAY)],
     )
-    expect(v.rows.map((r) => r.id)).toEqual(['p1'])
+    expect(v.rows.map((r) => r.id).sort()).toEqual(['p1', 'plain'])
+  })
+
+  it('drops a yesterday pin whose task was completed yesterday (chunk 101)', () => {
+    // 22:00 on Nov 9 in New York — already Nov 10 in UTC and Tokyo.
+    const v = view(
+      [task({ id: 'plain', completedAt: '2026-11-10T03:00:00.000Z' })],
+      [mark('plain', 'pin', YESTERDAY)],
+    )
+    expect(v.rows).toEqual([])
   })
 
   it('dates marks in the Settings zone, not UTC', () => {

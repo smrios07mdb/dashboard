@@ -12,10 +12,10 @@ import { useTodayPlan } from './todayPlan'
  * Chunk 43 (F1) made Today membership persistent; chunk 64 moved it from a
  * per-device localStorage entry (`hup:todayPlan`) to the synced `today_marks`
  * table. Only manual pins/removals are stored — resolved membership is always
- * re-derived from `autoTodayIds(tasks)` with today's marks layered on top, so
- * auto signals keep flowing as tasks change and yesterday's plan never
- * resurfaces. The hook is handed the marks and a writer; these tests drive
- * both.
+ * re-derived from `autoTodayIds(tasks)` with the marks layered on top, so
+ * auto signals keep flowing as tasks change. Since chunk 101 a pin stands
+ * until its task is completed (D1/D2); a removal holds for its own day only
+ * (D3). The hook is handed the marks and a writer; these tests drive both.
  */
 
 const STORAGE_KEY = 'hup:todayPlan'
@@ -116,16 +116,16 @@ describe('useTodayPlan persistence (chunk 43, F1; marks since chunk 64)', () => 
     expect(second.result.current.todaySet.has('p')).toBe(false)
   })
 
-  it('ignores a mark dated before today', () => {
+  it('keeps a pin from an earlier day; an earlier removal does not stick (chunk 101)', () => {
     const tasks = [task({ id: 'a' }), task({ id: 'p', priority: 1 })]
     const { result } = renderPlan(tasks, [
       mark('a', 'pin', { day: '2020-01-01' }),
       mark('p', 'remove', { day: '2020-01-01' }),
     ])
-    // Yesterday's pin does not resurface; yesterday's removal does not stick.
-    expect(result.current.todaySet.has('a')).toBe(false)
+    // The old pin still stands on an open task (D1); the old removal is over (D3).
+    expect(result.current.todaySet.has('a')).toBe(true)
     expect(result.current.todaySet.has('p')).toBe(true)
-    // …and nothing is written to tidy them up.
+    // …and nothing is written either way.
     expect(writeMark).not.toHaveBeenCalled()
   })
 
@@ -179,6 +179,61 @@ describe('useTodayPlan persistence (chunk 43, F1; marks since chunk 64)', () => 
     rerender({ tasks: [task({ id: 'a' })], marks })
     expect(result.current.todaySet.has('a')).toBe(true)
     expect(writeMark).not.toHaveBeenCalled()
+  })
+})
+
+describe('useTodayPlan standing pins and completion (chunk 101)', () => {
+  const OLD = '2020-01-01'
+  const LONG_AGO = '2020-01-02T12:00:00.000Z'
+
+  it('a pin from an earlier day on a task completed on an earlier day is not a member', () => {
+    const tasks = [task({ id: 'a', completedAt: LONG_AGO })]
+    const { result } = renderPlan(tasks, [mark('a', 'pin', { day: OLD })])
+    expect(result.current.todaySet.has('a')).toBe(false)
+    expect(writeMark).not.toHaveBeenCalled()
+  })
+
+  it('a pin from an earlier day on a task completed today lingers', () => {
+    const tasks = [task({ id: 'a', completedAt: new Date().toISOString() })]
+    const { result } = renderPlan(tasks, [mark('a', 'pin', { day: OLD })])
+    expect(result.current.todaySet.has('a')).toBe(true)
+  })
+
+  it('un-completing a task whose pin is still stored puts it back on Today', () => {
+    const marks = [mark('a', 'pin', { day: OLD })]
+    const done = [task({ id: 'a', completedAt: LONG_AGO }), task({ id: 'b' })]
+    const { result, rerender } = renderPlan(done, marks)
+    expect(result.current.todaySet.has('a')).toBe(false)
+
+    rerender({ tasks: [task({ id: 'a' }), task({ id: 'b' })], marks })
+    expect(result.current.todaySet.has('a')).toBe(true)
+    expect(writeMark).not.toHaveBeenCalled()
+  })
+
+  it('a pin dated in the future (clock skew) does not apply before its day', () => {
+    const tasks = [task({ id: 'a' })]
+    const { result } = renderPlan(tasks, [mark('a', 'pin', { day: '2999-01-01' })])
+    expect(result.current.todaySet.has('a')).toBe(false)
+  })
+})
+
+describe('useTodayPlan completion boundary in the Settings zone (chunk 101)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('drops a pinned task completed 23:30 New York the day before, just after midnight New York', () => {
+    // 00:10 Oct 14 in New York; completed 23:30 Oct 13 in New York
+    // (already Oct 14 in UTC and Tokyo — the device zone must not decide).
+    vi.setSystemTime(new Date('2026-10-14T04:10:00.000Z'))
+    const tasks = [task({ id: 'a', completedAt: '2026-10-14T03:30:00.000Z' })]
+    const marks = [mark('a', 'pin', { day: '2026-10-12' })]
+    const { result } = renderPlan(tasks, marks, 'America/New_York')
+    expect(result.current.todaySet.has('a')).toBe(false)
   })
 })
 
@@ -312,7 +367,7 @@ describe('useTodayPlan day rollover with the tab open (chunk 44)', () => {
     vi.useRealTimers()
   })
 
-  it('a toggle after local midnight drops yesterday’s marks and stamps the new day', () => {
+  it('a toggle after local midnight keeps yesterday’s pin and stamps the new day', () => {
     vi.setSystemTime(new Date(2026, 7, 31, 22, 0, 0))
     const tasks = [task({ id: 'a' }), task({ id: 'b' })]
     const { result, rerender } = renderPlan(tasks)
@@ -332,7 +387,27 @@ describe('useTodayPlan day rollover with the tab open (chunk 44)', () => {
     expect(writeMark).toHaveBeenCalledTimes(2)
     expect(writeMark).toHaveBeenLastCalledWith('b', 'pin', '2026-09-01')
     expect(result.current.todaySet.has('b')).toBe(true)
-    expect(result.current.todaySet.has('a')).toBe(false)
+    // Yesterday's pin stands on the new day (chunk 101, D1/D8).
+    expect(result.current.todaySet.has('a')).toBe(true)
+  })
+
+  it('the rollover re-seed keeps a standing pin, drops yesterday’s removal, writes nothing (chunk 101, D8)', () => {
+    vi.setSystemTime(new Date(2026, 7, 31, 22, 0, 0))
+    const tasks = [task({ id: 'a' }), task({ id: 'p', priority: 1 })]
+    const marks = [
+      mark('a', 'pin', { day: '2026-08-31' }),
+      mark('p', 'remove', { day: '2026-08-31' }),
+    ]
+    const { result, rerender } = renderPlan(tasks, marks)
+    expect(result.current.todaySet.has('a')).toBe(true)
+    expect(result.current.todaySet.has('p')).toBe(false)
+
+    // Past midnight, a task refresh (same marks) observes the roll.
+    vi.setSystemTime(new Date(2026, 8, 1, 0, 5, 0))
+    rerender({ tasks: [...tasks], marks: [...marks] })
+    expect(result.current.todaySet.has('a')).toBe(true)
+    expect(result.current.todaySet.has('p')).toBe(true)
+    expect(writeMark).not.toHaveBeenCalled()
   })
 
   it('a same-day clock advance keeps the marks apart from the toggle', () => {
@@ -381,14 +456,26 @@ describe('useTodayPlan in the Settings time zone (chunk 66)', () => {
     expect(writeMark).toHaveBeenLastCalledWith('a', 'pin', '2026-10-14')
   })
 
-  it('counts only marks dated today in the Settings zone', () => {
+  it('applies a pin from its own day in the Settings zone on (chunk 101)', () => {
     const tasks = [task({ id: 'a' })]
-    const marks = [mark('a', 'pin', { day: '2026-10-13' })]
+    // Dated Oct 14: still tomorrow in New York, already today in UTC.
+    const marks = [mark('a', 'pin', { day: '2026-10-14' })]
     expect(
       renderPlan(tasks, marks, 'America/New_York').result.current.todaySet.has('a'),
-    ).toBe(true)
+    ).toBe(false)
     expect(renderPlan(tasks, marks, 'UTC').result.current.todaySet.has('a')).toBe(
-      false,
+      true,
+    )
+  })
+
+  it('counts a removal only on its own day in the Settings zone', () => {
+    const tasks = [task({ id: 'p', priority: 1 })]
+    const marks = [mark('p', 'remove', { day: '2026-10-13' })]
+    expect(
+      renderPlan(tasks, marks, 'America/New_York').result.current.todaySet.has('p'),
+    ).toBe(false)
+    expect(renderPlan(tasks, marks, 'UTC').result.current.todaySet.has('p')).toBe(
+      true,
     )
   })
 

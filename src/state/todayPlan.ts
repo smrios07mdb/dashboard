@@ -5,11 +5,13 @@
  * user's manual deltas — pins and removals — and mutated by the sun toggle
  * (on both the Today rows and the main-list rows — one shared set). Since
  * chunk 64 the deltas are server-synced through `today_marks` (migration 20):
- * one row per task, keyed by the task's id, carrying the local calendar day
- * it was made for and the intent (`pin` / `remove`). The hook is handed the
- * user's marks and a writer; it keeps the ones dated today and ignores the
- * rest, so yesterday's plan never resurfaces and nothing has to be cleaned
- * up. Only the deltas are stored, never the resolved set, so auto signals
+ * one row per task, keyed by the task's id, carrying the calendar day it was
+ * made on and the intent (`pin` / `remove`). The hook is handed the user's
+ * marks and a writer. Since chunk 101 a pin stands from its day on until its
+ * task is completed (a task completed today still lingers) or the user takes
+ * it off; a removal holds for its own day only, so an auto member removed
+ * today comes back tomorrow. Nothing is cleaned up — the next toggle of a
+ * task overwrites its one row. Only the deltas are stored, never the resolved set, so auto signals
  * keep flowing as tasks change. The day frame is the calendar day in the
  * user's Settings time zone (`timeZone`, chunk 66) — the same frame
  * `lib/today` derives from — so `today_marks.day` is stamped in that zone.
@@ -125,10 +127,16 @@ export function applyTodayDeltas(
 }
 
 /**
- * Today's deltas: the marks dated `day` whose task is in `tasks`, with this
- * session's own toggles layered in. Where a task has both, the later
- * observation decides — compared as instants, never as strings (an optimistic
- * `…000Z` and PostgREST's `…+00:00` name the same moment; chunk 48 D13).
+ * The deltas in force on `day` (in `timeZone`) for the tasks in `tasks`
+ * (chunk 101):
+ *   - a `pin` counts from the day it was made on (`m.day <= day`; a pin
+ *     dated later — clock skew — waits for its day) for as long as its task
+ *     is open, or was completed on `day` itself (it lingers, struck);
+ *   - a `remove` counts only on the day it is dated.
+ * This session's own toggles are layered in; where a task has both, the
+ * later observation decides — compared as instants, never as strings (an
+ * optimistic `…000Z` and PostgREST's `…+00:00` name the same moment; chunk
+ * 48 D13). A local pin follows the same completion rule as a stored one.
  * Empty until both marks and tasks have loaded. Exported for the menu bar
  * companion (chunk 91), which resolves the same deltas with no local toggles.
  */
@@ -137,25 +145,34 @@ export function resolveTodayDeltas(
   tasks: Task[],
   day: string,
   localWrites: Map<string, LocalWrite>,
+  timeZone: string,
 ): TodayDeltas {
   const deltas = emptyDeltas()
   if (marks === null || tasks.length === 0) return deltas
-  const ids = new Set(tasks.map((t) => t.id))
+  const byId = new Map(tasks.map((t) => [t.id, t]))
   const kinds = new Map<string, MarkKind>()
   const markAt = new Map<string, number>()
   for (const m of marks) {
-    if (m.day !== day || !ids.has(m.id)) continue
+    if (!byId.has(m.id)) continue
+    const inForce = m.kind === 'pin' ? m.day <= day : m.day === day
+    if (!inForce) continue
     kinds.set(m.id, m.kind)
     markAt.set(m.id, Date.parse(m.updatedAt))
   }
   for (const [id, w] of localWrites) {
-    if (!ids.has(id)) continue
+    if (!byId.has(id)) continue
     const at = markAt.get(id)
     if (at === undefined || !(at >= Date.parse(w.at))) kinds.set(id, w.kind)
   }
   for (const [id, kind] of kinds) {
-    if (kind === 'pin') deltas.pinned.add(id)
-    else deltas.removed.add(id)
+    if (kind === 'remove') {
+      deltas.removed.add(id)
+      continue
+    }
+    // Completion ends a pin; completed today, it still lingers (D2).
+    const completedAt = byId.get(id)?.completedAt
+    if (completedAt && dateKeyIn(completedAt, timeZone) !== day) continue
+    deltas.pinned.add(id)
   }
   return deltas
 }
@@ -172,12 +189,12 @@ export function useTodayPlan(
   timeZone: string,
 ): TodayPlan {
   // `day` is the day (in `timeZone`) the plan is being resolved for. Every write stamps
-  // THIS key, not the wall clock, and only marks carrying it count — so a tab
-  // open across midnight keeps one consistent frame until `rollIfNewDay`
+  // THIS key, not the wall clock, and marks are resolved against it — so a
+  // tab open across midnight keeps one consistent frame until `rollIfNewDay`
   // observes the change.
   const [initial] = useState(() => {
     const day = dateKeyIn(new Date(), timeZone)
-    const deltas = resolveTodayDeltas(marks, tasks, day, new Map())
+    const deltas = resolveTodayDeltas(marks, tasks, day, new Map(), timeZone)
     return { day, deltas, signature: deltasSignature(deltas) }
   })
   const dayRef = useRef(initial.day)
@@ -229,10 +246,10 @@ export function useTodayPlan(
 
   // Day rollover, observed lazily on the next interaction or task refresh —
   // deliberately no timer/interval/visibility listener (the app has no
-  // day-tick). When the day (in the Settings zone) has changed, yesterday's plan is over:
-  // its marks no longer match `dayRef` and this session's toggles are
-  // dropped. Nothing is written — a stale mark is overwritten by the next
-  // toggle of its task.
+  // day-tick). When the day (in the Settings zone) has changed, membership is
+  // re-seeded from the marks against the new `dayRef`: standing pins carry
+  // over (chunk 101), yesterday's removals stop applying, and this session's
+  // toggles are dropped (their writes are already marks). Nothing is written.
   const rollIfNewDay = useCallback((now: Date): boolean => {
     const key = dateKeyIn(now, timeZoneRef.current)
     if (key === dayRef.current) return false
@@ -289,14 +306,21 @@ export function useTodayPlan(
       }
     }
 
-    const deltas = resolveTodayDeltas(marks, tasks, day, localWritesRef.current)
+    const deltas = resolveTodayDeltas(
+      marks,
+      tasks,
+      day,
+      localWritesRef.current,
+      timeZone,
+    )
     const signature = deltasSignature(deltas)
     const deltasChanged = signature !== signatureRef.current
     if (!changed && !rolled && !rezoned && !deltasChanged) return
     idsRef.current = new Set(curIds)
     signatureRef.current = signature
     // After a roll the previous membership is yesterday's resolved set —
-    // re-seed from the auto signals rather than layering the deltas over it.
+    // re-seed from the auto signals and the marks in force today rather than
+    // layering the deltas over it.
     setMembership((cur) => {
       if (rolled || rezoned) {
         return applyTodayDeltas(autoTodayIds(tasks, timeZone), deltas)
@@ -319,6 +343,7 @@ export function useTodayPlan(
               tasksRef.current,
               dayRef.current,
               localWritesRef.current,
+              timeZoneRef.current,
             ),
           )
         : membershipRef.current

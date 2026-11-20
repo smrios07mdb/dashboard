@@ -3,8 +3,9 @@
  *
  * Pure. Every rule here is the app's own, imported, never re-implemented:
  *   - live lists / live tasks: the Dashboard's filter (archived lists out);
- *   - membership `(auto ∪ pins) − removes`, marks dated today in the Settings
- *     zone: `autoTodayIds`, `resolveTodayDeltas`, `applyTodayDeltas`;
+ *   - membership `(auto ∪ pins) − removes` — standing pins until completion,
+ *     removals dated today, days in the Settings zone (chunk 101):
+ *     `autoTodayIds`, `resolveTodayDeltas`, `applyTodayDeltas`;
  *   - row order and the done-sinks-last rule: `resolveToday`;
  *   - the when-chip: `lib/whenLabel`, a due date winning over a reminder and
  *     none on a completed row (the TaskRow rule).
@@ -81,7 +82,7 @@ export function buildTodayView(
   const tasks = input.tasks.filter((t) => liveSubIds.has(t.subcategoryId))
 
   const day = dateKeyIn(now, timeZone)
-  const deltas = resolveTodayDeltas(input.marks, tasks, day, new Map())
+  const deltas = resolveTodayDeltas(input.marks, tasks, day, new Map(), timeZone)
   const membership = applyTodayDeltas(autoTodayIds(tasks, timeZone, now), deltas)
   for (const id of input.keep ?? []) {
     if (!deltas.removed.has(id)) membership.add(id)
